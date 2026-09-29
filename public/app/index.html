@@ -1,0 +1,1021 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CuraQ | Free AI Study Workspace for Med Students</title>
+    <meta name="description" content="The best free alternative to RemNote. An intelligent, AI-powered study workspace tailored for med students. Upload PDFs, generate flashcards, and master medical concepts for free.">
+    <!-- JSON-LD Structured Data -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "WebApplication",
+      "name": "CuraQ",
+      "url": "https://omnote.online/app/",
+      "applicationCategory": "EducationalApplication",
+      "operatingSystem": "All",
+      "description": "Free AI-powered study workspace and best alternative to RemNote. Upload PDFs, generate flashcards, and study smarter.",
+      "offers": {
+        "@type": "Offer",
+        "price": "0",
+        "priceCurrency": "USD"
+      }
+    }
+    </script>
+   <script src="https://unpkg.com/vis-network@9.1.9/standalone/umd/vis-network.min.js" integrity="sha384-yxKDWWf0wwdUj/gPeuL11czrnKFQROnLgY8ll7En9NYoXibgg3C6NK/UDHNtUgWJ" crossorigin="anonymous"></script>
+   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js" integrity="sha384-uLiAv4VcjM5H2Jsqzl8EajEaxPugj1CIzQaCjQ8c5//vC+elhxO5pZfXGxoLQi1W" crossorigin="anonymous"></script>
+   <script>pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';</script>
+   <script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js" integrity="sha384-/TQbtLCAerC3jgaim+N78RZSDYV7ryeoBCVqTuzRrFec2akfBkHS7ACQ3PQhvMVi" crossorigin="anonymous"></script>
+   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js" integrity="sha384-GJqSu7vueQ9qN0E9yLPb3Wtpd7OrgK8KmYzC8T1IysG1bcvxvIO4qtYR/D3A991F" crossorigin="anonymous"></script>
+   <script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.7/dist/purify.min.js" integrity="sha384-XQqX/4yiUGu+oyr87jvWzRuqBUK/adrY0DunhL+tID9m/9dwSpV8h9Fk/Sg6ifVQ" crossorigin="anonymous"></script>
+    <script src="js/sanitize.js"></script>
+
+    <script>
+      // Apply the saved theme before paint to avoid a white flash.
+      (function () {
+        try {
+          if (localStorage.getItem('omnote_theme') === 'dark') {
+            document.documentElement.classList.add('dark');
+          }
+        } catch (e) {}
+      })();
+    </script>
+
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="css/style.css?v=3">
+    <link rel="stylesheet" href="css/rebrand.css">
+   <link rel="stylesheet" href="css/layout-polish.css?v=1">
+  <link rel="stylesheet" href="css/dashboard.css?v=2">
+  <link rel="stylesheet" href="css/workspace.css">
+  <link rel="stylesheet" href="css/views-polish.css">
+  <link rel="stylesheet" href="css/dark-mode.css">
+
+
+
+    <!-- Google tag (gtag.js) -->
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-T4Q9VX8418"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+      gtag('config', 'G-T4Q9VX8418');
+    </script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <style>@layer base{html,body{margin:0;padding:0;}body{overscroll-behavior:none;}main>:first-child{margin-top:0!important;}main>:last-child{margin-bottom:0!important;}}::-webkit-scrollbar{display:none;}</style><script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script><script id="tailwind-config">tailwind.config={darkMode:"class",theme:{extend:{"colors":{"on-tertiary-fixed":"#191c1e","secondary-container":"#d5e0f8","on-surface":"#0b1c30","primary-fixed":"#a1effd","surface-container-highest":"#d3e4fe","secondary-fixed-dim":"#bcc7de","on-primary":"#ffffff","outline":"#6f797b","surface-tint":"#006874","primary-fixed-dim":"#85d3e0","surface-container-high":"#dce9ff","on-secondary-fixed-variant":"#3c475a","tertiary-fixed-dim":"#c4c7c9","tertiary":"#494c4e","inverse-on-surface":"#eaf1ff","primary-container":"#0d6e7a","on-secondary-container":"#586377","on-secondary":"#ffffff","tertiary-container":"#616466","inverse-primary":"#85d3e0","surface-bright":"#f8f9ff","on-error":"#ffffff","on-tertiary-container":"#dfe1e3","on-primary-fixed-variant":"#004f58","error-container":"#ffdad6","surface":"#f8f9ff","on-primary-fixed":"#001f24","tertiary-fixed":"#e0e3e5","on-primary-container":"#9feefb","surface-dim":"#cbdbf5","error":"#ba1a1a","on-tertiary-fixed-variant":"#444749","on-error-container":"#93000a","inverse-surface":"#213145","outline-variant":"#bec8ca","on-surface-variant":"#3f484a","surface-container":"#e5eeff","secondary-fixed":"#d8e3fb","on-secondary-fixed":"#111c2d","on-background":"#0b1c30","background":"#f8f9ff","surface-container-lowest":"#ffffff","primary":"#2b5a8e","on-tertiary":"#ffffff","secondary":"#545f73","surface-variant":"#d3e4fe","surface-container-low":"#eff4ff"},"borderRadius":{"DEFAULT":"0px","sm":"2px","md":"0px","lg":"0px","xl":"0px","2xl":"0px","3xl":"0px","full":"0px"},"spacing":{"stack-md":"1rem","stack-sm":"0.5rem","container-max":"1400px","margin-mobile":"1rem","gutter":"1.5rem","stack-lg":"2rem"},"fontFamily":{"sans":["Arial","Helvetica","sans-serif"],"headline-lg-mobile":["Arial","Helvetica","sans-serif"],"headline-lg":["Arial","Helvetica","sans-serif"],"title-md":["Arial","Helvetica","sans-serif"],"body-lg":["Arial","Helvetica","sans-serif"],"label-sm":["Arial","Helvetica","sans-serif"],"label-caps":["Arial","Helvetica","sans-serif"],"headline-xl":["Arial","Helvetica","sans-serif"],"body-md":["Arial","Helvetica","sans-serif"]},"fontSize":{"headline-lg-mobile":["20px",{"lineHeight":"1.3","fontWeight":"700"}],"headline-lg":["24px",{"lineHeight":"1.3","fontWeight":"700"}],"title-md":["18px",{"lineHeight":"1.4","fontWeight":"600"}],"body-lg":["16px",{"lineHeight":"1.6","fontWeight":"400"}],"label-sm":["12px",{"lineHeight":"1","fontWeight":"500"}],"label-caps":["12px",{"lineHeight":"1","letterSpacing":"0.05em","fontWeight":"700"}],"headline-xl":["36px",{"lineHeight":"1.2","letterSpacing":"-0.02em","fontWeight":"800"}],"body-md":["13px",{"lineHeight":"1.4","fontWeight":"400"}]}}}}</script>
+</head>
+
+<body class="bg-[#f4f4f4] font-sans text-[13px] text-gray-800 leading-snug">
+
+    <!-- Global Loading Screen -->
+    <div id="global-loader" style="position:fixed;inset:0;z-index:9999999;background:var(--bg-base,#f4f4f4);display:flex;flex-direction:column;align-items:center;justify-content:center;transition:opacity 0.6s ease;overflow:hidden;">
+      
+      <!-- Transparent Books Background Pattern -->
+      <div style="position:absolute;inset:0;opacity:0.04;background-image:url(&quot;data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z' fill='%23007a7a' fill-opacity='0.4'/%3E%3Cpath d='M26 12a4 4 0 0 0-4 4v24a4 4 0 0 0 4 4h12V12H26zM18 16a4 4 0 0 0 4-4h12v28H22a4 4 0 0 0-4 4V16z' stroke='%23007a7a' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/g%3E%3C/svg%3E&quot;);background-size:120px;z-index:0;animation:panBg 30s linear infinite;"></div>
+
+      <style>
+        #global-loader.hidden { opacity: 0; pointer-events: none; }
+        
+        @keyframes panBg { from { background-position: 0 0; } to { background-position: 120px 120px; } }
+        
+        .g-loader {
+          scale: 0.75; position: relative; width: 200px; height: 200px; translate: 10px -20px; z-index: 10;
+        }
+        .g-loader svg { position: absolute; top: 0; left: 0; }
+        .g-head { translate: 27px -30px; z-index: 3; animation: bob 1s infinite ease-in; }
+        .g-bod { translate: 0px 30px; z-index: 3; animation: bob 1s infinite ease-in-out; }
+        .g-legr { translate: 75px 135px; z-index: 0; animation: rstep 1s infinite ease-in; animation-delay: 0.45s; }
+        .g-legl { translate: 30px 155px; z-index: 3; animation: lstep 1s infinite ease-in; }
+        
+        @keyframes bob { 0%, 5%, 100% { transform: translateY(0) rotate(3deg); } 25%, 70% { transform: translateY(5px) rotate(0deg); } 50% { transform: translateY(0px) rotate(-3deg); } }
+        @keyframes lstep { 0%, 100% { transform: translateY(0) rotate(-5deg); } 33% { transform: translateY(-15px) translate(32px) rotate(35deg); } 66% { transform: translateY(0) translate(25px) rotate(-25deg); } }
+        @keyframes rstep { 0%, 100% { transform: translateY(0) translate(0px) rotate(-5deg); } 33% { transform: translateY(-10px) translate(30px) rotate(35deg); } 66% { transform: translateY(0) translate(20px) rotate(-25deg); } }
+        
+        #g-gnd { translate: -140px 0; rotate: 10deg; z-index: -1; filter: blur(0.5px) drop-shadow(1px 3px 5px #000000); opacity: 0.25; animation: scroll 5s infinite linear; }
+        @keyframes scroll { 0% { transform: translateY(25px) translate(50px); opacity: 0; } 33%, 66% { opacity: 0.25; } to { transform: translateY(-50px) translate(-100px); opacity: 0; } }
+
+        .loader-text-container { margin-top: 10px; text-align: center; z-index: 10; font-family: 'Inter', sans-serif; height: 30px; position: relative; width: 300px; }
+        .loader-quote { font-size: 15px; font-weight: 600; color: #007a7a; opacity: 0; transform: translateY(10px); transition: all 0.5s ease; position: absolute; width: 100%; left: 0; letter-spacing: -0.01em; text-shadow: 0 1px 2px rgba(255,255,255,0.8); }
+        .loader-quote.active { opacity: 1; transform: translateY(0); }
+        
+        .loader-bar-container { margin-top: 10px; width: 160px; height: 4px; background: rgba(0, 122, 122, 0.15); border-radius: 4px; overflow: hidden; z-index: 10; position: relative; margin-left: auto; margin-right: auto; }
+        .loader-bar { height: 100%; width: 0%; background: #007a7a; border-radius: 4px; animation: loadBar 3s cubic-bezier(0.1, 0.8, 0.2, 1) forwards; }
+        @keyframes loadBar { 0% { width: 0%; } 20% { width: 45%; } 60% { width: 75%; } 90% { width: 95%; } 100% { width: 99%; } }
+      </style>
+      
+      <div class="g-loader">
+        <svg class="g-legl" version="1.1" xmlns="http://www.w3.org/2000/svg" width="20.69332" height="68.19944" viewBox="0,0,20.69332,68.19944">
+          <g transform="translate(-201.44063,-235.75466)">
+            <g stroke-miterlimit="10">
+              <path d="" fill="#ffffff" stroke="none" stroke-width="0.5"></path>
+              <path d="" fill-opacity="0.26667" fill="#007a7a" stroke-opacity="0.48627" stroke="#ffffff" stroke-width="0"></path>
+              <path d="M218.11971,301.20087c-2.20708,1.73229 -4.41416,0 -4.41416,0l-1.43017,-1.1437c-1.42954,-1.40829 -3.04351,-2.54728 -4.56954,-3.87927c-0.95183,-0.8308 -2.29837,-1.49883 -2.7652,-2.55433c-0.42378,-0.95815 0.14432,-2.02654 0.29355,-3.03399c0.41251,-2.78499 1.82164,-5.43386 2.41472,-8.22683c1.25895,-4.44509 2.73863,-8.98683 3.15318,-13.54796c0.22615,-2.4883 -0.21672,-5.0155 -0.00278,-7.50605c0.30636,-3.56649 1.24602,-7.10406 1.59992,-10.6738c0.29105,-2.93579 -0.00785,-5.9806 -0.00785,-8.93046c0,0 0,-2.44982 3.12129,-2.44982c3.12129,0 3.12129,2.44982 3.12129,2.44982c0,3.06839 0.28868,6.22201 -0.00786,9.27779c-0.34637,3.56935 -1.30115,7.10906 -1.59992,10.6738c-0.2103,2.50918 0.22586,5.05326 -0.00278,7.56284c-0.43159,4.7371 -1.94029,9.46317 -3.24651,14.07835c-0.47439,2.23403 -1.29927,4.31705 -2.05805,6.47156c-0.18628,0.52896 -0.1402,1.0974 -0.327,1.62624c-0.09463,0.26791 -0.64731,0.47816 -0.50641,0.73323c0.19122,0.34617 0.86423,0.3445 1.2346,0.58502c1.88637,1.22503 3.50777,2.79494 5.03,4.28305l0.96971,0.73991c0,0 2.20708,1.73229 0,3.46457z" fill="none" stroke="#004f58" stroke-width="7"></path>
+            </g>
+          </g>
+        </svg>
+
+        <svg class="g-legr" version="1.1" xmlns="http://www.w3.org/2000/svg" width="41.02537" height="64.85502" viewBox="0,0,41.02537,64.85502">
+          <g transform="translate(-241.54137,-218.44347)">
+            <g stroke-miterlimit="10">
+              <path d="M279.06674,279.42662c-2.27967,1.98991 -6.08116,0.58804 -6.08116,0.58804l-2.47264,-0.92915c-2.58799,-1.18826 -5.31176,-2.08831 -7.99917,-3.18902c-1.67622,-0.68654 -3.82471,-1.16116 -4.93147,-2.13229c-1.00468,-0.88156 -0.69132,-2.00318 -0.92827,-3.00935c-0.65501,-2.78142 0.12275,-5.56236 -0.287,-8.37565c-0.2181,-4.51941 -0.17458,-9.16283 -1.60696,-13.68334c-0.78143,-2.46614 -2.50162,-4.88125 -3.30086,-7.34796c-1.14452,-3.53236 -1.40387,-7.12078 -2.48433,-10.66266c-0.88858,-2.91287 -2.63779,-5.85389 -3.93351,-8.74177c0,0 -1.07608,-2.39835 3.22395,-2.81415c4.30003,-0.41581 2.41605,1.98254 2.41605,1.98254c1.34779,3.00392 3.13072,6.05282 4.06444,9.0839c1.09065,3.54049 1.33011,7.13302 2.48433,10.66266c0.81245,2.48448 2.5308,4.917 3.31813,7.40431c1.48619,4.69506 1.48366,9.52281 1.71137,14.21503c0.32776,2.25028 0.10631,4.39942 0.00736,6.60975c-0.02429,0.54266 0.28888,1.09302 0.26382,1.63563c-0.01269,0.27488 -0.68173,0.55435 -0.37558,0.78529c0.41549,0.31342 1.34191,0.22213 1.95781,0.40826c3.13684,0.94799 6.06014,2.26892 8.81088,3.52298l1.66093,0.59519c0,0 6.76155,1.40187 4.48187,3.39177z" fill="none" stroke="#004f58" stroke-width="7"></path>
+              <path d="" fill="#ffffff" stroke="none" stroke-width="0.5"></path>
+              <path d="" fill-opacity="0.26667" fill="#007a7a" stroke-opacity="0.48627" stroke="#ffffff" stroke-width="0"></path>
+            </g>
+          </g>
+        </svg>
+
+        <div class="g-bod">
+          <svg version="1.1" xmlns="http://www.w3.org/2000/svg" width="144.10576" height="144.91623" viewBox="0,0,144.10576,144.91623">
+            <g transform="translate(-164.41679,-112.94712)">
+              <g stroke-miterlimit="10">
+                <path d="M166.9168,184.02633c0,-36.49454 35.0206,-66.07921 72.05288,-66.07921c37.03228,0 67.05288,29.58467 67.05288,66.07921c0,6.94489 -1.08716,13.63956 -3.10292,19.92772c-2.71464,8.46831 -7.1134,16.19939 -12.809,22.81158c-2.31017,2.68194 -7.54471,12.91599 -7.54471,12.91599c0,0 -5.46714,-1.18309 -8.44434,0.6266c-3.86867,2.35159 -10.95356,10.86714 -10.95356,10.86714c0,0 -6.96906,-3.20396 -9.87477,-2.58085c-2.64748,0.56773 -6.72538,5.77072 -6.72538,5.77072c0,0 -5.5023,-4.25969 -7.5982,-4.25969c-3.08622,0 -9.09924,3.48259 -9.09924,3.48259c0,0 -6.0782,-5.11244 -9.00348,-5.91884c-4.26461,-1.17561 -12.23343,0.75049 -12.23343,0.75049c0,0 -5.18164,-8.26065 -7.60688,-9.90388c-3.50443,-2.37445 -8.8271,-3.95414 -8.8271,-3.95414c0,0 -5.33472,-8.81718 -7.27019,-11.40895c-4.81099,-6.44239 -13.46422,-9.83437 -15.65729,-17.76175c-1.53558,-5.55073 -2.35527,-21.36472 -2.35527,-21.36472z" fill="#004f58" stroke="#000000" stroke-width="5" stroke-linecap="butt"></path>
+                <path d="M167.94713,180c0,-37.03228 35.0206,-67.05288 72.05288,-67.05288c37.03228,0 67.05288,30.0206 67.05288,67.05288c0,7.04722 -1.08716,13.84053 -3.10292,20.22135c-2.71464,8.59309 -7.1134,16.43809 -12.809,23.14771c-2.31017,2.72146 -7.54471,13.1063 -7.54471,13.1063c0,0 -5.46714,-1.20052 -8.44434,0.63584c-3.86867,2.38624 -10.95356,11.02726 -10.95356,11.02726c0,0 -6.96906,-3.25117 -9.87477,-2.61888c-2.64748,0.5761 -6.72538,5.85575 -6.72538,5.85575c0,0 -5.5023,-4.32246 -7.5982,-4.32246c-3.08622,0 -9.09924,3.5339 -9.09924,3.5339c0,0 -6.0782,-5.18777 -9.00348,-6.00605c-4.26461,-1.19293 -12.23343,0.76155 -12.23343,0.76155c0,0 -5.18164,-8.38236 -7.60688,-10.04981c-3.50443,-2.40943 -8.8271,-4.0124 -8.8271,-4.0124c0,0 -5.33472,-8.9471 -7.27019,-11.57706c-4.81099,-6.53732 -13.46422,-9.97928 -15.65729,-18.02347c-1.53558,-5.63252 -2.35527,-21.67953 -2.35527,-21.67953z" fill="#004f58" stroke="none" stroke-width="0" stroke-linecap="butt"></path>
+                <path d="" fill="#ffffff" stroke="none" stroke-width="0.5" stroke-linecap="butt"></path>
+                <path d="" fill-opacity="0.26667" fill="#007a7a" stroke-opacity="0.48627" stroke="#ffffff" stroke-width="0" stroke-linecap="butt"></path>
+                <path d="M216.22445,188.06994c0,0 1.02834,11.73245 -3.62335,21.11235c-4.65169,9.3799 -13.06183,10.03776 -13.06183,10.03776c0,0 7.0703,-3.03121 10.89231,-10.7381c4.34839,-8.76831 5.79288,-20.41201 5.79288,-20.41201z" fill="none" stroke="#006874" stroke-width="3" stroke-linecap="round"></path>
+              </g>
+            </g>
+          </svg>
+
+          <svg class="g-head" version="1.1" xmlns="http://www.w3.org/2000/svg" width="115.68559" height="88.29441" viewBox="0,0,115.68559,88.29441">
+            <g transform="translate(-191.87889,-75.62023)">
+              <g stroke-miterlimit="10">
+                <path d="" fill="#ffffff" stroke="none" stroke-width="0.5" stroke-linecap="butt"></path>
+                <path d="M195.12889,128.77752c0,-26.96048 21.33334,-48.81626 47.64934,-48.81626c26.316,0 47.64935,21.85578 47.64935,48.81626c0,0.60102 -9.22352,20.49284 -9.22352,20.49284l-7.75885,0.35623l-7.59417,6.15039l-8.64295,-1.74822l-11.70703,6.06119l-6.38599,-4.79382l-6.45999,2.36133l-7.01451,-7.38888l-8.11916,1.29382l-6.19237,-6.07265l-7.6263,-1.37795l-4.19835,-7.87062l-4.24236,-4.16907c0,0 -0.13314,-2.0999 -0.13314,-3.29458z" fill="none" stroke="#006874" stroke-width="6" stroke-linecap="butt"></path>
+                <path d="M195.31785,124.43649c0,-26.96048 21.33334,-48.81626 47.64934,-48.81626c26.316,0 47.64935,21.85578 47.64935,48.81626c0,1.03481 -0.08666,2.8866 -0.08666,2.8866c0,0 16.8538,15.99287 16.21847,17.23929c-0.66726,1.30905 -23.05667,-4.14265 -23.05667,-4.14265l-2.29866,4.5096l-7.75885,0.35623l-7.59417,6.15039l-8.64295,-1.74822l-11.70703,6.06119l-6.38599,-4.79382l-6.45999,2.36133l-7.01451,-7.38888l-8.11916,1.29382l-6.19237,-6.07265l-7.6263,-1.37795l-4.19835,-7.87062l-4.24236,-4.16907c0,0 -0.13314,-2.0999 -0.13314,-3.29458z" fill="#004f58" stroke-opacity="0.48627" stroke="#ffffff" stroke-width="0" stroke-linecap="butt"></path>
+                <path d="M271.10348,122.46768l10.06374,-3.28166l24.06547,24.28424" fill="none" stroke="#006874" stroke-width="6" stroke-linecap="round"></path>
+                <path d="M306.56448,144.85764l-41.62024,-8.16845l2.44004,-7.87698" fill="none" stroke="#000000" stroke-width="3.5" stroke-linecap="round"></path>
+                <path d="M276.02738,115.72434c-0.66448,-4.64715 2.56411,-8.95308 7.21127,-9.61756c4.64715,-0.66448 8.95309,2.56411 9.61757,7.21126c0.46467,3.24972 -1.94776,8.02206 -5.96624,9.09336c-2.11289,-1.73012 -5.08673,-5.03426 -5.08673,-5.03426c0,0 -4.12095,1.16329 -4.60481,1.54229c-0.16433,-0.04891 -0.62732,-0.38126 -0.72803,-0.61269c-0.30602,-0.70328 -0.36302,-2.02286 -0.44303,-2.58239z" fill="#ffffff" stroke="none" stroke-width="0.5" stroke-linecap="butt"></path>
+                <path d="M242.49281,125.6424c0,-4.69442 3.80558,-8.5 8.5,-8.5c4.69442,0 8.5,3.80558 8.5,8.5c0,4.69442 -3.80558,8.5 -8.5,8.5c-4.69442,0 -8.5,-3.80558 -8.5,-8.5z" fill="#ffffff" stroke="none" stroke-width="0.5" stroke-linecap="butt"></path>
+                <path d="" fill-opacity="0.26667" fill="#007a7a" stroke-opacity="0.48627" stroke="#ffffff" stroke-width="0" stroke-linecap="butt"></path>
+              </g>
+            </g>
+          </svg>
+        </div>
+
+        <svg id="g-gnd" version="1.1" xmlns="http://www.w3.org/2000/svg" width="475" height="530" viewBox="0,0,163.40011,85.20095">
+          <g transform="translate(-176.25,-207.64957)">
+            <g stroke="#000000" stroke-width="2.5" stroke-linecap="round" stroke-miterlimit="10">
+              <path d="M295.5,273.1829c0,0 -57.38915,6.69521 -76.94095,-9.01465c-13.65063,-10.50609 15.70098,-20.69467 -2.5451,-19.94465c-30.31027,2.05753 -38.51396,-26.84135 -38.51396,-26.84135c0,0 6.50084,13.30023 18.93224,19.17888c9.53286,4.50796 26.23632,-1.02541 32.09529,4.95137c3.62417,3.69704 2.8012,6.33005 0.66517,8.49452c-3.79415,3.84467 -11.7312,6.21103 -6.24682,10.43645c22.01082,16.95812 72.55412,12.73944 72.55412,12.73944z" fill="#000000"></path>
+              <path d="M338.92138,217.76285c0,0 -17.49626,12.55408 -45.36424,10.00353c-8.39872,-0.76867 -17.29557,-6.23066 -17.29557,-6.23066c0,0 3.06461,-2.23972 15.41857,0.72484c26.30467,6.31228 47.24124,-4.49771 47.24124,-4.49771z" fill="#000000"></path>
+              <path d="M209.14443,223.00182l1.34223,15.4356l-10.0667,-15.4356" fill="none"></path>
+              <path d="M198.20391,230.41806l12.95386,7.34824l6.71113,-12.08004" fill="none"></path>
+              <path d="M211.19621,238.53825l8.5262,-6.09014" fill="none"></path>
+              <path d="M317.57068,215.80173l5.27812,6.49615l0.40601,-13.39831" fill="none"></path>
+              <path d="M323.66082,222.70389l6.09014,-9.33822" fill="none"></path>
+            </g>
+          </g>
+        </svg>
+      </div>
+      
+      <div class="loader-text-container">
+         <div class="loader-quote active">Preparing your workspace...</div>
+         <div class="loader-quote">Loading question banks...</div>
+         <div class="loader-quote">Gathering study materials...</div>
+         <div class="loader-quote">Getting things ready...</div>
+      </div>
+      <div class="loader-bar-container"><div class="loader-bar"></div></div>
+    </div>
+    
+    <script>
+      (function(){
+         const quotes = document.querySelectorAll('.loader-quote');
+         if (quotes.length) {
+           let idx = 0;
+           window.__loaderInterval = setInterval(() => {
+              quotes[idx].classList.remove('active');
+              idx = (idx + 1) % quotes.length;
+              quotes[idx].classList.add('active');
+           }, 2500);
+         }
+      })();
+      window.hideGlobalLoader = function() {
+        const loader = document.getElementById('global-loader');
+        if (loader && !loader.classList.contains('hidden')) {
+          loader.classList.add('hidden');
+          if (window.__loaderInterval) clearInterval(window.__loaderInterval);
+          if (window.__loaderFailsafe) { clearTimeout(window.__loaderFailsafe); window.__loaderFailsafe = null; }
+          setTimeout(() => loader.remove(), 600);
+        } else if (loader && loader.classList.contains('hidden')) {
+          if (window.__loaderFailsafe) { clearTimeout(window.__loaderFailsafe); window.__loaderFailsafe = null; }
+        }
+      };
+      // Failsafe: never leave the dashboard stuck on the loader.
+      // If boot (Firebase / QBank API / Firestore) hangs or fails, force-hide
+      // the overlay so the user sees the app or an error instead of a spinner.
+      window.__loaderFailsafe = setTimeout(() => {
+        const loader = document.getElementById('global-loader');
+        if (loader && !loader.classList.contains('hidden')) {
+          try { console.warn('[loader] failsafe auto-hide after 12s'); } catch (_) {}
+          window.hideGlobalLoader();
+        }
+      }, 12000);
+    </script>
+
+    <!-- Full Screen Login Gatekeeper -->
+    <div id="login-screen" style="display:none;">
+        <div class="login-card">
+            <div class="login-logo"><img src="assets/logo.png" alt="CuraQ" class="login-logo-img" /><span>CuraQ</span></div>
+            <p class="login-subtitle">Sign in to access your cloud workspace.</p>
+
+            <input type="text" id="auth-name" class="login-input" placeholder="Your name (for sign up)" maxlength="40" autocomplete="name">
+            <input type="email" id="auth-email" class="login-input" placeholder="Email Address" autocomplete="email">
+            <input type="password" id="auth-password" class="login-input" placeholder="Password" autocomplete="current-password">
+
+            <div id="auth-error"></div>
+
+            <button class="login-btn-primary" onclick="window.handleLogin()">Log In</button>
+            <button class="login-btn-secondary" onclick="window.handleRegister()">Create Account</button>
+
+
+
+
+        </div>
+    </div>
+
+
+    <!-- Main App Wrapper -->
+    <div id="app-wrapper" style="display: none; height: 100vh; width: 100%;">
+<aside class="fixed left-0 top-0 h-full w-72 bg-surface-container-low z-50 flex flex-col border-r border-outline-variant/30">
+    <!-- Top Header section matching UWorld's centered style -->
+    <div class="pt-8 pb-6 flex flex-col items-center justify-center border-b border-outline-variant/30 text-center relative">
+        <img src="assets/logo.png" alt="CuraQ Logo" class="w-14 h-14 rounded-2xl shadow-lg mb-3 object-cover border border-outline-variant/30">
+        <h1 class="font-headline-lg text-[22px] text-[#007a7a] tracking-tight leading-tight mb-1">CuraQ</h1>
+        <h2 class="text-[13px] text-on-surface-variant font-semibold px-4 uppercase tracking-wider" id="sidebar-qbank-name">Medical QBank</h2>
+    </div>
+
+    <!-- Navigation Menu -->
+    <nav class="flex-1 w-full overflow-y-auto py-2 px-3">
+        <a class="qbank-nav-active flex items-center w-full px-4 py-2.5 mb-1 text-[#007a7a] bg-[#e6f2f2] rounded-lg transition-colors font-bold" data-path="home" href="#" onclick="window.goHome();">
+            <i class="fa-solid fa-home text-[16px] w-6 text-center mr-3"></i>
+            <span class="font-sans text-[14px]">Home</span>
+        </a>
+        <a class="flex items-center w-full px-4 py-2.5 mb-1 text-gray-600 hover:bg-gray-100 hover:text-gray-900 rounded-lg transition-colors font-medium" data-path="browse" href="#" onclick="window.showQBankSubjects && window.showQBankSubjects();">
+            <i class="fa-solid fa-border-all text-[16px] w-6 text-center mr-3"></i>
+            <span class="font-sans text-[14px]">Browse Specialties</span>
+        </a>
+        <a class="flex items-center w-full px-4 py-2.5 mb-1 text-gray-600 hover:bg-gray-100 hover:text-gray-900 rounded-lg transition-colors font-medium" data-path="exam-prep" href="#" onclick="window.openExamPrepTab && window.openExamPrepTab();">
+            <i class="fa-solid fa-graduation-cap text-[16px] w-6 text-center mr-3"></i>
+            <span class="font-sans text-[14px]">Exam Prep</span>
+        </a>
+        <a class="flex items-center w-full px-4 py-2.5 mb-1 text-gray-600 hover:bg-gray-100 hover:text-gray-900 rounded-lg transition-colors font-medium" data-path="flashcards" href="#" onclick="window.openFlashcardsExplorer && window.openFlashcardsExplorer();">
+            <i class="fa-solid fa-layer-group text-[16px] w-6 text-center mr-3"></i>
+            <span class="font-sans text-[14px]">Flashcards</span>
+        </a>
+        <a class="flex items-center w-full px-4 py-2.5 mb-1 text-gray-600 hover:bg-gray-100 hover:text-gray-900 rounded-lg transition-colors font-medium" data-path="planner" href="#" onclick="window.openPlanner && window.openPlanner();">
+            <i class="fa-regular fa-calendar text-[16px] w-6 text-center mr-3"></i>
+            <span class="font-sans text-[14px]">Study Plan</span>
+        </a>
+
+        <div class="my-4 border-t border-gray-200 mx-2"></div>
+
+        <a class="flex items-center w-full px-4 py-2.5 mb-1 text-gray-600 hover:bg-gray-100 hover:text-gray-900 rounded-lg transition-colors font-medium" data-path="performance" href="#" onclick="window.openPerformance && window.openPerformance();">
+            <i class="fa-solid fa-chart-simple text-[16px] w-6 text-center mr-3"></i>
+            <span class="font-sans text-[14px]">Analytics</span>
+        </a>
+        <a class="flex items-center w-full px-4 py-2.5 mb-1 text-gray-600 hover:bg-gray-100 hover:text-gray-900 rounded-lg transition-colors font-medium" data-path="resources" href="#" onclick="window.openQBankResourcesTab && window.openQBankResourcesTab();">
+            <i class="fa-regular fa-file-lines text-[16px] w-6 text-center mr-3"></i>
+            <span class="font-sans text-[14px]">Resources</span>
+        </a>
+        <!-- Library hidden for now
+        <a class="flex items-center w-full px-4 py-2.5 mb-1 text-gray-600 hover:bg-gray-100 hover:text-gray-900 rounded-lg transition-colors font-medium" data-path="library" href="#" onclick="window.openLibraryTab && window.openLibraryTab();">
+            <i class="fa-solid fa-book-open text-[16px] w-6 text-center mr-3"></i>
+            <span class="font-sans text-[14px]">Library</span>
+        </a>
+        -->
+        <div class="my-4 border-t border-gray-200 mx-2"></div>
+
+        <a id="admin-panel-btn" style="display: none;" class="items-center w-full px-4 py-2.5 mb-1 text-gray-600 hover:bg-gray-100 hover:text-gray-900 rounded-lg transition-colors font-medium" href="#" onclick="window.openAdminPanel && window.openAdminPanel();">
+            <i class="fa-solid fa-shield-halved text-[16px] w-6 text-center mr-3"></i>
+            <span class="font-sans text-[14px]">Admin Panel</span>
+        </a>
+    </nav>
+
+
+</aside>
+<div class="pl-72 w-full h-screen overflow-y-auto">
+<header class="fixed top-0 left-72 right-0 h-[60px] bg-white z-40 px-6 flex items-center justify-between border-b border-gray-200">
+    <!-- Search -->
+    <div class="flex-1 max-w-2xl mr-6">
+        <div class="relative flex items-center group w-full">
+            <i class="fa-solid fa-search absolute left-3 text-gray-400 text-[14px]"></i>
+            <input id="home-search-input" class="w-full h-9 pl-9 pr-12 bg-gray-50 border border-transparent rounded text-gray-800 text-[13px] focus:outline-none focus:bg-white focus:border-[#007a7a] focus:ring-1 focus:ring-[#007a7a] transition-all placeholder-gray-400" placeholder="Search subjects, chapters..." type="text" onkeydown="window.handleHomeSearch && window.handleHomeSearch(event)" oninput="window.handleHomeSearchInput && window.handleHomeSearchInput(event)" onfocus="window.handleHomeSearchFocus && window.handleHomeSearchFocus(event)"/>
+            <div class="absolute right-2 top-1/2 transform -translate-y-1/2 text-gray-400 text-[11px] font-semibold">Ctrl K</div>
+            <div id="home-search-dropdown" class="absolute top-full left-0 right-0 bg-white border border-gray-200 shadow-lg z-[1001] hidden max-h-80 overflow-y-auto rounded-b mt-1"></div>
+        </div>
+    </div>
+    
+    <!-- Right cluster -->
+    <div class="flex items-center gap-3 text-gray-600">
+        <!-- Change QBank Button -->
+        <button onclick="window.openQBankSelection && window.openQBankSelection()" class="px-3 py-1.5 text-gray-600 hover:text-[#007a7a] text-[13px] font-medium rounded transition-colors flex items-center gap-2 mr-1">
+            <i class="fa-solid fa-book-open text-[14px]"></i> Change QBank
+        </button>
+        
+        <!-- Notifications with badge -->
+        <button id="notif-bell" onclick="window.toggleNotifications && window.toggleNotifications()" class="relative text-gray-500 hover:text-[#007a7a] transition-colors text-[16px] w-8 h-8 flex items-center justify-center rounded hover:bg-gray-50">
+            <i class="fa-regular fa-bell"></i>
+            <span id="notif-bell-badge" style="position:absolute;top:6px;right:6px;width:6px;height:6px;background:#ef4444;border-radius:50%;"></span>
+        </button>
+        
+        <div class="h-5 w-[1px] bg-gray-200 mx-1"></div>
+        
+        <!-- Profile Pill -->
+        <div class="flex items-center gap-2 cursor-pointer hover:bg-gray-50 px-2 py-1 rounded transition-colors" onclick="window.openProfileSettings && window.openProfileSettings();">
+            <div class="w-7 h-7 rounded bg-[#164e63] text-white flex items-center justify-center font-bold text-[12px]">
+                O
+            </div>
+            <span class="font-medium text-gray-700 text-[13px]" id="header-user-name">Omar</span>
+            <i class="fa-solid fa-chevron-down text-[10px] text-gray-400 ml-1"></i>
+        </div>
+        
+        <!-- Sign Out Button -->
+        <button onclick="window.handleLogout && window.handleLogout()" class="ml-1 text-gray-400 hover:text-[#c0392b] transition-colors w-8 h-8 flex items-center justify-center rounded hover:bg-red-50" title="Sign Out">
+            <i class="fa-solid fa-arrow-right-from-bracket text-[15px]"></i>
+        </button>
+    </div>
+</header>
+<main class="relative pt-[50px] bg-[#f4f4f4] min-h-screen">
+  <div id="qbank-home-view" style="display:flex; flex:1; width:100%;">
+    <div id="qbank-home-content" class="w-full"></div>
+  </div>
+  <div id="flashcards-explorer-view" style="display:none; flex:1; width:100%; padding:24px;">
+    <div id="flashcards-explorer-content" class="w-full max-w-[1200px] mx-auto"></div>
+  </div>
+  <div id="resources-view" style="display:none; flex:1; width:100%; padding:24px; overflow-y:auto;"></div>
+  <div id="library-view" style="display:none; flex:1; width:100%; padding:24px; overflow-y:auto;"></div>
+  <div id="performance-view" style="display:none; flex:1; width:100%; padding:24px;">
+    <div id="performance-content" class="w-full max-w-[1200px] mx-auto"></div>
+  </div>
+  <div id="planner-view" style="display:none; flex:1; width:100%; padding:24px;">
+    <div id="planner-content" class="w-full max-w-[1200px] mx-auto"></div>
+  </div>
+</main>
+</div>
+</div>
+
+    <!-- Full-Screen Flashcard Viewer (USMLE Style Light Mode) -->
+        <div id="review-modal" class="usmle-fullscreen" style="display:none;">
+            <!-- Top Bar -->
+            <div class="usmle-topbar">
+                <div class="usmle-topbar-left">
+                    <span class="usmle-item-info">Flashcard <span id="review-count">1</span></span>
+                    <span class="usmle-block-info"><i data-lucide="file-text"></i> <span id="review-doc-title">Document</span></span>
+                </div>
+                <div class="usmle-topbar-center">
+                    <button class="usmle-nav-btn" onclick="window.reviewNavPrev()" title="Previous">◀ Previous</button>
+                    <span class="usmle-nav-counter" id="review-nav-counter">1 / 1</span>
+                    <button class="usmle-nav-btn" onclick="window.reviewNavNext()" title="Next">Next ▶</button>
+                </div>
+                <div class="usmle-topbar-right">
+                    
+                    <button class="usmle-tool-btn" onclick="closeFullscreen('review-modal')"><i data-lucide="x"></i> Exit</button>
+                </div>
+            </div>
+
+            <div class="usmle-body">
+                <!-- Left Sidebar: Card Number List -->
+                <div class="usmle-sidebar" id="review-sidebar">
+                    <!-- Populated by JS -->
+                </div>
+
+                <!-- Main Content -->
+                <div class="usmle-content">
+                    <div class="usmle-question-area">
+                        <!-- Mark flag + Edit -->
+                        <div style="display:flex; align-items:center; gap:8px; margin-bottom: 16px;">
+                            <button class="usmle-flag-btn" id="review-flag-btn" onclick="window.toggleReviewFlag()" title="Mark Card"><i data-lucide="flag"></i> Mark Card</button>
+                            <button class="usmle-flag-btn" id="review-edit-btn" onclick="window.editCurrentReviewCard()" title="Edit Card (E)"><i data-lucide="pencil"></i> Edit</button>
+                        </div>
+
+                        <!-- Question text -->
+                        <div class="usmle-question-text" id="card-front">Question</div>
+
+                        <!-- Answer options / Revealed answer -->
+                        <div id="card-back" class="usmle-answer-reveal" style="display:none;">
+                            <!-- Populated by JS -->
+                        </div>
+
+                        <button class="usmle-show-answer-btn" id="btn-show-answer" onclick="showAnswer()">Show Answer</button>
+
+                        <!-- Sources Block -->
+                        <div id="card-sources-block" class="usmle-sources-block" style="display:none;">
+                            <div class="usmle-sources-header"><i data-lucide="book-open" style="width:14px;height:14px;vertical-align:-2px;"></i> Source</div>
+                            <div class="sources-quote" id="card-source-text">Source text here...</div>
+                        </div>
+                    </div>
+
+                    <!-- Bottom SRS Actions (SM-2) -->
+                    <div class="usmle-action-bar" id="srs-buttons" style="display:none;">
+                        <button class="usmle-proceed-btn usmle-btn-forgot" onclick="submitReview('again')" title="Forgot - reset (1)"><span style="font-weight:800;">1</span> · Again</button>
+                        <button class="usmle-proceed-btn" style="background:linear-gradient(135deg,#f59e0b,#f97316);color:#fff;" onclick="submitReview('hard')" title="Hard (2)"><span style="font-weight:800;">2</span> · Hard</button>
+                        <button class="usmle-proceed-btn usmle-btn-easy" onclick="submitReview('good')" title="Good (3)"><span style="font-weight:800;">3</span> · Good</button>
+                        <button class="usmle-proceed-btn" style="background:linear-gradient(135deg,#06b6d4,#3b82f6);color:#fff;" onclick="submitReview('easy')" title="Easy (4)"><span style="font-weight:800;">4</span> · Easy</button>
+                    </div>
+                    <div id="card-srs-meta" style="display:none; margin-top:12px; text-align:center; color:var(--text-muted); font-size:0.8rem;"></div>
+                </div>
+            </div>
+
+            <!-- Bottom Status Bar -->
+            <div class="usmle-statusbar">
+                <span id="review-status-text">Press Space to reveal answer</span>
+                <div style="display:flex; gap:12px; align-items:center;">
+                    <span style="font-size:0.8rem;">1=Again &nbsp; 2=Hard &nbsp; 3=Good &nbsp; 4=Easy</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Full-Screen Exam Viewer (USMLE Style Light Mode) -->
+        <div id="exam-modal" class="usmle-fullscreen" style="display:none;">
+            <!-- Top Bar -->
+            <div class="usmle-topbar">
+                <div class="usmle-topbar-left">
+                    <span class="usmle-item-info">Item <span id="exam-current-num">1</span> of <span id="exam-total-num">0</span></span>
+                    <span class="usmle-block-info">Block: <span id="exam-block-info">1 of 1</span></span>
+                </div>
+                <div class="usmle-topbar-center">
+                    <button class="usmle-nav-btn" onclick="window.examNavPrev()" title="Previous">◀ Previous</button>
+                    <span class="usmle-nav-counter" id="exam-nav-counter">1 / 1</span>
+                    <button class="usmle-nav-btn" onclick="window.examNavNext()" title="Next">Next ▶</button>
+                </div>
+                <div class="usmle-topbar-right">
+                    <button class="usmle-tool-btn" onclick="closeFullscreen('exam-modal')"><i data-lucide="x"></i> End Block</button>
+                </div>
+            </div>
+
+            <div class="usmle-body">
+                <!-- Left Sidebar: Question Number List -->
+                <div class="usmle-sidebar" id="exam-sidebar">
+                    <!-- Populated by JS -->
+                </div>
+
+                <!-- Main Content -->
+                <div class="usmle-content">
+                    <div class="usmle-question-area" id="exam-modal-content">
+                        <!-- Exam questions rendered by JS -->
+                    </div>
+
+                    <!-- Bottom Proceed Bar -->
+                    <div class="usmle-action-bar">
+                        <button class="usmle-proceed-btn" onclick="window.examNavNext()">Proceed to Next Item</button>
+                        <button class="usmle-proceed-btn usmle-btn-end" onclick="closeFullscreen('exam-modal')">End Block</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Bottom Status Bar -->
+            <div class="usmle-statusbar">
+                <span id="exam-timer-display"><i data-lucide="clock" style="width:14px;height:14px;vertical-align:-2px;"></i> Time Remaining: --:--:--</span>
+                <div style="display:flex; gap:12px; align-items:center;">
+                    <button class="usmle-flag-btn" id="exam-flag-btn" onclick="window.toggleExamFlag()"><i data-lucide="flag" style="width:14px;height:14px;vertical-align:-2px;"></i> Mark Question</button>
+                </div>
+            </div>
+        </div>
+
+
+
+        <!-- QBank Practice Modal -->
+        <div id="qbank-modal" class="usmle-fullscreen" style="display:none;">
+            <div class="usmle-topbar">
+                <div class="usmle-topbar-left">
+                    <span class="usmle-item-info">QBank: <span id="qbank-active-name">None</span></span>
+                </div>
+                <div class="usmle-topbar-center">
+                    <button class="usmle-nav-btn" onclick="window.qbankNext()" title="Next">Next ▶</button>
+                </div>
+                <div class="usmle-topbar-right">
+                    <button class="usmle-tool-btn" onclick="closeFullscreen('qbank-modal')"><i class="fa-solid fa-times"></i> End Session</button>
+                </div>
+            </div>
+            <div class="usmle-body">
+                <!-- Left Sidebar: QBank Questions List -->
+                <div class="usmle-sidebar" id="qbank-sidebar" style="display:none;">
+                    <!-- Populated by JS -->
+                </div>
+                
+                <div class="usmle-content">
+                    <div class="usmle-question-area" id="qbank-question-area" style="position:relative;">
+                        <!-- Content populated by qbank.js -->
+                        <div style="padding:40px;text-align:center;">Select a QBank Category to start practicing.</div>
+                    </div>
+                </div>
+
+                <!-- Answer Party Sidebar (Right Side) -->
+                <div class="usmle-sidebar" id="qbank-party-sidebar" style="display:none; flex-direction:column; width: 320px; min-width: 320px; max-width: 320px; flex-shrink: 0;">
+                    <div class="party-header" style="padding:15px; display:flex; justify-content:space-between; align-items:center;">
+                        <h3 class="font-bold">Party Mode</h3>
+                        <div id="qbank-party-code-display" class="party-code font-mono text-sm px-2 py-1 rounded select-all" title="Invite Code"></div>
+                    </div>
+                    <div id="qbank-party-host-controls" style="display:none; padding:10px;">
+                        <button class="btn-action primary" style="width:100%;" onclick="window.QBankParty.hostStartSession(window.currentQuestions[window.currentIndex]?.id)">Start Session</button>
+                    </div>
+                    <div id="qbank-party-leaderboard" style="flex:1; overflow-y:auto; padding:15px; display:flex; flex-direction:column; gap:10px;"></div>
+                    <div class="party-chat-container" style="height:350px; display:flex; flex-direction:column;">
+                        <div id="qbank-party-chat-history" style="flex:1; overflow-y:auto; padding:10px; font-size:0.9rem; display:flex; flex-direction:column; gap:8px;"></div>
+                        <div class="party-chat-input-area" style="padding:10px; display:flex; gap:8px;">
+                            <input type="text" id="qbank-party-chat-input" class="login-input" style="flex:1; margin:0;" placeholder="Chat..." onkeypress="if(event.key==='Enter') window.QBankParty.sendChatMessage(this.value); if(event.key==='Enter') this.value='';">
+                            <button class="btn-action primary" style="padding:0 12px;" onclick="const el=document.getElementById('qbank-party-chat-input'); window.QBankParty.sendChatMessage(el.value); el.value='';"><i data-lucide="send" style="width:16px;height:16px;"></i></button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="usmle-statusbar">
+                <span id="qbank-timer-display"><i class="fa-regular fa-clock" style="width:14px;height:14px;vertical-align:-2px;"></i> Time: 00:00</span>
+            </div>
+        </div>
+
+        <!-- Global Custom Action Settings Modal -->
+        <div id="global-custom-modal" class="modal">
+            <div class="exam-modal-content" style="max-width: 500px;">
+                <button class="exam-close-btn" onclick="closeModal('global-custom-modal')"><i data-lucide="x"></i></button>
+                <div class="exam-title" id="global-custom-title">Configure Custom Action</div>
+                <div style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 20px;">Select the topics you want to include.</div>
+                
+                <div style="margin-bottom: 15px; display: flex; justify-content: space-between;">
+                    <button class="btn-dark-pill" onclick="window.toggleAllGlobalTopics(true)">Select All</button>
+                    <button class="btn-dark-pill" onclick="window.toggleAllGlobalTopics(false)">Deselect All</button>
+                </div>
+
+                <div id="global-custom-topics-container" style="max-height: 300px; overflow-y: auto; margin-bottom: 20px; display: flex; flex-direction: column; gap: 10px; text-align: left;">
+                    <!-- Checkboxes populated here -->
+                </div>
+                
+                <button id="global-custom-start-btn" class="btn-action primary" style="width: 100%; padding: 14px; font-size: 1.05rem;" onclick="window.startGlobalCustomAction()">Start</button>
+            </div>
+        </div>
+
+        <!-- Image Viewer Modal -->
+        <div id="image-viewer-modal" class="modal">
+            <div class="image-modal-content">
+                <button class="exam-close-btn" onclick="closeModal('image-viewer-modal')"><i data-lucide="x"></i></button>
+                <div id="image-viewer-content" style="margin-top: 20px;">
+                    <!-- Images rendered here -->
+                </div>
+            </div>
+        </div>
+        <!-- Global API Settings Modal -->
+        <div id="api-settings-modal" class="modal">
+            <div class="exam-modal-content" style="max-width: 500px; text-align: left;">
+                <button class="exam-close-btn" onclick="closeModal('api-settings-modal')"><i data-lucide="x"></i></button>
+                <div class="exam-title" style="margin-bottom: 20px;"><i data-lucide="settings"></i> Global Settings</div>
+                
+                <div style="font-weight: 700; margin-bottom: 10px;">Gemini API Keys</div>
+                <div style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 15px;">
+                    Keys added here are stored locally on your device. The app will automatically rotate through them if a rate limit is hit.
+                </div>
+                
+                <div id="api-keys-list" style="max-height: 200px; overflow-y: auto; margin-bottom: 15px; display: flex; flex-direction: column; gap: 8px;">
+                    <!-- Populated by app.js -->
+                </div>
+                
+                <div style="display: flex; gap: 10px; margin-bottom: 15px;">
+                    <input type="text" id="new-api-key-input" class="login-input" placeholder="Enter new Gemini API Key..." style="flex: 1; margin: 0; padding: 10px;">
+                    <button class="btn-action primary" onclick="window.handleAddApiKey()" style="padding: 10px 15px;">Add Key</button>
+                </div>
+                
+                <div id="api-key-test-result" style="font-size: 0.85rem; margin-top: 10px; min-height: 20px;"></div>
+            </div>
+        </div>
+
+        
+
+
+
+
+        <!-- Global Loading Overlay -->
+        <div id="global-loading-overlay" style="display: none;">
+            <div class="loading-content" style="background: transparent; border: none; box-shadow: none; max-width: 500px;">
+                <h2 id="loading-title" style="font-size: 1.5rem; margin-bottom: 12px; font-weight: 600; background: none; -webkit-text-fill-color: var(--text-primary);">CuraQ AI Extracting Flashcards...</h2>
+                <div id="loading-text" class="loading-message" style="margin-bottom: 30px; font-size: 1rem; color: var(--text-muted); max-width: 100%;">Reading the whole textbook in 3 seconds...</div>
+                <div class="press-wrapper" style="margin: 20px auto 0; display: flex; justify-content: center; align-items: center;">
+                    <div class="press">
+                      <div class="sheet"></div>
+                      <div class="roll"></div>
+                      <div class="sheet"></div>
+                      <div class="roll"></div>
+                      <div class="sheet"></div>
+                      <div class="roll"></div>
+                      <div class="sheet"></div>
+                      <div class="sheet"></div>
+                      <div class="sheet"></div>
+                      <div class="sheet"></div>
+                      <div class="sheet"></div>
+                      <div class="roll"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <style>
+            @keyframes widthPulse {
+                0% { width: 10%; }
+                100% { width: 90%; }
+            }
+        </style>
+
+
+        <!-- Admin Panel Modal -->
+        <div id="admin-modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.75); backdrop-filter:blur(6px); z-index:100000; align-items:center; justify-content:center; padding:20px;">
+            <div id="admin-modal-content" style="width:100%; max-width:900px; height:90vh; background:#0f1218; border:1px solid rgba(255,255,255,0.08); border-radius:16px; box-shadow:0 20px 60px rgba(0,0,0,0.6); display:flex; flex-direction:column; overflow:hidden; transition:all 0.2s ease;">
+                <div style="padding:18px 22px; border-bottom:1px solid rgba(255,255,255,0.06); display:flex; justify-content:space-between; align-items:center;">
+                    <div style="display:flex; align-items:center; gap:10px;">
+                        <span style="font-size:1.3rem;"><i data-lucide="shield"></i></span>
+                        <div>
+                            <div style="font-weight:800; color:#fff; font-size:1.05rem;">Admin Panel</div>
+                        </div>
+                    </div>
+                    <div style="display:flex; gap:8px;">
+                        <button class="btn-icon" onclick="window.toggleAdminMaximize()" style="font-size:1.1rem;"><i data-lucide="maximize"></i></button>
+                        <button class="btn-icon" onclick="window.closeAdminPanel()" style="font-size:1.1rem;"><i data-lucide="x"></i></button>
+                    </div>
+                </div>
+                <div style="display:flex; gap:4px; padding:12px 22px 0; border-bottom:1px solid rgba(255,255,255,0.05); flex-wrap:wrap;">
+                    <button class="admin-tab active" data-tab="keys" onclick="window.switchAdminTab('keys')" style="background:transparent; border:none; color:var(--text-secondary); padding:10px 16px; cursor:pointer; border-bottom:2px solid transparent; font-weight:600; font-size:0.9rem;"><i data-lucide="key-round" style="width:14px;height:14px;vertical-align:-2px;"></i> AI Providers</button>
+                    <button class="admin-tab" data-tab="capacity" onclick="window.switchAdminTab('capacity')" style="background:transparent; border:none; color:var(--text-secondary); padding:10px 16px; cursor:pointer; border-bottom:2px solid transparent; font-weight:600; font-size:0.9rem;"><i data-lucide="gauge" style="width:14px;height:14px;vertical-align:-2px;"></i> AI Capacity</button>
+                    <button class="admin-tab" data-tab="functions" onclick="window.switchAdminTab('functions')" style="background:transparent; border:none; color:var(--text-secondary); padding:10px 16px; cursor:pointer; border-bottom:2px solid transparent; font-weight:600; font-size:0.9rem;"><i data-lucide="activity" style="width:14px;height:14px;vertical-align:-2px;"></i> AI Functions</button>
+
+                    <button class="admin-tab" data-tab="maintenance" onclick="window.switchAdminTab('maintenance')" style="background:transparent; border:none; color:var(--text-secondary); padding:10px 16px; cursor:pointer; border-bottom:2px solid transparent; font-weight:600; font-size:0.9rem;"><i data-lucide="wrench" style="width:14px;height:14px;vertical-align:-2px;"></i> Maintenance</button>
+                    <button class="admin-tab" data-tab="users" onclick="window.switchAdminTab('users')" style="background:transparent; border:none; color:var(--text-secondary); padding:10px 16px; cursor:pointer; border-bottom:2px solid transparent; font-weight:600; font-size:0.9rem;"><i data-lucide="users" style="width:14px;height:14px;vertical-align:-2px;"></i> Users</button>
+                    <button class="admin-tab" data-tab="notifications" onclick="window.switchAdminTab('notifications')" style="background:transparent; border:none; color:var(--text-secondary); padding:10px 16px; cursor:pointer; border-bottom:2px solid transparent; font-weight:600; font-size:0.9rem;"><i data-lucide="bell" style="width:14px;height:14px;vertical-align:-2px;"></i> Notifications</button>
+                    <button class="admin-tab" data-tab="stats" onclick="window.switchAdminTab('stats')" style="background:transparent; border:none; color:var(--text-secondary); padding:10px 16px; cursor:pointer; border-bottom:2px solid transparent; font-weight:600; font-size:0.9rem;"><i data-lucide="bar-chart-3" style="width:14px;height:14px;vertical-align:-2px;"></i> Stats</button>
+                    <button class="admin-tab" data-tab="qbank" onclick="window.switchAdminTab('qbank')" style="background:transparent; border:none; color:var(--text-secondary); padding:10px 16px; cursor:pointer; border-bottom:2px solid transparent; font-weight:600; font-size:0.9rem;"><i data-lucide="stethoscope" style="width:14px;height:14px;vertical-align:-2px;"></i> QBank</button>
+                    <button class="admin-tab" data-tab="examprep" onclick="window.switchAdminTab('examprep')" style="background:transparent; border:none; color:var(--text-secondary); padding:10px 16px; cursor:pointer; border-bottom:2px solid transparent; font-weight:600; font-size:0.9rem;"><i data-lucide="graduation-cap" style="width:14px;height:14px;vertical-align:-2px;"></i> Exam Prep</button>
+                    <button class="admin-tab" data-tab="access" onclick="window.switchAdminTab('access')" style="background:transparent; border:none; color:var(--text-secondary); padding:10px 16px; cursor:pointer; border-bottom:2px solid transparent; font-weight:600; font-size:0.9rem;"><i data-lucide="key-round" style="width:14px;height:14px;vertical-align:-2px;"></i> Access Requests</button>
+                    <button class="admin-tab" data-tab="reports" onclick="window.switchAdminTab('reports')" style="background:transparent; border:none; color:var(--text-secondary); padding:10px 16px; cursor:pointer; border-bottom:2px solid transparent; font-weight:600; font-size:0.9rem;"><i data-lucide="flag" style="width:14px;height:14px;vertical-align:-2px;"></i> Reports</button>
+                    <button class="admin-tab" data-tab="support" onclick="window.switchAdminTab('support')" style="background:transparent; border:none; color:var(--text-secondary); padding:10px 16px; cursor:pointer; border-bottom:2px solid transparent; font-weight:600; font-size:0.9rem;"><i data-lucide="life-buoy" style="width:14px;height:14px;vertical-align:-2px;"></i> Support</button>
+                    <button class="admin-tab" data-tab="peerstats" onclick="window.switchAdminTab('peerstats')" style="background:transparent; border:none; color:var(--text-secondary); padding:10px 16px; cursor:pointer; border-bottom:2px solid transparent; font-weight:600; font-size:0.9rem;"><i data-lucide="bar-chart-3" style="width:14px;height:14px;vertical-align:-2px;"></i> Peer Stats</button>
+                    <button class="admin-tab" data-tab="library" onclick="window.switchAdminTab('library')" style="background:transparent; border:none; color:var(--text-secondary); padding:10px 16px; cursor:pointer; border-bottom:2px solid transparent; font-weight:600; font-size:0.9rem;"><i data-lucide="book-open" style="width:14px;height:14px;vertical-align:-2px;"></i> Library</button>
+                </div>
+                <div style="flex:1; overflow-y:auto; padding:22px; min-height:0;">
+                    <div id="admin-panel-keys" class="admin-tab-panel">
+                        <div id="admin-keys-content"></div>
+                    </div>
+                    <div id="admin-panel-capacity" class="admin-tab-panel" style="display:none;">
+                        <div id="admin-capacity-content"></div>
+                    </div>
+                    <div id="admin-panel-functions" class="admin-tab-panel" style="display:none;">
+                        <div id="admin-functions-content"></div>
+                    </div>
+                    <div id="admin-panel-maintenance" class="admin-tab-panel" style="display:none;">
+                        <div id="admin-maintenance-content"></div>
+                    </div>
+                    <div id="admin-panel-users" class="admin-tab-panel" style="display:none;">
+                        <div id="admin-users-content"></div>
+                    </div>
+                    <div id="admin-panel-notifications" class="admin-tab-panel" style="display:none;">
+                        <div id="admin-notifications-content"></div>
+                    </div>
+                    <div id="admin-panel-peerstats" class="admin-tab-panel" style="display:none;">
+                        <div id="admin-peerstats-content"></div>
+                    </div>
+                    <div id="admin-panel-library" class="admin-tab-panel" style="display:none;">
+                        <div id="admin-library-content"></div>
+                    </div>
+                    <div id="admin-panel-stats" class="admin-tab-panel" style="display:none;">
+                        <div id="admin-stats-content"></div>
+                    </div>
+                    <div id="admin-panel-qbank" class="admin-tab-panel" style="display:none;">
+                        <div id="admin-qbank-content">
+                            <h3 style="color:#fff; margin-bottom:15px;">QBank Categories</h3>
+                            <div style="display:flex; gap:10px; margin-bottom:20px;">
+                                <input type="text" id="admin-qbank-name-input" class="login-input" placeholder="New QBank Name (e.g. USMLE Step 1)" style="flex:1;">
+                                <select id="admin-qbank-country-input" class="login-input" style="width:140px; cursor:pointer;">
+                                    <option value="global">🌍 Global</option>
+                                    <option value="usa">🇺🇸 USA</option>
+                                    <option value="uk">🇬🇧 UK</option>
+                                    <option value="australia">🇦🇺 Australia</option>
+                                    <option value="canada">🇨🇦 Canada</option>
+                                    <option value="india">🇮🇳 India</option>
+                                    <option value="europe">🇪🇺 Europe</option>
+                                    <option value="tunisia">🇹🇳 Tunisia</option>
+                                    <option value="algeria">🇩🇿 Algeria</option>
+                                    <option value="morocco">🇲🇦 Morocco</option>
+                                    <option value="egypt">🇪🇬 Egypt</option>
+                                </select>
+                                <button class="btn-action primary" onclick="window.adminCreateQBank()">Create</button>
+                            </div>
+                            <div style="margin-bottom:20px;">
+                                <input type="text" id="admin-qbank-create-subcats" class="login-input" placeholder="Allowed sub-categories for this QBank (comma-separated, optional)" style="width:100%;">
+                            </div>
+                            <div id="admin-qbank-list" style="margin-bottom:30px; display:flex; flex-direction:column; gap:10px;"></div>
+                            <div id="admin-qbank-manage-area" style="display:none; margin-bottom:30px;">
+                                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
+                                    <div style="display:flex; align-items:center; gap:10px;">
+                                        <h3 id="admin-qbank-manage-title" style="color:#fff; margin:0;">Manage Questions</h3>
+                                        <button class="btn-dark-pill" style="padding:6px 12px; font-size:0.8rem; color:var(--accent-purple);" onclick="window.adminSelectBySubject()">Select by Subject</button>
+                                        <button class="btn-dark-pill" style="padding:6px 12px; font-size:0.8rem; color:var(--accent-cyan);" onclick="window.adminScanDuplicates()">Scan Duplicates</button>
+                                        <button class="btn-dark-pill" style="color:var(--danger); padding:6px 12px; font-size:0.8rem;" onclick="window.adminDeleteSelectedQBankQuestions()">Delete Selected</button>
+                                    </div>
+                                    <button class="btn-dark-pill" onclick="window.adminCloseManageQBank()">Back to QBanks</button>
+                                </div>
+                                <div id="admin-qbank-manage-list" style="display:flex; flex-direction:column; gap:10px;"></div>
+                            </div>
+                            
+                            <h3 style="color:#fff; margin-bottom:15px;">Add Question via AI</h3>
+                            <select id="admin-qbank-select" class="login-input" style="width:100%; margin-bottom:15px;">
+                                <option value="">Select QBank...</option>
+                            </select>
+                            <textarea id="admin-qbank-raw-input" class="login-input" rows="8" placeholder="Paste raw question text here..." style="width:100%; margin-bottom:15px; resize:vertical;"></textarea>
+                            <input type="text" id="admin-qbank-subcategories-input" class="login-input" placeholder="Allowed sub-categories (comma-separated, optional) e.g. Anatomie, Physiologie" style="width:100%; margin-bottom:15px;">
+                            <button class="btn-action primary" onclick="window.adminAddQBankQuestion()" style="width:100%; padding:12px;">Generate & Save Question</button>
+                            <div id="admin-qbank-add-status" style="margin-top:10px; color:var(--text-secondary); font-size:0.9rem;"></div>
+                        </div>
+                    </div>                    <div id="admin-panel-access" class="admin-tab-panel" style="display:none;">
+                       <h2 style="font-size:1.4rem; font-weight:800; color:var(--text-primary); margin-bottom:6px;">🔑 Access Requests</h2>
+                       <p style="color:var(--text-muted); font-size:0.9rem; margin-bottom:18px;">Students asking to open question banks outside their country. Accepting grants the bank and notifies the student.</p>
+                       <div id="admin-access-list" style="display:flex; flex-direction:column; gap:10px;"></div>
+                    </div>
+
+                    <div id="admin-panel-reports" class="admin-tab-panel" style="display:none;">
+                       <h2 style="font-size:1.4rem; font-weight:800; color:var(--text-primary); margin-bottom:20px;">Reported Questions</h2>
+                       <div id="admin-reports-content" style="display:flex; flex-direction:column; gap:12px;"></div>
+                    </div>
+                    <div id="admin-panel-examprep" class="admin-tab-panel" style="display:none;">
+                        <h2 style="font-size:1.4rem; font-weight:800; color:var(--text-primary); margin-bottom:6px;">Exam Prep Sub-Banks</h2>
+                        <p style="font-size:0.9rem; color:var(--text-secondary); margin:0 0 20px 0;">Standalone mini question-banks for past exams. They are managed exactly like regular qbanks (add/import questions, lock, resources) but appear only under the student <b>Exam Prep</b> tab, never in the main bank picker.</p>
+                        <div style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); border-radius:12px; padding:20px; margin-bottom:24px; display:flex; flex-direction:column; gap:12px;">
+                            <div style="display:flex; gap:10px; flex-wrap:wrap;">
+                                <input type="text" id="admin-ep-name" class="login-input" placeholder="Sub-bank name (e.g. Residency Exam 2025)" style="flex:2; min-width:240px;">
+                                <select id="admin-ep-country" class="login-input" style="width:150px; cursor:pointer;">
+                                    <option value="global">🌍 Global</option>
+                                    <option value="usa">🇺🇸 USA</option>
+                                    <option value="uk">🇬🇧 UK</option>
+                                    <option value="australia">🇦🇺 Australia</option>
+                                    <option value="canada">🇨🇦 Canada</option>
+                                    <option value="india">🇮🇳 India</option>
+                                    <option value="europe">🇪🇺 Europe</option>
+                                    <option value="tunisia">🇹🇳 Tunisia</option>
+                                    <option value="algeria">🇩🇿 Algeria</option>
+                                    <option value="egypt">🇪🇬 Egypt</option>
+                                    <option value="morocco">🇲🇦 Morocco</option>
+                                </select>
+                            </div>
+                            <div style="display:flex; gap:10px; flex-wrap:wrap;">
+                                <input type="text" id="admin-ep-college" class="login-input" placeholder="College / University (optional)" style="flex:2; min-width:220px;">
+                                <input type="text" id="admin-ep-year" class="login-input" placeholder="Year (optional)" style="width:130px;">
+                                <button class="btn-action primary" onclick="window.adminCreateExamPrep()" style="padding:10px 28px;">Create Sub-Bank</button>
+                            </div>
+                        </div>
+                        <h3 style="color:#fff; margin-bottom:12px;">Existing Exam Prep Banks</h3>
+                        <div id="admin-ep-list" style="display:flex; flex-direction:column; gap:10px;"></div>
+                    </div>
+                    <div id="admin-panel-support" class="admin-tab-panel" style="display:none;">
+                        <div id="admin-support-content"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <style>
+            .admin-tab.active { color:#fff !important; border-bottom-color: var(--accent-cyan) !important; }
+            .admin-tab:hover { color:#fff; }
+        </style>
+
+    </div> <!-- End of app-wrapper -->
+
+
+
+    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-check-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+    <script>
+        const firebaseConfig = {
+            apiKey: "AIzaSyD_gavsIcvvxe3inU4gSMxe9YRHoW2U9eA",
+            authDomain: "exora-web.firebaseapp.com",
+            projectId: "exora-web",
+            storageBucket: "exora-web.firebasestorage.app",
+            messagingSenderId: "294931423657",
+            appId: "1:294931423657:web:b440fdd5ce28c31bb6e4b8",
+            measurementId: "G-LTCWM5CPVE"
+        };
+        firebase.initializeApp(firebaseConfig);
+
+
+        const fsdb = firebase.firestore();
+        const auth = firebase.auth();
+        // Pin auth to LOCAL persistence so the session survives tab close.
+        try {
+            auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(() => {});
+        } catch (_) {}
+
+        // Shared users_index/{uid} read — 60s memory cache + in-flight
+        // dedupe. Boot alone fired this get 2-3x (welcome check, plan
+        // lookup, onboarding check); now the 2nd/3rd cost 0 reads.
+        window.__usersIndexCache = {};
+        window.getUsersIndexDoc = function (uid, force) {
+            if (!uid) return Promise.resolve({ exists: false, data: null });
+            const now = Date.now();
+            const hit = window.__usersIndexCache[uid];
+            if (!force && hit) {
+                if (hit.promise) return hit.promise;
+                if (now - hit.time < 60_000) return Promise.resolve(hit);
+            }
+            const p = fsdb.collection("users_index").doc(uid).get().then((snap) => {
+                const rec = { exists: snap.exists, data: snap.exists ? snap.data() : null, time: Date.now() };
+                window.__usersIndexCache[uid] = rec;
+                return rec;
+            }).catch((e) => {
+                if (window.__usersIndexCache[uid] && window.__usersIndexCache[uid].promise) delete window.__usersIndexCache[uid];
+                throw e;
+            });
+            window.__usersIndexCache[uid] = { promise: p, time: now };
+            return p;
+        };
+        window.invalidateUsersIndexDoc = function (uid) {
+            try { if (uid && window.__usersIndexCache) delete window.__usersIndexCache[uid]; } catch (_) {}
+        };
+
+        window.syncDbToCloud = async function (dbObj) {
+            const user = auth.currentUser;
+            if (!user) return;
+            try {
+                const cache = new Set();
+                const safeStr = JSON.stringify(dbObj, (key, value) => {
+                    if (key === 'access') return; // runtime-only; recomputed each session
+                    if (typeof value === 'object' && value !== null) {
+                        if (cache.has(value)) return;
+                        cache.add(value);
+                    }
+                    return value;
+                });
+                // Dirty-check: skip both writes when the payload is identical
+                // to the last successful sync (clean site opens = 0 writes).
+                try {
+                    let h = 0;
+                    for (let i = 0; i < safeStr.length; i++) h = ((h * 31 + safeStr.charCodeAt(i)) | 0);
+                    const hs = h + ":" + safeStr.length;
+                    const lsKey = "omnote_cloud_hash_" + user.uid;
+                    if (window.__lastCloudHash === hs) return;
+                    try { if (localStorage.getItem(lsKey) === hs) { window.__lastCloudHash = hs; return; } } catch (_) {}
+                    window.__pendingCloudHash = { hs: hs, lsKey: lsKey };
+                } catch (_) {}
+                // Firestore has a 1MB per-document limit; store JSON string
+                await fsdb.collection('users').doc(user.uid).set({
+                    data: safeStr,
+                    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                }, { merge: true });
+
+                const docCount = (dbObj.documents || []).length;
+                const flashcardCount = (dbObj.rems || []).filter(r => r.isFlashcard).length;
+                
+                await fsdb.collection('users_index').doc(user.uid).set({
+                    docCount: docCount,
+                    flashcardCount: flashcardCount
+                }, { merge: true });
+                // Mark clean only after BOTH writes succeeded.
+                try {
+                    const pend = window.__pendingCloudHash;
+                    if (pend) {
+                        window.__lastCloudHash = pend.hs;
+                        try { localStorage.setItem(pend.lsKey, pend.hs); } catch (_) {}
+                        try { window.invalidateUsersIndexDoc && window.invalidateUsersIndexDoc(user.uid); } catch (_) {}
+                    }
+                } catch (_) {}
+                try { window.__pendingCloudHash = null; } catch (_) {}
+            } catch (e) {
+                console.error("Firestore sync error", e);
+                alert("Firestore Error: " + e.message + "\nYour Firestore rules might be blocking writes.");
+            }
+        };
+
+        window.loadDbFromCloud = async function () {
+            const user = auth.currentUser;
+            if (!user) return null;
+            try {
+                const snap = await fsdb.collection('users').doc(user.uid).get();
+                if (!snap.exists) return null;
+                const payload = snap.data();
+                if (payload && typeof payload.data === 'string') {
+                    try { return JSON.parse(payload.data); } catch { return null; }
+                }
+                // Backward compat: earlier writes may have stored the raw object
+                return payload && payload.data ? payload.data : null;
+            } catch (e) {
+                console.error("Firestore load error", e);
+                return null;
+            }
+        };
+
+    </script>
+
+
+        <!-- Scripts -->
+    <script src="js/i18n.js"></script>
+    <script src="js/ui-i18n.js"></script>
+    <script src="js/ai-client.js"></script>
+    <script src="js/session-restore.js"></script>
+    <script src="js/cloze.js"></script>
+
+    <script src="js/planner.js?v=1"></script>
+    <script src="js/app.js?v=4"></script>
+
+    <script src="js/srs.js"></script>
+    <script src="js/editor.js"></script>
+    <script src="js/pdf.js"></script>
+    <script src="js/ai.js"></script>
+    <script src="js/full-exam.js"></script>
+    <script src="js/summary.js?v=1.1"></script>
+    <script src="js/timer.js"></script>
+    <script src="js/schedule.js"></script>
+    <script src="js/draw.js"></script>
+    <script src="js/flashcards.js?v=1"></script>
+    <script src="js/deck-import.js?v=1"></script>
+    <script src="js/welcome.js?v=1"></script>
+    <script src="js/rich-render.js?v=4"></script>
+    <script src="js/rich-question-editor.js?v=5"></script>
+    <script src="js/admin.js?v=14"></script>
+    <script src="js/quotas.js"></script>
+    <script src="js/subscription.js"></script>
+    <script src="js/plan-gate.js"></script>
+    <script src="js/notifications.js"></script>
+    <script src="js/support.js"></script>
+    <script src="js/tour.js"></script>
+    <script src="js/whatsnew.js"></script>
+    <script src="js/import.js"></script>
+    <script src="js/focus-mode.js"></script>
+    <script src="js/book-mode.js?v=2"></script>
+    <script src="js/study-party.js?v=2"></script>
+    <script src="js/qbank-party.js?v=1"></script>
+    <script src="js/qbank.js?v=32"></script>
+    <script src="js/library.js?v=1"></script>
+
+    <script src="js/whiteboard.js"></script>
+    <script src="js/mindmap.js"></script>
+    <script src="js/recall.js"></script>
+    <script src="js/goals.js"></script>
+    <script src="js/radar.js"></script>
+    <script src="js/layout-polish.js"></script>
+    <script src="js/dashboard-ux.js"></script>
+    <script src="js/activity.js"></script>
+    <script src="js/telegram-invite.js?v=1"></script>
+
+<script src="https://unpkg.com/lucide@0.454.0/dist/umd/lucide.min.js" integrity="sha384-m/CoPp6wBQz6MoZXP+VveuxfvSx0NGXiQyyakzXVOVHgG1fP5bM/UiO4pSNPV6PT" crossorigin="anonymous"></script>
+<script>
+    (function () {
+        let pointerIsDown = false;
+        let pendingIconRefresh = false;
+        let nativeCreateIcons = null;
+
+        function flushIcons() {
+            pendingIconRefresh = false;
+            if (nativeCreateIcons) nativeCreateIcons.call(window.lucide);
+        }
+
+        function requestIconRefresh() {
+            if (!window.lucide || !window.lucide.createIcons) return;
+            if (!nativeCreateIcons) installSafeCreateIcons();
+            window.lucide.createIcons();
+        }
+
+        function installSafeCreateIcons() {
+            if (!window.lucide || !window.lucide.createIcons || window.lucide.__omnoteClickSafe) return;
+            nativeCreateIcons = window.lucide.createIcons.bind(window.lucide);
+            window.lucide.createIcons = function () {
+                if (pointerIsDown) {
+                    pendingIconRefresh = true;
+                    return;
+                }
+                return nativeCreateIcons();
+            };
+            window.lucide.__omnoteClickSafe = true;
+        }
+
+        document.addEventListener('pointerdown', () => { pointerIsDown = true; }, true);
+        document.addEventListener('pointerup', () => {
+            pointerIsDown = false;
+            if (pendingIconRefresh) setTimeout(flushIcons, 80);
+        }, true);
+        document.addEventListener('pointercancel', () => {
+            pointerIsDown = false;
+            if (pendingIconRefresh) setTimeout(flushIcons, 80);
+        }, true);
+
+        function initIcons() { installSafeCreateIcons(); requestIconRefresh(); }
+        window.addEventListener('DOMContentLoaded', initIcons);
+        // Re-scan ONLY when an unresolved <i data-lucide> is added. Reacting to
+        // every mutation (including lucide's own <svg> replacements) rebuilt icons
+        // mid-click, cancelling the click event and forcing users to press buttons
+        // multiple times.
+        function hasUnresolvedIcon(node) {
+            if (!node || node.nodeType !== 1) return false;
+            if (node.tagName === 'I' && node.hasAttribute('data-lucide')) return true;
+            return !!(node.querySelector && node.querySelector('i[data-lucide]'));
+        }
+        const mo = new MutationObserver((records) => {
+            for (const r of records) {
+                for (const n of r.addedNodes) {
+                    if (hasUnresolvedIcon(n)) {
+                        clearTimeout(window.__lucideT);
+                        window.__lucideT = setTimeout(requestIconRefresh, 120);
+                        return;
+                    }
+                }
+            }
+        });
+        window.addEventListener('load', () => mo.observe(document.body, { childList: true, subtree: true }));
+    })();
+</script>
+</body>
+
+</html>
