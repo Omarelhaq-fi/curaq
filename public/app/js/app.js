@@ -250,10 +250,11 @@ document.addEventListener("click", function (e) {
     }
 }, true);
 
-// ---- Home search: DISABLED to stop random ID searches wasting Firestore reads ----
-// Set to true to re-enable. When disabled, all search entry points are no-ops
-// and the search input (hidden in index.html) is force-disabled on boot.
-window.QBANK_SEARCH_DISABLED = true;
+// ---- Home search: subjects/chapters only ----
+// Direct question-ID lookup is DISABLED (it cost Firestore reads per keystroke
+// via get_question + index scan). Subject/chapter search below is local-only
+// (in-memory / IndexedDB / static R2 bundle) and stays enabled.
+window.QBANK_ID_SEARCH_DISABLED = true;
 
 // Debounce helper
 let _searchDebounceTimer = null;
@@ -302,7 +303,6 @@ function _highlightMatch(text, query) {
 
 // Main search function that finds subjects and chapters
 function _performSearch(query) {
-    if (window.QBANK_SEARCH_DISABLED) { _closeSearchDropdown(); return; }
     const results = [];
     const q = (query || '').trim().toLowerCase();
     
@@ -310,9 +310,6 @@ function _performSearch(query) {
         _closeSearchDropdown();
         return;
     }
-    
-    // Check if it looks like a question ID (alphanumeric, 3-64 chars)
-    const looksLikeId = /^[A-Za-z0-9_-]{3,64}$/.test(q);
     
     // Get current qbank data
     const activeQBankId = window.db && window.db.selectedQBankId;
@@ -407,18 +404,16 @@ function _performSearch(query) {
     _searchResults = results;
     _searchActiveIndex = -1;
     
-    if (results.length === 0 && !looksLikeId) {
+    if (results.length === 0) {
         _showSearchDropdown('<div class="search-no-results">No subjects or chapters found</div>');
     } else {
-        _renderSearchResults(results, q, looksLikeId);
+        _renderSearchResults(results, q, false);
     }
 }
 
 // Load questions from IndexedDB cache (local-first)
 // Uses a separate search index to avoid corrupting the main QBank session cache
-// DISABLED with the search bar — rejects immediately so no full-bank fetch happens.
 function _loadQBankFromCache(qbankId) {
-    if (window.QBANK_SEARCH_DISABLED) return Promise.reject(new Error('Search disabled'));
     return new Promise((resolve, reject) => {
         const loadFn = async () => {
             try {
@@ -481,21 +476,10 @@ function _loadQBankFromCache(qbankId) {
 }
 
 function _renderSearchResults(results, query, showIdOption) {
+    // NOTE: question-ID search is disabled (Firestore reads) — showIdOption is
+    // always false; this renders subjects/chapters only.
+    showIdOption = false;
     let html = '';
-    
-    if (showIdOption) {
-        html += `<div class="search-section-header">Search by Question ID</div>`;
-        html += `
-            <div class="search-suggestion-item" data-action="search-id" data-id="${_escHtml(query)}">
-                <div class="suggestion-icon question">
-                    <i class="fa-solid fa-search" style="font-size:12px;"></i>
-                </div>
-                <div class="suggestion-text">
-                    <div class="suggestion-title">Search for "${_escHtml(query)}"</div>
-                    <div class="suggestion-subtitle">Press Enter to search by question ID or code</div>
-                </div>
-            </div>`;
-    }
     
     const subjects = results.filter(r => r.type === 'subject');
     const chapters = results.filter(r => r.type === 'chapter');
@@ -552,10 +536,8 @@ function _renderSearchResults(results, query, showIdOption) {
                 const name = el.getAttribute('data-name');
                 const subject = el.getAttribute('data-subject');
                 _openChapterInQBank(subject, name);
-            } else if (action === 'search-id') {
-                const id = el.getAttribute('data-id');
-                _searchQuestionById(id);
             }
+            // data-action="search-id" intentionally unhandled (ID search disabled).
         });
     });
 }
@@ -563,7 +545,7 @@ function _renderSearchResults(results, query, showIdOption) {
 function _openSubjectInQBank(subjectName) {
     _closeSearchDropdown();
     const input = _getSearchInput();
-    if (input) { input.value = ''; input.placeholder = 'Search subjects, chapters, or question ID...'; }
+    if (input) { input.value = ''; input.placeholder = 'Search subjects, chapters...'; }
     
     if (!window.db || !window.db.selectedQBankId) {
         if (window.openQBankSelection) window.openQBankSelection();
@@ -582,7 +564,7 @@ function _openSubjectInQBank(subjectName) {
 function _openChapterInQBank(subjectName, chapterName) {
     _closeSearchDropdown();
     const input = _getSearchInput();
-    if (input) { input.value = ''; input.placeholder = 'Search subjects, chapters, or question ID...'; }
+    if (input) { input.value = ''; input.placeholder = 'Search subjects, chapters...'; }
     
     if (!window.db || !window.db.selectedQBankId) {
         if (window.openQBankSelection) window.openQBankSelection();
@@ -606,7 +588,9 @@ function _openChapterInQBank(subjectName, chapterName) {
 }
 
 function _searchQuestionById(term) {
-    if (window.QBANK_SEARCH_DISABLED) return;
+    // DISABLED: direct question-ID lookup costs Firestore reads (index scan +
+    // doc fetches). Fail closed with zero network cost.
+    if (window.QBANK_ID_SEARCH_DISABLED !== false) return;
     _closeSearchDropdown();
     const input = _getSearchInput();
     if (!input) return;
@@ -655,7 +639,6 @@ function _searchQuestionById(term) {
 
 // Input handler with debouncing
 window.handleHomeSearchInput = function(event) {
-    if (window.QBANK_SEARCH_DISABLED) { event.preventDefault && event.preventDefault(); return; }
     const query = event.target.value;
     
     clearTimeout(_searchDebounceTimer);
@@ -666,7 +649,6 @@ window.handleHomeSearchInput = function(event) {
 
 // Focus handler - show dropdown if there's content
 window.handleHomeSearchFocus = function(event) {
-    if (window.QBANK_SEARCH_DISABLED) { event.target && event.target.blur && event.target.blur(); return; }
     const query = event.target.value;
     if (query && query.trim()) {
         _performSearch(query);
@@ -675,7 +657,6 @@ window.handleHomeSearchFocus = function(event) {
 
 // Keydown handler for Enter, Up, Down arrows
 window.handleHomeSearch = function(event) {
-    if (window.QBANK_SEARCH_DISABLED) { event.preventDefault && event.preventDefault(); return; }
     const inputEl = event.target;
     const dropdown = _getSearchDropdown();
     
@@ -719,13 +700,11 @@ window.handleHomeSearch = function(event) {
             }
         }
         
-        // Otherwise, try ID search
+        // ID search disabled — Enter with no active suggestion just re-runs the
+        // local subject/chapter search (zero Firestore reads).
         const term = (inputEl.value || '').trim();
         if (!term) return;
-        
-        inputEl.blur();
-        _closeSearchDropdown();
-        _searchQuestionById(term);
+        _performSearch(term);
         return;
     }
     
@@ -745,27 +724,28 @@ document.addEventListener('click', function(e) {
     }
 });
 
-// Search kill-switch: keep the input hidden/disabled even if index.html is cached.
-(function _disableHomeSearchBoot() {
-    const kill = () => {
-        if (!window.QBANK_SEARCH_DISABLED) return;
+// Search boot: ensure the subject/chapter input stays enabled/visible even if
+// an older cached index.html hid it. ID search stays disabled via
+// window.QBANK_ID_SEARCH_DISABLED + the 410 on get_question.
+(function _fixHomeSearchBoot() {
+    const fix = () => {
         try {
-            clearTimeout(_searchDebounceTimer);
-            _closeSearchDropdown();
             const input = _getSearchInput();
             if (input) {
-                input.value = '';
-                input.disabled = true;
-                input.setAttribute('tabindex', '-1');
-                input.setAttribute('aria-hidden', 'true');
+                input.disabled = false;
+                input.removeAttribute('tabindex');
+                input.removeAttribute('aria-hidden');
+                if (!input.placeholder || /disabled/i.test(input.placeholder)) {
+                    input.placeholder = 'Search subjects, chapters...';
+                }
                 const wrap = input.closest ? input.closest('.flex-1') : null;
-                if (wrap) wrap.style.display = 'none';
+                if (wrap) wrap.style.display = '';
             }
         } catch (_) {}
     };
-    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', kill);
-    else kill();
-    setTimeout(kill, 500);
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', fix);
+    else fix();
+    setTimeout(fix, 500);
 })();
 
 window.toggleRightPane = function () {
