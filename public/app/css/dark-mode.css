@@ -1,0 +1,421 @@
+/* ================================================================
+   OmNote — Dark mode (loaded LAST)
+   Single convention: html.dark
+   The theme toggle in js/app.js keeps html.dark, body.dark,
+   body.dark-exam in sync (and removes body.app-light-mode).
+   ================================================================ */
+
+html.dark {
+  /* Dashboard shell tokens (dashboard.css defines these light) */
+  --dash-teal: #2bb3bd;
+  --dash-teal-dark: #45c9d2;
+  --dash-teal-soft: #123a3f;
+  --dash-ink: #eaf2f4;
+  --dash-ink-2: #c1d1d6;
+  --dash-ink-3: #8ba0a7;
+  --dash-line: #1f2e33;
+  --dash-line-2: #27383d;
+  --dash-surface: #10191c;
+  --dash-canvas: #0b1416;
+  --dash-green: #34d399;
+  --dash-amber: #f0b429;
+  --dash-red: #f2726a;
+
+  color-scheme: dark;
+}
+
+html.dark,
+html.dark body {
+  background: var(--dash-canvas) !important;
+  color: var(--dash-ink) !important;
+}
+
+/* ---------------- Shell: sidebar, topbar, panes ---------------- */
+html.dark #app-wrapper,
+html.dark #main-content,
+html.dark #workspace,
+html.dark #home-view,
+html.dark #scheduler-view,
+html.dark #stats-view {
+  background: var(--dash-canvas) !important;
+  color: var(--dash-ink);
+}
+
+html.dark #sidebar-menu,
+html.dark #topbar,
+html.dark .home-header,
+html.dark .sidebar-header,
+html.dark .sidebar-content,
+html.dark .sidebar-footer,
+html.dark #left-pane,
+html.dark #right-pane {
+  background: var(--dash-surface) !important;
+  border-color: var(--dash-line) !important;
+  color: var(--dash-ink) !important;
+}
+
+html.dark #topbar,
+html.dark #sidebar-menu {
+  border-color: var(--dash-line) !important;
+}
+
+html.dark .nav-item {
+  color: var(--dash-ink-2) !important;
+  background: transparent;
+}
+html.dark .nav-item:hover {
+  background: rgba(255, 255, 255, 0.05) !important;
+  color: var(--dash-ink) !important;
+}
+html.dark .nav-item.active,
+html.dark .nav-item[aria-current="page"] {
+  background: var(--dash-teal-soft) !important;
+  color: var(--dash-teal-dark) !important;
+}
+html.dark .nav-item.is-primary,
+html.dark .nav-item.is-primary:hover {
+  background: #0e7c86 !important;
+  color: #ffffff !important;
+  border-color: #0e7c86 !important;
+}
+html.dark .nav-item.is-outline,
+html.dark .nav-item.is-outline:hover {
+  background: var(--dash-surface) !important;
+  border-color: var(--dash-line-2) !important;
+  color: var(--dash-ink-2) !important;
+}
+html.dark .nav-divider { background: var(--dash-line) !important; }
+html.dark .nav-section-title,
+html.dark .sidebar-section-label { color: var(--dash-ink-3) !important; }
+
+html.dark #streak-chip {
+  background: #2a2110 !important;
+  border-color: #4a3a15 !important;
+  color: var(--dash-amber) !important;
+}
+
+/* ---------------- Generic surfaces ---------------- */
+html.dark .sidebar-content .stat-card,
+html.dark .dash-stat,
+html.dark .dash-card,
+html.dark .dash-doc,
+html.dark .dash-mini-btn,
+html.dark .topbar-more-panel,
+html.dark .home-doc-card,
+html.dark .home-subject-card,
+html.dark .doc-card,
+html.dark .subject-card,
+html.dark .sched-side-card,
+html.dark .pomo-stat-card,
+html.dark .goals-card,
+html.dark .stat-card,
+html.dark .card,
+html.dark .panel {
+  background: var(--dash-surface) !important;
+  border-color: var(--dash-line) !important;
+  color: var(--dash-ink) !important;
+}
+
+html.dark .dash-bar { background: #1a262a !important; }
+html.dark .dash-chip {
+  background: var(--dash-teal-soft) !important;
+  color: var(--dash-teal-dark) !important;
+}
+html.dark .dash-chip.exam { background: #3a1a17 !important; color: var(--dash-red) !important; }
+html.dark .dash-chip.srs { background: #2a2110 !important; color: var(--dash-amber) !important; }
+html.dark .due-badge { background: #2a2110 !important; color: var(--dash-amber) !important; }
+html.dark .doc-card-icon,
+html.dark .dash-doc-badge {
+  background: var(--dash-teal-soft) !important;
+  color: var(--dash-teal-dark) !important;
+}
+html.dark .dash-row { border-top-color: var(--dash-line) !important; }
+html.dark .dash-doc:hover,
+html.dark .home-doc-card:hover,
+html.dark .dash-stat.clickable:hover {
+  border-color: var(--dash-teal) !important;
+  box-shadow: 0 8px 24px -14px rgba(0, 0, 0, 0.8) !important;
+}
+
+/* ---------------- Buttons ---------------- */
+html.dark .btn-action,
+html.dark .btn-action.violet,
+html.dark #topbar .btn-logout,
+html.dark .pomo-pill,
+html.dark .btn-home,
+html.dark .btn-dark-pill,
+html.dark .btn-ico,
+html.dark .notif-bell-btn,
+html.dark .profile-circle-btn,
+html.dark .pomo-ctl-btn,
+html.dark .sched-nav-btn,
+html.dark .sched-type-btn,
+html.dark .sched-add-mini,
+html.dark .srs-btn,
+html.dark .chat-suggestion,
+html.dark .dash-mini-btn {
+  background: #16242a !important;
+  border-color: var(--dash-line-2) !important;
+  color: var(--dash-ink-2) !important;
+}
+html.dark .btn-action:hover,
+html.dark .dash-mini-btn:hover,
+html.dark .btn-home:hover,
+html.dark .btn-ico:hover,
+html.dark .srs-btn:hover,
+html.dark .chat-suggestion:hover {
+  border-color: var(--dash-teal) !important;
+  color: var(--dash-teal-dark) !important;
+}
+html.dark .btn-action.primary,
+html.dark .btn-action.primary:hover,
+html.dark .btn-upload-top,
+html.dark .btn-upload-top:hover,
+html.dark #home-empty-state .btn-empty-upload {
+  background: #0e7c86 !important;
+  border-color: #0e7c86 !important;
+  color: #ffffff !important;
+}
+html.dark .btn-logout {
+  background: transparent !important;
+  color: var(--dash-ink-3) !important;
+}
+
+html.dark .btn-icon,
+html.dark .topbar-right .btn-icon { color: var(--dash-ink-2) !important; }
+html.dark .topbar-right .btn-icon:hover {
+  background: rgba(45, 212, 191, 0.12) !important;
+  color: var(--dash-teal-dark) !important;
+}
+
+/* ---------------- Nav tabs (segmented pill) ---------------- */
+html.dark .main-nav-tabs { background: rgba(255, 255, 255, 0.04) !important; }
+html.dark .main-nav-tab {
+  color: var(--dash-ink-3) !important;
+  background: transparent !important;
+}
+html.dark .main-nav-tab:hover {
+  background: rgba(255, 255, 255, 0.06) !important;
+  color: var(--dash-ink) !important;
+}
+html.dark .main-nav-tab.active {
+  background: #17383b !important;
+  color: var(--dash-teal-dark) !important;
+  border-bottom-color: var(--dash-teal) !important;
+}
+
+/* ---------------- Text ---------------- */
+html.dark h1, html.dark h2, html.dark h3, html.dark h4, html.dark h5,
+html.dark .home-title, html.dark .doc-title, html.dark .sched-title,
+html.dark .dash-stat-value, html.dark .dash-card-title,
+html.dark .dash-row-title, html.dark .dash-doc-name,
+html.dark #top-doc-title { color: var(--dash-ink) !important; }
+
+html.dark .home-subtitle, html.dark .doc-subtitle,
+html.dark .dash-stat-label, html.dark .dash-stat-hint,
+html.dark .dash-row-sub, html.dark .dash-doc-meta,
+html.dark .dash-empty, html.dark .home-subject-label,
+html.dark .muted, html.dark .text-muted { color: var(--dash-ink-3) !important; }
+
+html.dark .home-kicker {
+  background: var(--dash-teal-soft) !important;
+  color: var(--dash-teal-dark) !important;
+}
+
+/* ---------------- Forms ---------------- */
+html.dark input,
+html.dark textarea,
+html.dark select,
+html.dark .chat-input,
+html.dark .sched-input {
+  background: #16242a !important;
+  border-color: var(--dash-line-2) !important;
+  color: var(--dash-ink) !important;
+}
+html.dark input::placeholder,
+html.dark textarea::placeholder { color: var(--dash-ink-3) !important; }
+html.dark input:focus,
+html.dark textarea:focus,
+html.dark select:focus { border-color: var(--dash-teal) !important; }
+
+/* ---------------- Modals / overlays / menus ---------------- */
+html.dark .modal,
+html.dark .modal-content,
+html.dark .modal-body,
+html.dark .modal-header,
+html.dark .modal-footer,
+html.dark .dropdown-menu,
+html.dark .menu-panel,
+html.dark .popover,
+html.dark .settings-panel,
+html.dark .notif-panel,
+html.dark .fullscreen-modal .modal-inner {
+  background: var(--dash-surface) !important;
+  border-color: var(--dash-line-2) !important;
+  color: var(--dash-ink) !important;
+}
+html.dark .custom-popover, 
+html.dark .popover-main, 
+html.dark .popover-sidebar {
+  background-color: var(--dash-surface) !important;
+  border-color: var(--dash-line-2) !important;
+}
+html.dark .modal-overlay,
+html.dark .overlay-backdrop { background: rgba(0, 0, 0, 0.65) !important; }
+
+/* ---------------- Workspace: summary / notes / markdown ---------------- */
+html.dark #summary-view,
+html.dark #notes-view,
+html.dark .left-view-section,
+html.dark #summary-view .summary-header,
+html.dark #summary-view .summary-title-bar {
+  background: var(--dash-surface) !important;
+  border-color: var(--dash-line) !important;
+  color: var(--dash-ink) !important;
+}
+html.dark #summary-content.markdown-body,
+html.dark #summary-content.markdown-body p,
+html.dark #summary-content.markdown-body li,
+html.dark .markdown-body { color: var(--dash-ink) !important; }
+html.dark #summary-content.markdown-body strong { color: var(--dash-teal-dark) !important; }
+html.dark .markdown-body code,
+html.dark .markdown-body pre {
+  background: #16242a !important;
+  color: var(--dash-ink) !important;
+  border-color: var(--dash-line-2) !important;
+}
+html.dark .markdown-body blockquote {
+  border-left-color: var(--dash-teal) !important;
+  color: var(--dash-ink-2) !important;
+}
+html.dark #summary-content.markdown-body mark {
+  background: #3d3410 !important;
+  color: #ffe9a8 !important;
+}
+html.dark .markdown-body table th,
+html.dark .markdown-body table td { border-color: var(--dash-line-2) !important; }
+html.dark .markdown-body table th { background: #16242a !important; }
+
+/* ---------------- Chat ---------------- */
+html.dark .chat-header,
+html.dark .chat-messages,
+html.dark .chat-input-area {
+  background: var(--dash-surface) !important;
+  border-color: var(--dash-line) !important;
+}
+html.dark .msg-assistant { background: #16242a !important; color: var(--dash-ink) !important; }
+
+/* ---------------- Flashcards / mindmap / chunks ---------------- */
+html.dark .flashcard,
+html.dark .flashcard-front { background: var(--dash-surface) !important; color: var(--dash-ink) !important; }
+html.dark .flashcard-back { background: #16242a !important; color: var(--dash-ink) !important; }
+html.dark .chunk-item,
+html.dark .chunk-card {
+  background: var(--dash-surface) !important;
+  border-color: var(--dash-line) !important;
+  color: var(--dash-ink) !important;
+}
+html.dark .chunk-item.active,
+html.dark .chunk-card.active { background: #17383b !important; }
+html.dark #mindmap-network {
+  background: var(--dash-canvas) !important;
+  border-color: var(--dash-line-2) !important;
+}
+
+/* ---------------- Scheduler / stats ---------------- */
+html.dark .sched-shell,
+html.dark .sched-side,
+html.dark .sched-body,
+html.dark .pomo-panel,
+html.dark .pomo-chart-wrap,
+html.dark .pomo-per-doc-wrap {
+  background: var(--dash-surface) !important;
+  border-color: var(--dash-line) !important;
+  color: var(--dash-ink) !important;
+}
+html.dark .pomo-chart { background: #16242a !important; }
+html.dark .sched-cell,
+html.dark .sched-day { border-color: var(--dash-line) !important; }
+
+/* ---------------- Full-doc exam (views-polish.css) ---------------- */
+html.dark .fdx-band-warn { background: #2a2110 !important; color: #f4d68b !important; }
+html.dark .fdx-len-btn,
+html.dark .fdx-opt,
+html.dark .fdx-card,
+html.dark .fdx-panel {
+  background: #16242a !important;
+  border-color: var(--dash-line-2) !important;
+  color: var(--dash-ink) !important;
+}
+html.dark .fdx-len-btn.active,
+html.dark .fdx-opt.active { border-color: var(--dash-teal) !important; color: var(--dash-teal-dark) !important; }
+html.dark .fdx-review-btn { background: #0e7c86 !important; color: #ffffff !important; }
+
+/* ---------------- Misc ---------------- */
+html.dark hr,
+html.dark .divider { border-color: var(--dash-line) !important; }
+html.dark ::-webkit-scrollbar-thumb { background: #27383d; }
+html.dark ::-webkit-scrollbar-track { background: var(--dash-canvas); }
+
+/* ---------------- Flashcard review card (question side) ---------------- */
+html.dark #review-modal .usmle-question-text#card-front,
+body.dark-exam #review-modal .usmle-question-text#card-front {
+  background: linear-gradient(155deg, #16242a, #101c21) !important;
+  border-color: #263539 !important;
+  color: #eef4f5 !important;
+  box-shadow: 0 20px 40px rgba(0,0,0,0.35) !important;
+}
+html.dark #review-modal .usmle-question-text#card-front::before,
+body.dark-exam #review-modal .usmle-question-text#card-front::before {
+  color: #5dd3dc !important;
+  opacity: 1 !important;
+}
+html.dark #review-modal .usmle-answer-reveal#card-back,
+body.dark-exam #review-modal .usmle-answer-reveal#card-back {
+  background: linear-gradient(155deg, #10262a, #0e1e26) !important;
+  border-color: #0e7c86 !important;
+  color: #eef4f5 !important;
+  box-shadow: 0 18px 36px rgba(0,0,0,0.35) !important;
+}
+html.dark #review-modal .usmle-answer-reveal#card-back::before,
+body.dark-exam #review-modal .usmle-answer-reveal#card-back::before {
+  color: #5dd3dc !important;
+}
+html.dark .cloze-blank, body.dark-exam .cloze-blank {
+  background: rgba(93,211,220,0.10) !important;
+  border-bottom-color: #5dd3dc !important;
+  color: #5dd3dc !important;
+}
+html.dark .cloze-answer, body.dark-exam .cloze-answer {
+  background: rgba(93,211,220,0.16) !important;
+  color: #7fe3ea !important;
+}
+
+/* ---------------- Scheduler calendar ---------------- */
+html.dark .sched-calendar-wrap {
+  background: var(--dash-surface) !important;
+  border-color: var(--dash-line) !important;
+  box-shadow: 0 12px 40px rgba(0,0,0,0.35) !important;
+}
+html.dark .sched-cal-title { color: var(--dash-ink) !important; }
+html.dark .sched-cal-dow,
+html.dark .sched-cal-dow > div,
+html.dark .sched-legend,
+html.dark .sched-cell-more { color: var(--dash-ink-dim, #b6c6cb) !important; }
+html.dark .sched-cell {
+  background: #16242a !important;
+  border-color: var(--dash-line-2) !important;
+}
+html.dark .sched-cell:hover { background: #1b2e34 !important; border-color: var(--dash-teal, #0e7c86) !important; }
+html.dark .sched-cell.muted { opacity: 0.5 !important; background: #121d22 !important; }
+html.dark .sched-cell.selected {
+  background: #17383b !important;
+  border-color: var(--dash-teal, #0e7c86) !important;
+}
+html.dark .sched-cell-day { color: var(--dash-ink) !important; }
+html.dark .sched-cell.today .sched-cell-day { color: #ffffff !important; }
+html.dark .sched-cell-chip.study { background: rgba(59,130,246,0.20) !important; color: #a9cdfb !important; border-color: rgba(59,130,246,0.40) !important; }
+html.dark .sched-cell-chip.exam  { background: rgba(239,68,68,0.20) !important;  color: #f3b3ab !important; border-color: rgba(239,68,68,0.40) !important; }
+html.dark .sched-cell-chip.srs   { background: rgba(168,85,247,0.20) !important; color: #d5b6f7 !important; border-color: rgba(168,85,247,0.40) !important; }
+html.dark .sched-item-title, html.dark .sched-side-title { color: var(--dash-ink) !important; }
+html.dark .sched-item-meta, html.dark .sched-item-notes, html.dark .sched-empty { color: var(--dash-ink-dim, #b6c6cb) !important; }
