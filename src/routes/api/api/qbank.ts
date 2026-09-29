@@ -325,58 +325,8 @@ export const Route = createFileRoute("/api/qbank")({
 
 
           if (action === "get_question") {
-            // Live lookup by human code / doc id / doc-id prefix against the
-            // shared in-memory index. Index is surgically updated on every
-            // admin edit/import/delete, so results are always fresh. The
-            // document itself is fetched live from Firestore.
-            const rawRef = urlObj.searchParams.get("ref") || "";
-            const hintBank = urlObj.searchParams.get("qbankId") || "";
-            const wantRefresh = urlObj.searchParams.get("refresh") === "1";
-            if (!rawRef || !/^[A-Za-z0-9_-]{3,64}$/.test(rawRef)) return json({ error: "Invalid ref" }, 400, cors);
-
-            await ensureQIndex(wantRefresh);
-            const candidates = qindexLookup(rawRef);
-            if (candidates.length === 0) return json({ question: null, matches: 0 }, 404, cors);
-
-            const validId = (x: string) => /^[a-zA-Z0-9_-]+$/.test(x);
-            const fetchDoc = async (bid: string, qid: string) => {
-              if (!validId(bid) || !validId(qid)) return null;
-
-              // Access Verification Check (grants unlock any kind of bank)
-              const access = await resolveBankAccess(sa, token, uid, bid);
-              if (!access.ok) return null;
-
-              const r = await fetch(
-                `https://firestore.googleapis.com/v1/projects/${sa.project_id}/databases/(default)/documents/qbanks/${bid}/questions/${qid}`,
-                { headers: { Authorization: `Bearer ${token}` } }
-              );
-              if (!r.ok) return null;
-              const doc = await r.json();
-              let parsed: any = {};
-              try { parsed = JSON.parse(doc.fields?.data?.stringValue || "{}"); } catch {}
-              return { id: qid, text: doc.fields?.questionText?.stringValue || "", data: parsed, qbankId: bid };
-            };
-
-            // Rank: hinted bank first
-            const rank = (e: any) => (validId(hintBank) && e.qbankId === hintBank ? 0 : 1);
-            candidates.sort((a: any, b: any) => rank(a) - rank(b));
-
-            const alive: any[] = [];
-            for (const c of candidates.slice(0, 5)) {
-              const doc = await fetchDoc(c.qbankId, c.questionId);
-              if (doc) alive.push(doc);
-            }
-            if (alive.length === 0) {
-              // stale index entries — force rebuild next time
-              await ensureQIndex(true).catch(() => {});
-              return json({ question: null, matches: candidates.length }, 404, cors);
-            }
-            const [best, ...rest] = alive;
-            return json({
-              question: best,
-              matches: candidates.length,
-              alternatives: rest.map(r => ({ qbankId: r.qbankId, id: r.id })),
-            }, 200, cors);
+            // DISABLED: question-ID search removed to stop wasting Firestore reads.
+            return json({ error: "Search disabled", question: null }, 410, cors);
           }
 
           if (action === "get_questions") {
