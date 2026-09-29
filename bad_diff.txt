@@ -1,0 +1,51 @@
+Created At: 2026-08-23T19:18:23Z
+Completed At: 2026-08-23T19:19:59Z
+The following changes were made by the multi_replace_file_content tool to: c:\Users\Administrator\Desktop\om-note-free\public\app\js\qbank.js. If relevant, proactively run terminal commands to execute this code for the USER. Don't ask for permission.
+[diff_block_start]
+@@ -457,1971 +457,2055 @@
+                 </div>
+               </div>
+               <span class="font-label-sm text-[10px] text-on-surface-variant opacity-60 group-hover:opacity-100 transition-opacity whitespace-nowrap">${timeStr}</span>
+-            </div>
+-            `;
+-        });
+-      } else {
+-          recentActivityHtml = `<div class="text-on-surface-variant text-sm p-4 text-center">No recent sessions yet. Start practicing!</div>`;
+-      }
+-
+-      let resourcesHtml = '';
+-      if (activeQBankMeta.resources && activeQBankMeta.resources.length > 0) {
+-        let itemsHtml = activeQBankMeta.resources.map(r => {
+-            let icon = 'link';
+-            let color = 'text-primary';
+-            if (r.type === 'youtube') { icon = 'play_circle'; color = 'text-[#ef4444]'; }
+-            if (r.type === 'pdf') { icon = 'picture_as_pdf'; color = 'text-[#3b82f6]'; }
+-            if (r.type === 'flashcards') { icon = 'style'; color = 'text-[#eab308]'; }
+-            return `
+-            <a href="${window.escapeHtml ? window.escapeHtml(r.url) : r.url}" target="_blank" class="flex items-center gap-3 p-4 rounded-xl bg-surface-container hover:bg-surface-container-high transition-colors group border border-transparent hover:border-outline-variant/30">
+-              <div class="w-10 h-10 rounded-full bg-surface-container-highest flex items-center justify-center flex-shrink-0 group-hover:scale-105 transition-transform">
+-                <span class="material-symbols-outlined ${color}">${icon}</span>
+-              </div>
+-              <div class="flex-1 min-w-0">
+-                <h4 class="font-title-sm text-sm text-on-surface truncate font-medium">${wi
+<truncated 45284 bytes>
+;height:14px;${isMarked ? 'fill:var(--accent-cyan);' : ''}"></i> ${isMarked ? 'Marked' : 'Mark'}
+-                   </button>
+-                   <button class="btn-dark-pill" style="padding:4px 10px; font-size:0.8rem; color:${hasNote ? 'var(--accent-cyan)' : 'var(--text-secondary)'}; display:flex; align-items:center; gap:4px; height:27px;" onclick="window.qbankToggleNoteUI()">
+-                     <i data-lucide="file-text" style="width:14px;height:14px;${hasNote ? 'fill:var(--accent-cyan);' : ''}"></i> ${hasNote ? 'Edit Note' : 'Add Note'}
+-                   </button>
+-                   <button class="btn-dark-pill" id="qbank-highlighter-btn" style="padding:4px 10px; font-size:0.8rem; color:${highActive ? 'var(--accent-cyan)' : 'var(--text-secondary)'}; display:flex; align-items:center; gap:4px; height:27px;" onclick="window.qbankToggleHighlighter()">
+-                     <i data-lucide="highlighter" style="width:14px;height:14px;${highActive ? 'stroke:var(--accent-cyan);' : ''}"></i> Highlighter
+-                   </button>
+-                   <button class="btn-dark-pill" style="padding:4px 10px; font-size:0.8rem; color:var(--text-secondary); display:flex; align-items:center; gap:4px; height:27px;" onclick="window.generateAIFlashcard('${q.id}')" title="Generate AI Flashcard for this question">
+-                     <i data-lucide="brain" style="width:14px;height:14px;"></i> AI Flashcard
+-                   </button>
+-                   <button class="btn-dark-pill" style="padding:4px 10px; font-size:0.8rem; color:#ef4444; display:flex; align-items:center; gap:4px; height:27px;" onclick="window.qbankReportQuestion('${q.id}')" title="Report an error in this question">
+-                     <i data-lucide="flag" style="width:14px;height:14px;"></i> Report
+-                   </button>
+-                 `;
+-               })()}
+-     
+<truncated 167009 bytes>
+
+NOTE: The output was truncated because it was too long. Use a more targeted query or a smaller range to get the information you need.
