@@ -2022,10 +2022,11 @@
     if (i !== -1) entry.questions.splice(i, 1);
   };
 
-  // ---- Question lookup by Firestore id or human code (used by home search) ----
-  // ALWAYS resolves via the server (Firestore = source of truth), so results
-  // reflect admin edits instantly. No client cache involvement.
+  // ---- Question lookup by Firestore id or human code (DISABLED: wastes Firestore reads) ----
+  // Search bar removed from UI. This stub stays so old callers fail closed with
+  // zero network/Firestore cost instead of triggering get_question.
   window.qbankFindByRef = async function(term, preferBankId) {
+    if (window.QBANK_SEARCH_DISABLED !== false) return null;
     term = String(term || "").trim();
     if (!term || !/^[A-Za-z0-9_-]{3,64}$/.test(term)) return null;
     try {
@@ -2061,8 +2062,9 @@
     }
   };
 
-  // Opens exactly one question as a mini-session.
+  // Opens exactly one question as a mini-session (DISABLED with search bar).
   window.qbankOpenSingle = async function(bankId, bankName, question) {
+    if (window.QBANK_SEARCH_DISABLED !== false) return;
     currentQBankId = bankId;
     allQuestions = [question];
     currentQuestions = [question];

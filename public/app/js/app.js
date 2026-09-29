@@ -250,8 +250,10 @@ document.addEventListener("click", function (e) {
     }
 }, true);
 
-// ---- Home search: live suggestions for subjects, chapters, and question IDs ----
-// Delegates the lookup to the QBank module which owns the question cache.
+// ---- Home search: DISABLED to stop random ID searches wasting Firestore reads ----
+// Set to true to re-enable. When disabled, all search entry points are no-ops
+// and the search input (hidden in index.html) is force-disabled on boot.
+window.QBANK_SEARCH_DISABLED = true;
 
 // Debounce helper
 let _searchDebounceTimer = null;
@@ -300,6 +302,7 @@ function _highlightMatch(text, query) {
 
 // Main search function that finds subjects and chapters
 function _performSearch(query) {
+    if (window.QBANK_SEARCH_DISABLED) { _closeSearchDropdown(); return; }
     const results = [];
     const q = (query || '').trim().toLowerCase();
     
@@ -413,7 +416,9 @@ function _performSearch(query) {
 
 // Load questions from IndexedDB cache (local-first)
 // Uses a separate search index to avoid corrupting the main QBank session cache
+// DISABLED with the search bar — rejects immediately so no full-bank fetch happens.
 function _loadQBankFromCache(qbankId) {
+    if (window.QBANK_SEARCH_DISABLED) return Promise.reject(new Error('Search disabled'));
     return new Promise((resolve, reject) => {
         const loadFn = async () => {
             try {
@@ -601,6 +606,7 @@ function _openChapterInQBank(subjectName, chapterName) {
 }
 
 function _searchQuestionById(term) {
+    if (window.QBANK_SEARCH_DISABLED) return;
     _closeSearchDropdown();
     const input = _getSearchInput();
     if (!input) return;
@@ -649,6 +655,7 @@ function _searchQuestionById(term) {
 
 // Input handler with debouncing
 window.handleHomeSearchInput = function(event) {
+    if (window.QBANK_SEARCH_DISABLED) { event.preventDefault && event.preventDefault(); return; }
     const query = event.target.value;
     
     clearTimeout(_searchDebounceTimer);
@@ -659,6 +666,7 @@ window.handleHomeSearchInput = function(event) {
 
 // Focus handler - show dropdown if there's content
 window.handleHomeSearchFocus = function(event) {
+    if (window.QBANK_SEARCH_DISABLED) { event.target && event.target.blur && event.target.blur(); return; }
     const query = event.target.value;
     if (query && query.trim()) {
         _performSearch(query);
@@ -667,6 +675,7 @@ window.handleHomeSearchFocus = function(event) {
 
 // Keydown handler for Enter, Up, Down arrows
 window.handleHomeSearch = function(event) {
+    if (window.QBANK_SEARCH_DISABLED) { event.preventDefault && event.preventDefault(); return; }
     const inputEl = event.target;
     const dropdown = _getSearchDropdown();
     
@@ -735,6 +744,29 @@ document.addEventListener('click', function(e) {
         _closeSearchDropdown();
     }
 });
+
+// Search kill-switch: keep the input hidden/disabled even if index.html is cached.
+(function _disableHomeSearchBoot() {
+    const kill = () => {
+        if (!window.QBANK_SEARCH_DISABLED) return;
+        try {
+            clearTimeout(_searchDebounceTimer);
+            _closeSearchDropdown();
+            const input = _getSearchInput();
+            if (input) {
+                input.value = '';
+                input.disabled = true;
+                input.setAttribute('tabindex', '-1');
+                input.setAttribute('aria-hidden', 'true');
+                const wrap = input.closest ? input.closest('.flex-1') : null;
+                if (wrap) wrap.style.display = 'none';
+            }
+        } catch (_) {}
+    };
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', kill);
+    else kill();
+    setTimeout(kill, 500);
+})();
 
 window.toggleRightPane = function () {
     const rightPane = document.getElementById('right-pane');

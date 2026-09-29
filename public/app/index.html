@@ -297,12 +297,11 @@
 </aside>
 <div class="pl-72 w-full h-screen overflow-y-auto">
 <header class="fixed top-0 left-72 right-0 h-[60px] bg-white z-40 px-6 flex items-center justify-between border-b border-gray-200">
-    <!-- Search -->
-    <div class="flex-1 max-w-2xl mr-6">
+    <!-- Search (DISABLED: removed to stop random ID searches wasting Firestore reads) -->
+    <div class="flex-1 max-w-2xl mr-6" style="display:none !important;" aria-hidden="true">
         <div class="relative flex items-center group w-full">
             <i class="fa-solid fa-search absolute left-3 text-gray-400 text-[14px]"></i>
-            <input id="home-search-input" class="w-full h-9 pl-9 pr-12 bg-gray-50 border border-transparent rounded text-gray-800 text-[13px] focus:outline-none focus:bg-white focus:border-[#007a7a] focus:ring-1 focus:ring-[#007a7a] transition-all placeholder-gray-400" placeholder="Search subjects, chapters, or question IDs..." type="text" onkeydown="window.handleHomeSearch && window.handleHomeSearch(event)" oninput="window.handleHomeSearchInput && window.handleHomeSearchInput(event)" onfocus="window.handleHomeSearchFocus && window.handleHomeSearchFocus(event)"/>
-            <div class="absolute right-2 top-1/2 transform -translate-y-1/2 text-gray-400 text-[11px] font-semibold">Ctrl K</div>
+            <input id="home-search-input" class="w-full h-9 pl-9 pr-12 bg-gray-50 border border-transparent rounded text-gray-800 text-[13px] focus:outline-none focus:bg-white focus:border-[#007a7a] focus:ring-1 focus:ring-[#007a7a] transition-all placeholder-gray-400" placeholder="Search disabled" type="text" disabled tabindex="-1" />
             <div id="home-search-dropdown" class="absolute top-full left-0 right-0 bg-white border border-gray-200 shadow-lg z-[1001] hidden max-h-80 overflow-y-auto rounded-b mt-1"></div>
         </div>
     </div>
