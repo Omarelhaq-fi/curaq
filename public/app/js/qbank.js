@@ -4779,38 +4779,71 @@
       let totalCorrect = 0;
       let subjectStats = {};
 
-      const qData = cachedQBanks[activeQBankId];
-      if (qData) {
-        totalQuestions = (qData.questions || []).length;
-        const prog = qData.progress || {};
-        for (const q of (qData.questions || [])) {
-           const sub = (q.data && q.data.subject) || "Uncategorized";
-           if (!subjectStats[sub]) subjectStats[sub] = { total: 0, answered: 0, correct: 0, incorrect: 0, marked: 0 };
-           subjectStats[sub].total++;
-           
-           if (prog[q.id]) {
-             if (prog[q.id].correct !== undefined) { 
-               totalAnswered++; 
-               subjectStats[sub].answered++;
-               if (prog[q.id].correct) {
-                 totalCorrect++; 
-                 subjectStats[sub].correct++;
-               } else {
-                 subjectStats[sub].incorrect++;
+      function processBank(bankId) {
+          const qData = cachedQBanks[bankId];
+          if (!qData) return;
+          
+          let bankName = bankId;
+          let isExamPrep = false;
+          if (window.cachedCategories) {
+              const cat = window.cachedCategories.find(c => c.id === bankId);
+              if (cat) {
+                  bankName = cat.name;
+                  if (cat.kind === 'exam_prep') isExamPrep = true;
+              }
+          } else if (window.__epBanks) {
+              const ep = window.__epBanks.find(b => b.id === bankId);
+              if (ep) {
+                  bankName = ep.name;
+                  isExamPrep = true;
+              }
+          }
+
+          if (bankId !== activeQBankId && !isExamPrep) return;
+
+          totalQuestions += (qData.questions || []).length;
+          const prog = qData.progress || {};
+          for (const q of (qData.questions || [])) {
+             let sub = (q.data && q.data.subject) || "Uncategorized";
+             let realSubject = sub;
+             
+             if (isExamPrep) {
+                 sub = `[Exam Prep] ${bankName}` + (sub !== "Uncategorized" ? ` - ${sub}` : "");
+             }
+             
+             if (!subjectStats[sub]) subjectStats[sub] = { 
+                 total: 0, answered: 0, correct: 0, incorrect: 0, marked: 0, 
+                 bankId: bankId, bankName: bankName, realSubject: realSubject 
+             };
+             subjectStats[sub].total++;
+             
+             if (prog[q.id]) {
+               if (prog[q.id].correct !== undefined) { 
+                 if (bankId === activeQBankId) totalAnswered++; 
+                 subjectStats[sub].answered++;
+                 if (prog[q.id].correct) {
+                   if (bankId === activeQBankId) totalCorrect++; 
+                   subjectStats[sub].correct++;
+                 } else {
+                   subjectStats[sub].incorrect++;
+                 }
+               }
+               if (prog[q.id].marked) {
+                   subjectStats[sub].marked++;
                }
              }
-             if (prog[q.id].marked) {
-                 subjectStats[sub].marked++;
-             }
-           }
-        }
+          }
+      }
+
+      if (typeof cachedQBanks !== 'undefined') {
+          Object.keys(cachedQBanks).forEach(bankId => processBank(bankId));
       }
 
       const globalScore = totalAnswered > 0 ? Math.round((totalCorrect / totalAnswered) * 100) : 0;
       
       let specialtyStats = [];
       for (const [sub, stat] of Object.entries(subjectStats)) {
-          if (sub === "Uncategorized") continue;
+          if (stat.realSubject === "Uncategorized" && !sub.startsWith("[Exam Prep]")) continue;
           let specScore = stat.answered > 0 ? Math.round((stat.correct / stat.answered) * 100) : 0;
           specialtyStats.push({ name: sub, ...stat, score: specScore });
       }
@@ -4851,7 +4884,7 @@
                       </div>
                       <button class="px-3 py-1.5 text-[12px] font-bold uppercase rounded-lg border transition-colors flex items-center gap-1 cursor-pointer"
                           style="border-color:#e2e8f0; color:#007a7a; background:transparent;" onmouseover="this.style.background='#f8fafc'" onmouseout="this.style.background='transparent'"
-                          onclick="window.startQBankSession('${activeQBankId}', '${window.escapeHtml ? window.escapeHtml(activeQBankName).replace(/'/g, "\\'") : activeQBankName}', '${window.escapeHtml ? window.escapeHtml(spec.name).replace(/'/g, "\\'") : spec.name}', true)">
+                          onclick="window.startQBankSession('${spec.bankId}', '${window.escapeHtml ? window.escapeHtml(spec.bankName).replace(/'/g, "\\'") : spec.bankName}', '${window.escapeHtml ? window.escapeHtml(spec.realSubject).replace(/'/g, "\\'") : spec.realSubject}', true)">
                           <span class="material-symbols-outlined text-[14px]">refresh</span> Review Incorrects
                       </button>
                   </div>
