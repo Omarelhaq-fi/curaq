@@ -402,27 +402,41 @@
     function renderFlashcardsExplorer() {
         const container = document.getElementById('flashcards-explorer-content');
         if (!container) return;
-        
+
         if (!window.db || !window.db.rems) {
             container.innerHTML = `<div class="text-center p-12 text-on-surface-variant">Loading flashcards...</div>`;
             return;
         }
-        
+
         const now = Date.now();
-        
+
         // Group flashcards by subject
-        const specialtyMap = {}; // { subject: { total: number, due: number } }
+        const specialtyMap = {}; // { subject: { total: number, due: number, basic: number, cloze: number } }
         let totalDue = 0;
         let totalCards = 0;
-        
+
+        function cardIsCloze(c) {
+            const f = (c && (c.front || c.text)) || '';
+            return c.cardType === 'cloze' || (window.hasCloze && window.hasCloze(f));
+        }
+
+        // Header export counts cover EVERY flashcard (even ones without a
+        // subject) so the numbers always match the downloaded CSV files.
+        const allFlashcards = (window.db.rems || []).filter(r => r.isFlashcard);
+        let totalBasic = 0;
+        let totalCloze = 0;
+        allFlashcards.forEach(c => { if (cardIsCloze(c)) totalCloze++; else totalBasic++; });
+
         window.db.rems.forEach(r => {
             if (r.isFlashcard && r.subject) {
                 if (!specialtyMap[r.subject]) {
-                    specialtyMap[r.subject] = { total: 0, due: 0 };
+                    specialtyMap[r.subject] = { total: 0, due: 0, basic: 0, cloze: 0 };
                 }
                 specialtyMap[r.subject].total++;
                 totalCards++;
-                
+                if (cardIsCloze(r)) specialtyMap[r.subject].cloze++;
+                else specialtyMap[r.subject].basic++;
+
                 if (window.srs && window.srs.isDue(r, now)) {
                     specialtyMap[r.subject].due++;
                     totalDue++;
@@ -442,6 +456,21 @@
                     Review All Due (${totalDue})
                 </button>
             </div>
+
+            <div class="flex flex-wrap items-center gap-3 mb-6 rounded-2xl p-4" style="background:#fff; border:1px solid #e2e8f0;">
+                <div class="text-sm" style="color:#475569;">
+                    <strong style="color:#111827;">Export for Anki (CSV):</strong>
+                    Basic and Cloze are different Anki note types, so they download as two separate files — import each file on its own.
+                </div>
+                <div class="flex gap-2" style="margin-left:auto;">
+                    <button data-dl-kind="basic" class="py-2.5 px-4 rounded-xl font-bold transition-colors text-sm cursor-pointer" style="background:#f1f5f9; color:#0f172a; border:1px solid #e2e8f0;" onmouseover="this.style.background='#e2e8f0'" onmouseout="this.style.background='#f1f5f9'" title="Download all Basic cards as CSV for Anki">
+                        ⬇ Basic CSV (${totalBasic})
+                    </button>
+                    <button data-dl-kind="cloze" class="py-2.5 px-4 rounded-xl font-bold transition-colors text-sm cursor-pointer" style="background:#f5f3ff; color:#6d28d9; border:1px solid #ddd6fe;" onmouseover="this.style.background='#ede9fe'" onmouseout="this.style.background='#f5f3ff'" title="Download all Cloze cards as CSV for Anki">
+                        ⬇ Cloze CSV (${totalCloze})
+                    </button>
+                </div>
+            </div>
             
             <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         `;
@@ -457,7 +486,7 @@
                 </div>
             `;
         } else {
-            subjects.forEach(subject => {
+            subjects.forEach((subject, si) => {
                 const stats = specialtyMap[subject];
                 html += `
                     <div style="background:#fff; border:1px solid #e2e8f0; border-radius:16px; padding:24px; box-shadow:0 1px 3px rgba(0,0,0,0.05); transition:all 0.2s;" onmouseover="this.style.boxShadow='0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -1px rgba(0,0,0,0.06)'; this.style.transform='translateY(-2px)';" onmouseout="this.style.boxShadow='0 1px 3px rgba(0,0,0,0.05)'; this.style.transform='translateY(0)';">
@@ -488,6 +517,14 @@
                                 </button>
                             `}
                         </div>
+                        <div class="mt-3 flex gap-2 relative z-10">
+                            ${stats.basic > 0
+                                ? `<button data-dl-kind="basic" data-dl-subject-idx="${si}" class="flex-1 py-2 px-2 rounded-lg font-bold text-xs cursor-pointer" style="background:#f8fafc; color:#0f172a; border:1px solid #e2e8f0;" title="Download this specialty's Basic cards as CSV for Anki">⬇ Basic CSV (${stats.basic})</button>`
+                                : `<button class="flex-1 py-2 px-2 rounded-lg font-bold text-xs" style="background:#f8fafc; color:#94a3b8; border:1px solid #e2e8f0; cursor:not-allowed;" disabled title="No Basic cards in this specialty">⬇ Basic CSV (0)</button>`}
+                            ${stats.cloze > 0
+                                ? `<button data-dl-kind="cloze" data-dl-subject-idx="${si}" class="flex-1 py-2 px-2 rounded-lg font-bold text-xs cursor-pointer" style="background:#f5f3ff; color:#6d28d9; border:1px solid #ddd6fe;" title="Download this specialty's Cloze cards as CSV for Anki">⬇ Cloze CSV (${stats.cloze})</button>`
+                                : `<button class="flex-1 py-2 px-2 rounded-lg font-bold text-xs" style="background:#f8fafc; color:#94a3b8; border:1px solid #e2e8f0; cursor:not-allowed;" disabled title="No Cloze cards in this specialty">⬇ Cloze CSV (0)</button>`}
+                        </div>
                     </div>
                 `;
             });
@@ -495,6 +532,96 @@
         
         html += `</div>`;
         container.innerHTML = html;
+        // Wire Anki CSV export buttons (data attributes avoid inline-handler
+        // quoting issues with specialty names containing quotes/ampersands).
+        try {
+            container.querySelectorAll('[data-dl-kind]').forEach(btn => {
+                btn.addEventListener('click', (ev) => {
+                    ev.stopPropagation();
+                    const kind = btn.getAttribute('data-dl-kind');
+                    const idxAttr = btn.getAttribute('data-dl-subject-idx');
+                    const subject = (idxAttr !== null && idxAttr !== '' && subjects[Number(idxAttr)] !== undefined)
+                        ? subjects[Number(idxAttr)]
+                        : '__all';
+                    window.downloadFlashcardsCsv(kind, subject);
+                });
+            });
+        } catch (_) {}
         if (window.lucide && window.lucide.createIcons) window.lucide.createIcons();
     }
+
+    /* ── Anki CSV export ──────────────────────────────────────────────
+       Basic and Cloze are different Anki note types, so they must be
+       imported as two separate files — hence two separate downloads.
+       Files carry Anki directive headers (#separator / #html / #notetype /
+       #columns) so Anki maps the fields automatically on import. Our
+       {{c1::answer}} / {{c1::answer::hint}} cloze syntax is already
+       Anki-compatible and is exported untouched. ───────────────────── */
+    function ankiTag(s) {
+        return String(s == null ? '' : s).trim().replace(/\s+/g, '_').replace(/["',;:<>\\\/]/g, '').slice(0, 60);
+    }
+
+    function csvCell(v) {
+        return '"' + String(v == null ? '' : v).replace(/\r/g, '').replace(/"/g, '""') + '"';
+    }
+
+    // Back Extra: answer plus the AI explanation (HTML is fine — we export with #html:true).
+    function backExtraHtml(c) {
+        const back = String((c && c.back) || '').trim();
+        const expl = String((c && c.explanation) || '').trim();
+        if (back && expl) return back + '<hr>' + expl;
+        return back || expl || '';
+    }
+
+    function buildAnkiCsv(kind, cards) {
+        const lines = ['#separator:comma', '#html:true'];
+        if (kind === 'cloze') {
+            lines.push('#notetype:Cloze', '#columns:Text,Back Extra,Tags');
+            cards.forEach(c => {
+                const tags = [ankiTag(c.subject || c.topic || ''), 'curaq'].filter(Boolean).join(' ');
+                lines.push([csvCell(String(c.front || c.text || '')), csvCell(backExtraHtml(c)), csvCell(tags)].join(','));
+            });
+        } else {
+            lines.push('#notetype:Basic', '#columns:Front,Back,Tags');
+            cards.forEach(c => {
+                const tags = [ankiTag(c.subject || c.topic || ''), 'curaq'].filter(Boolean).join(' ');
+                lines.push([csvCell(String(c.front || c.text || '')), csvCell(backExtraHtml(c)), csvCell(tags)].join(','));
+            });
+        }
+        return '\uFEFF' + lines.join('\n');
+    }
+
+    window.downloadFlashcardsCsv = function (kind, subject) {
+        if (!window.db || !window.db.rems) { alert('No flashcards loaded yet.'); return; }
+        const isCloze = (c) => {
+            const f = (c && (c.front || c.text)) || '';
+            return c.cardType === 'cloze' || (window.hasCloze && window.hasCloze(f));
+        };
+        let cards = window.db.rems.filter(r => r.isFlashcard);
+        if (subject !== undefined && subject !== null && subject !== '__all') {
+            cards = cards.filter(r => (r.subject || '') === subject);
+        }
+        const picked = cards.filter(c => kind === 'cloze' ? isCloze(c) : !isCloze(c));
+        if (picked.length === 0) {
+            alert(kind === 'cloze' ? 'No cloze cards to export here.' : 'No basic cards to export here.');
+            return;
+        }
+        const csv = buildAnkiCsv(kind, picked);
+        const d = new Date();
+        const stamp = d.getFullYear() + String(d.getMonth() + 1).padStart(2, '0') + String(d.getDate()).padStart(2, '0');
+        const scope = (subject && subject !== '__all') ? '-' + (ankiTag(subject).toLowerCase().slice(0, 30) || 'subject') : '';
+        const filename = 'curaq-flashcards-' + kind + scope + '-' + stamp + '.csv';
+        try {
+            const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            setTimeout(() => { try { URL.createObjectURL && URL.revokeObjectURL(url); a.remove(); } catch (_) {} }, 800);
+        } catch (e) {
+            alert('Export failed: ' + ((e && e.message) || e));
+        }
+    };
 })();

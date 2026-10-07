@@ -2034,7 +2034,7 @@
     return;
   };
 
-  window.startQBankSession = async function (qbankId, qbankName, targetSubject = null, reviewIncorrectsOnly = false) {
+  window.startQBankSession = async function (qbankId, qbankName, targetSubject = null, reviewIncorrectsOnly = false, targetChapter = null) {
     const myNav = nextNavToken();
     const area = document.getElementById("qbank-home-content");
     if (!area) return;
@@ -2055,7 +2055,11 @@
     
     try {
       let qData = cachedQBanks[qbankId];
-      if (!qData) {
+      // A cached entry with no stems is not usable (e.g. only progress was
+      // ever fetched for it) — refetch instead of showing "empty". Genuinely
+      // empty banks are flagged after a full fetch so they don't refetch.
+      const needsStems = !qData || !Array.isArray(qData.questions) || (qData.questions.length === 0 && !qData._fullEmpty);
+      if (needsStems) {
          area.innerHTML = `
           <div class="flex flex-col justify-center items-center h-64 gap-4">
             <div class="press-wrapper" style="margin: 20px auto 0; display: flex; justify-content: center; align-items: center;">
@@ -2081,6 +2085,7 @@
          }
          
           qData = cachedQBanks[qbankId];
+          if (qData && (!qData.questions || qData.questions.length === 0)) qData._fullEmpty = true;
        }
        if (navStale(myNav)) return;
 
@@ -2136,8 +2141,8 @@
       
       window.qbankCurrentSubjectStats = subjectStats; // Save for chapter view
       
-      if (targetSubject !== null || reviewIncorrectsOnly || (qbankName === "Answer Party" && !window.pendingPartyCreation)) {
-          window.startQBankFiltered(targetSubject, null, reviewIncorrectsOnly);
+      if (targetSubject !== null || reviewIncorrectsOnly || targetChapter !== null || (qbankName === "Answer Party" && !window.pendingPartyCreation)) {
+          window.startQBankFiltered(targetSubject, targetChapter, reviewIncorrectsOnly);
           return;
       }
       
@@ -4773,77 +4778,60 @@
       const qbanks = window.db.qbanks || [];
       const activeQBankMeta = qbanks.find(qb => qb.id === activeQBankId) || qbanks[0];
       const activeQBankName = activeQBankMeta ? activeQBankMeta.name : "Your QBank";
+      const escH = window.escapeHtml ? window.escapeHtml : (s) => s;
+      // JS-escape the RAW value first, then HTML-escape: inline onclick args
+      // are HTML-decoded before running as JS, so \' survives both layers.
+      const jsStr = (s) => escH(String(s == null ? "" : s).replace(/\\/g, "\\\\").replace(/'/g, "\\'"));
+      const safeBankName = jsStr(activeQBankName);
 
       let totalQuestions = 0;
       let totalAnswered = 0;
       let totalCorrect = 0;
       let subjectStats = {};
 
-      function processBank(bankId) {
-          const qData = cachedQBanks[bankId];
-          if (!qData) return;
-          
-          let bankName = bankId;
-          let isExamPrep = false;
-          if (window.cachedCategories) {
-              const cat = window.cachedCategories.find(c => c.id === bankId);
-              if (cat) {
-                  bankName = cat.name;
-                  if (cat.kind === 'exam_prep') isExamPrep = true;
-              }
-          } else if (window.__epBanks) {
-              const ep = window.__epBanks.find(b => b.id === bankId);
-              if (ep) {
-                  bankName = ep.name;
-                  isExamPrep = true;
-              }
-          }
+      const qData = cachedQBanks[activeQBankId];
+      if (qData) {
+        totalQuestions = (qData.questions || []).length;
+        const prog = qData.progress || {};
+        for (const q of (qData.questions || [])) {
+           const sub = (q.data && q.data.subject) || "Uncategorized";
+           const ch = (q.data && q.data.chapter) || null;
+           if (!subjectStats[sub]) subjectStats[sub] = { total: 0, answered: 0, correct: 0, incorrect: 0, marked: 0, chapters: {} };
+           subjectStats[sub].total++;
+           let chStat = null;
+           if (ch) {
+               if (!subjectStats[sub].chapters[ch]) subjectStats[sub].chapters[ch] = { total: 0, answered: 0, correct: 0, incorrect: 0, marked: 0 };
+               chStat = subjectStats[sub].chapters[ch];
+               chStat.total++;
+           }
 
-          if (bankId !== activeQBankId && !isExamPrep) return;
-
-          totalQuestions += (qData.questions || []).length;
-          const prog = qData.progress || {};
-          for (const q of (qData.questions || [])) {
-             let sub = (q.data && q.data.subject) || "Uncategorized";
-             let realSubject = sub;
-             
-             if (isExamPrep) {
-                 sub = `[Exam Prep] ${bankName}` + (sub !== "Uncategorized" ? ` - ${sub}` : "");
-             }
-             
-             if (!subjectStats[sub]) subjectStats[sub] = { 
-                 total: 0, answered: 0, correct: 0, incorrect: 0, marked: 0, 
-                 bankId: bankId, bankName: bankName, realSubject: realSubject 
-             };
-             subjectStats[sub].total++;
-             
-             if (prog[q.id]) {
-               if (prog[q.id].correct !== undefined) { 
-                 if (bankId === activeQBankId) totalAnswered++; 
-                 subjectStats[sub].answered++;
-                 if (prog[q.id].correct) {
-                   if (bankId === activeQBankId) totalCorrect++; 
-                   subjectStats[sub].correct++;
-                 } else {
-                   subjectStats[sub].incorrect++;
-                 }
+           if (prog[q.id]) {
+             if (prog[q.id].correct !== undefined) {
+               totalAnswered++;
+               subjectStats[sub].answered++;
+               if (prog[q.id].correct) {
+                 totalCorrect++;
+                 subjectStats[sub].correct++;
+                 if (chStat) chStat.correct++;
+               } else {
+                 subjectStats[sub].incorrect++;
+                 if (chStat) chStat.incorrect++;
                }
-               if (prog[q.id].marked) {
-                   subjectStats[sub].marked++;
-               }
+               if (chStat) chStat.answered++;
              }
-          }
-      }
-
-      if (typeof cachedQBanks !== 'undefined') {
-          Object.keys(cachedQBanks).forEach(bankId => processBank(bankId));
+             if (prog[q.id].marked) {
+                 subjectStats[sub].marked++;
+                 if (chStat) chStat.marked++;
+             }
+           }
+        }
       }
 
       const globalScore = totalAnswered > 0 ? Math.round((totalCorrect / totalAnswered) * 100) : 0;
       
       let specialtyStats = [];
       for (const [sub, stat] of Object.entries(subjectStats)) {
-          if (stat.realSubject === "Uncategorized" && !sub.startsWith("[Exam Prep]")) continue;
+          if (sub === "Uncategorized") continue;
           let specScore = stat.answered > 0 ? Math.round((stat.correct / stat.answered) * 100) : 0;
           specialtyStats.push({ name: sub, ...stat, score: specScore });
       }
@@ -4857,10 +4845,40 @@
           specialtyStats.forEach(spec => {
               labels.push(spec.name);
               dataScore.push(spec.score);
-              
+
               const colorClass = spec.score >= 80 ? 'background:#10b981' : (spec.score >= 50 ? 'background:#007a7a' : 'background:#e11d48');
               const textClass = spec.score >= 80 ? 'color:#10b981' : (spec.score >= 50 ? 'color:#111827' : 'color:#e11d48');
-              
+              const subSafe = jsStr(spec.name);
+
+              // Chapter-by-chapter breakdown, expandable per specialty.
+              const chEntries = Object.keys(spec.chapters || {})
+                  .map(name => ({ name, ...spec.chapters[name] }))
+                  .map(c => ({ ...c, score: c.answered > 0 ? Math.round((c.correct / c.answered) * 100) : 0 }))
+                  .sort((a, b) => b.answered - a.answered || String(a.name).localeCompare(String(b.name)));
+              let chapHtml = '';
+              if (chEntries.length > 0) {
+                  const chRows = chEntries.map(c => {
+                      const cColor = c.score >= 80 ? '#10b981' : (c.score >= 50 ? '#007a7a' : '#e11d48');
+                      const chSafe = jsStr(c.name);
+                      // Reviewable = wrong OR marked (mirrors the review session filter).
+                      const reviewable = (c.incorrect || 0) + (c.marked || 0);
+                      return `
+                      <div class="flex items-center gap-2 rounded-lg px-3 py-2" style="background:#f8fafc; border:1px solid #eef2f7;">
+                          <div class="flex-1 min-w-0">
+                              <div class="text-[13px] font-semibold truncate" style="color:#111827;" title="${escH(c.name)}">${escH(c.name)}</div>
+                              <div class="text-[11px]" style="color:#6b7280;">${c.answered} / ${c.total} · <span style="color:${cColor}; font-weight:800;">${c.score}%</span></div>
+                          </div>
+                          <button class="px-2 py-1 text-[11px] font-bold uppercase rounded-lg border cursor-pointer" style="border-color:#e2e8f0; color:#007a7a; background:#fff;" onclick="window.startQBankSession('${activeQBankId}', '${safeBankName}', '${subSafe}', false, '${chSafe}')">Practice</button>
+                          ${reviewable > 0 ? `<button class="px-2 py-1 text-[11px] font-bold uppercase rounded-lg cursor-pointer" style="background:#fef2f2; color:#e11d48; border:1px solid #fecaca;" onclick="window.startQBankSession('${activeQBankId}', '${safeBankName}', '${subSafe}', true, '${chSafe}')">Incorrects${c.incorrect > 0 ? ` (${c.incorrect})` : ''}</button>` : ''}
+                      </div>`;
+                  }).join('');
+                  chapHtml = `
+                  <details class="mb-4" style="border:1px solid #eef2f7; border-radius:12px; padding:10px 12px; background:#fff;">
+                      <summary class="text-[12px] font-bold cursor-pointer" style="color:#007a7a;">Chapters (${chEntries.length}) — chapter by chapter</summary>
+                      <div class="flex flex-col gap-2 mt-3">${chRows}</div>
+                  </details>`;
+              }
+
               specialtyListHtml += `
               <div class="rounded-2xl p-6 shadow-sm flex flex-col hover:-translate-y-1 transition-transform group" style="background:#fff; border:1px solid #e2e8f0;">
                   <div class="flex items-start justify-between mb-2">
@@ -4872,10 +4890,12 @@
                           <span class="font-headline-lg" style="${textClass}">${spec.score}%</span>
                       </div>
                   </div>
-                  
+
                   <div class="w-full rounded-full h-2 mb-4" style="background:#f8fafc;">
                     <div class="h-2 rounded-full" style="${colorClass}; width: ${spec.score}%"></div>
                   </div>
+
+                  ${chapHtml}
 
                   <div class="mt-auto pt-4 flex justify-between items-center" style="border-top:1px solid #e2e8f0;">
                       <div class="flex gap-4 text-[12px]" style="color:#6b7280;">
@@ -4884,7 +4904,7 @@
                       </div>
                       <button class="px-3 py-1.5 text-[12px] font-bold uppercase rounded-lg border transition-colors flex items-center gap-1 cursor-pointer"
                           style="border-color:#e2e8f0; color:#007a7a; background:transparent;" onmouseover="this.style.background='#f8fafc'" onmouseout="this.style.background='transparent'"
-                          onclick="window.startQBankSession('${spec.bankId}', '${window.escapeHtml ? window.escapeHtml(spec.bankName).replace(/'/g, "\\'") : spec.bankName}', '${window.escapeHtml ? window.escapeHtml(spec.realSubject).replace(/'/g, "\\'") : spec.realSubject}', true)">
+                          onclick="window.startQBankSession('${activeQBankId}', '${window.escapeHtml ? window.escapeHtml(activeQBankName).replace(/'/g, "\\'") : activeQBankName}', '${window.escapeHtml ? window.escapeHtml(spec.name).replace(/'/g, "\\'") : spec.name}', true)">
                           <span class="material-symbols-outlined text-[14px]">refresh</span> Review Incorrects
                       </button>
                   </div>
@@ -4943,6 +4963,14 @@
               <h3 class="font-headline-lg text-[22px] mb-4 mt-4" style="color:#111827;">Specialty Breakdown</h3>
               <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
                   ${specialtyListHtml}
+              </div>
+          </div>
+
+          <div>
+              <h3 class="font-headline-lg text-[22px] mb-2 mt-4" style="color:#111827;">Exam Prep</h3>
+              <p class="text-sm mb-4" style="color:#6b7280;">Your performance across past-exam (exam-prep) banks and their subjects — only banks with at least one answered question are shown.</p>
+              <div id="ep-performance-section">
+                  <div class="text-center p-8" style="color:#6b7280;">Loading exam-prep stats…</div>
               </div>
           </div>
       </div>
@@ -5043,6 +5071,389 @@
               });
           }
       }
+
+      // Exam-prep banks + subjects load async (cheap progress-only fetches).
+      try { loadExamPrepPerformance(); } catch (_) {}
+  }
+
+  // ── Exam Prep section of the Analytics tab ──
+  // Lists every exam-prep bank with its own accuracy stats plus a combined
+  // subject breakdown aggregated across exam-prep banks. Bank-level totals
+  // come from progress-only fetches (no question download); subject splits
+  // are included for banks whose stems are already cached on the device.
+  // Progress-only results for exam-prep banks whose stems are NOT cached.
+  // Kept OUT of cachedQBanks on purpose: an entry with questions:[] would
+  // make startQBankSession skip its fetch and report "This QBank is empty".
+  // READ BUDGET: opening Analytics must not re-read every exam-prep bank.
+  // Fresh progress is kept in the session memo + an IDB snapshot, so repeat
+  // opens cost 0 reads; a Refresh button forces a live re-fetch instead.
+  const EP_SNAP_KEY = "ep_progress_snapshot:v1";
+  const EP_SNAP_TTL = 2 * 24 * 60 * 60 * 1000; // re-check live numbers when the saved check is older than 2 days
+  let epProgressCache = {}; // session memo: bankId -> progress
+  let epSnapshotUsed = false;
+  let epSnapshotAt = 0;
+
+  async function loadExamPrepPerformance() {
+      const el = document.getElementById("ep-performance-section");
+      if (!el) return;
+      try {
+          let banks = [];
+          try {
+              const list = (window.getQBankList && window.getQBankList()) || cachedCategories || [];
+              banks = (list || []).filter(q => q && q.kind === "exam_prep");
+          } catch (_) { banks = []; }
+          if (banks.length === 0) {
+              try {
+                  const saved = await idbKvGet(KV_KEYS.QBANK_LIST);
+                  if (saved && Array.isArray(saved.banks)) {
+                      cachedCategories = saved.banks;
+                      banks = saved.banks.filter(q => q && q.kind === "exam_prep");
+                  }
+              } catch (_) {}
+          }
+          if (banks.length === 0) {
+              try {
+                  const res = await apiGet("list_categories");
+                  if (res && Array.isArray(res.qbanks)) {
+                      cachedCategories = res.qbanks;
+                      if (res.maxUpdatedAt) window.__qbanksMaxUpdatedAt = res.maxUpdatedAt;
+                      try { idbKvSet(KV_KEYS.QBANK_LIST, { banks: cachedCategories, maxUpdatedAt: window.__qbanksMaxUpdatedAt || 0 }); } catch (_) {}
+                      banks = cachedCategories.filter(q => q && q.kind === "exam_prep");
+                  }
+              } catch (_) {}
+          }
+          if (!document.getElementById("ep-performance-section")) return; // navigated away
+          if (banks.length === 0) {
+              el.innerHTML = '<div class="text-center p-8" style="color:#6b7280;">No exam-prep banks available yet.</div>';
+              return;
+          }
+
+          const rows = [];
+          const subjAgg = {}; // subject -> { total, answered, correct, incorrect, chapters: { ch -> { ..., marked, banks } } }
+          const MAX_FETCH = 30; // bound on progress-only fetches per manual refresh
+          let fetched = 0;
+          // Zero-read snapshot from the last check (plus unsynced local answers merged on top).
+          // Older than 2 days counts as stale and is silently re-checked live.
+          let snapshot = null;
+          let snapshotAt = 0;
+          try { snapshot = await idbKvGet(EP_SNAP_KEY); } catch (_) { snapshot = null; }
+          if (!snapshot || !snapshot.byBank || typeof snapshot.byBank !== "object") {
+              snapshot = null;
+          } else {
+              snapshotAt = Number(snapshot.fetchedAt) || 0;
+              if (!snapshotAt || (Date.now() - snapshotAt) > EP_SNAP_TTL) snapshot = null;
+          }
+          epSnapshotUsed = false;
+          epSnapshotAt = 0;
+          for (const b of banks.slice(0, 60)) {
+              const entry = cachedQBanks[b.id];
+              let questions = entry ? (entry.questions || []) : [];
+              let progress = entry ? (entry.progress || {}) : (epProgressCache[b.id] || null);
+              if (progress === null && snapshot && snapshot.byBank[b.id] && snapshot.byBank[b.id].progress) {
+                  try {
+                      // Clone so merging the local sync queue never mutates the snapshot.
+                      progress = applyLocalQueueProgress(b.id, JSON.parse(JSON.stringify(snapshot.byBank[b.id].progress)));
+                      epSnapshotUsed = true;
+                      epSnapshotAt = snapshotAt;
+                  } catch (_) { progress = null; }
+              }
+              if (progress === null) {
+                  if (fetched >= MAX_FETCH) continue; // skip silently: unattempted banks are hidden anyway
+                  fetched++;
+                  try {
+                      if (questions.length === 0) {
+                          try {
+                              const idbData = await getCachedQBank(b.id);
+                              if (idbData && Array.isArray(idbData.questions) && idbData.questions.length) questions = idbData.questions;
+                          } catch (_) {}
+                      }
+                      const res = await apiGet("get_questions", { qbankId: b.id, onlyProgress: true });
+                      progress = applyLocalQueueProgress(b.id, (res && res.progress) || {});
+                      if (questions.length > 0) {
+                          if (!cachedQBanks[b.id]) cachedQBanks[b.id] = { questions, progress };
+                          else {
+                              cachedQBanks[b.id].progress = progress;
+                              if (!cachedQBanks[b.id].questions || !cachedQBanks[b.id].questions.length) {
+                                  cachedQBanks[b.id].questions = questions;
+                              }
+                          }
+                      } else {
+                          epProgressCache[b.id] = progress; // stems unknown: never poison the question cache
+                      }
+                      // Write-through to the snapshot so the next open costs 0 reads.
+                      try {
+                          const cur = (await idbKvGet(EP_SNAP_KEY)) || { fetchedAt: 0, byBank: {} };
+                          if (!cur.byBank || typeof cur.byBank !== "object") cur.byBank = {};
+                          cur.byBank[b.id] = { progress, fetchedAt: Date.now() };
+                          cur.fetchedAt = Date.now();
+                          await idbKvSet(EP_SNAP_KEY, cur);
+                      } catch (_) {}
+                  } catch (_) {
+                      continue; // unreachable/failed: hidden like any unattempted bank
+                  }
+              }
+              let answered = 0, correct = 0, incorrect = 0;
+              const detail = { subjects: {} }; // per-bank subject -> chapter breakdown (stems known only)
+              if (questions.length > 0) {
+                  for (const q of questions) {
+                      const sub = (q.data && q.data.subject) || "Uncategorized";
+                      const ch = (q.data && q.data.chapter) || null;
+                      const p = progress[q.id];
+                      const hasAns = !!(p && p.correct !== undefined);
+                      if (sub !== "Uncategorized") {
+                          if (!subjAgg[sub]) subjAgg[sub] = { total: 0, answered: 0, correct: 0, incorrect: 0, chapters: {} };
+                          if (!detail.subjects[sub]) detail.subjects[sub] = { total: 0, answered: 0, correct: 0, incorrect: 0, chapters: {} };
+                          subjAgg[sub].total++;
+                          detail.subjects[sub].total++;
+                          let aggCh = null, detCh = null;
+                          if (ch) {
+                              if (!subjAgg[sub].chapters[ch]) subjAgg[sub].chapters[ch] = { total: 0, answered: 0, correct: 0, incorrect: 0, marked: 0, banks: {} };
+                              if (!detail.subjects[sub].chapters[ch]) detail.subjects[sub].chapters[ch] = { total: 0, answered: 0, correct: 0, incorrect: 0, marked: 0 };
+                              aggCh = subjAgg[sub].chapters[ch];
+                              detCh = detail.subjects[sub].chapters[ch];
+                              aggCh.total++;
+                              detCh.total++;
+                          }
+                          if (hasAns) {
+                              subjAgg[sub].answered++;
+                              detail.subjects[sub].answered++;
+                              if (p.correct) {
+                                  subjAgg[sub].correct++;
+                                  detail.subjects[sub].correct++;
+                                  if (aggCh) aggCh.correct++;
+                                  if (detCh) detCh.correct++;
+                              } else {
+                                  subjAgg[sub].incorrect++;
+                                  detail.subjects[sub].incorrect++;
+                                  if (aggCh) aggCh.incorrect++;
+                                  if (detCh) detCh.incorrect++;
+                              }
+                              if (p.marked) {
+                                  if (aggCh) aggCh.marked++;
+                                  if (detCh) detCh.marked++;
+                              }
+                              if (aggCh) {
+                                  aggCh.answered++;
+                                  if (!aggCh.banks[b.id]) aggCh.banks[b.id] = { name: b.name || "Exam bank", incorrect: 0, marked: 0 };
+                                  if (!p.correct) aggCh.banks[b.id].incorrect++;
+                                  if (p.marked) aggCh.banks[b.id].marked++;
+                              }
+                              if (detCh) detCh.answered++;
+                          }
+                      }
+                      if (hasAns) {
+                          answered++;
+                          if (p.correct) correct++; else incorrect++;
+                      }
+                  }
+              } else {
+                  // Stems not cached: progress keys alone still give bank totals.
+                  for (const k of Object.keys(progress)) {
+                      const p = progress[k];
+                      if (p && p.correct !== undefined) {
+                          answered++;
+                          if (p.correct) correct++; else incorrect++;
+                      }
+                  }
+              }
+              // Only banks with at least one answered question are shown.
+              if (answered > 0) {
+                  rows.push({ bank: b, attempted: true, answered, correct, incorrect, total: questions.length, knownTotal: questions.length > 0, detail });
+              }
+          }
+          if (!document.getElementById("ep-performance-section")) return; // navigated away
+          el.innerHTML = renderExamPrepHtml(rows, subjAgg, { fetchedAt: epSnapshotUsed ? epSnapshotAt : Date.now() });
+          if (window.lucide && window.lucide.createIcons) window.lucide.createIcons();
+      } catch (e) {
+          const el2 = document.getElementById("ep-performance-section");
+          if (el2) el2.innerHTML = '<div class="text-center p-8" style="color:#e11d48;">Could not load exam-prep stats.</div>';
+      }
+  }
+
+  function renderExamPrepHtml(rows, subjAgg, meta) {
+      const escH = window.escapeHtml ? window.escapeHtml : (s) => s;
+      // JS-escape the RAW value first, then HTML-escape: inline onclick args
+      // are HTML-decoded before running as JS, so \' survives both layers.
+      const jsStr = (s) => escH(String(s == null ? "" : s).replace(/\\/g, "\\\\").replace(/'/g, "\\'"));
+      // Only banks with at least one answered question are ever shown.
+      const attempted = rows.filter(r => r.attempted && r.answered > 0);
+      const totAnswered = attempted.reduce((a, r) => a + r.answered, 0);
+      const totCorrect = attempted.reduce((a, r) => a + r.correct, 0);
+      const avg = totAnswered > 0 ? Math.round((totCorrect / totAnswered) * 100) : 0;
+
+      if (attempted.length === 0) {
+          return '<div class="text-center p-8 rounded-2xl" style="background:#fff; border:1px solid #e2e8f0; color:#6b7280;">No exam-prep attempts yet.<br>Answer at least one question in an exam-prep bank and your chapter-by-chapter results will appear here.</div>';
+      }
+
+      const withScore = (o) => ({ ...o, score: o.answered > 0 ? Math.round((o.correct / o.answered) * 100) : 0 });
+      const subjList = Object.keys(subjAgg)
+          .map(name => withScore({ name, ...subjAgg[name] }))
+          .sort((a, b) => b.answered - a.answered || b.score - a.score);
+
+      // Short label for per-bank chips.
+      const shortBank = (name) => {
+          const s = String(name || "Bank");
+          return s.length > 22 ? s.slice(0, 21) + "…" : s;
+      };
+
+      // Chapter rows, most-active first. btn=null renders display-only rows;
+      // otherwise btn={ bankId, safeName, subSafe } wires Practice/Incorrects
+      // buttons scoped to that bank + subject + chapter.
+      // In the cross-bank subject overview each chapter instead gets one
+      // Incorrects chip per bank that holds wrong/marked questions there.
+      function epChapterRows(chMap, btn, subNameForChips) {
+          const list = Object.keys(chMap || {})
+              .map(name => withScore({ name, ...chMap[name] }))
+              .sort((a, b) => b.answered - a.answered || String(a.name).localeCompare(String(b.name)));
+          if (list.length === 0) return '';
+          return list.map(c => {
+              const cColor = c.score >= 80 ? '#10b981' : (c.score >= 50 ? '#007a7a' : '#e11d48');
+              const chSafe = jsStr(c.name);
+              let btns = '';
+              if (btn) {
+                  // Reviewable = wrong OR marked (mirrors the review session filter).
+                  const reviewable = (c.incorrect || 0) + (c.marked || 0);
+                  btns = `<button class="px-2 py-1 text-[11px] font-bold uppercase rounded-lg border cursor-pointer" style="border-color:#e2e8f0; color:#007a7a; background:#fff;" onclick="window.startQBankSession('${btn.bankId}', '${btn.safeName}', '${btn.subSafe}', false, '${chSafe}')">Practice</button>`;
+                  if (reviewable > 0) {
+                      btns += `<button class="px-2 py-1 text-[11px] font-bold uppercase rounded-lg cursor-pointer" style="background:#fef2f2; color:#e11d48; border:1px solid #fecaca;" onclick="window.startQBankSession('${btn.bankId}', '${btn.safeName}', '${btn.subSafe}', true, '${chSafe}')">Incorrects (${reviewable})</button>`;
+                  }
+              } else {
+                  // Cross-bank overview: one review chip per contributing bank.
+                  const chips = Object.keys(c.banks || {}).map(bid => {
+                      const info = c.banks[bid] || { incorrect: 0, marked: 0 };
+                      const n = (info.incorrect || 0) + (info.marked || 0);
+                      if (n <= 0) return '';
+                      return `<button class="px-2 py-1 text-[11px] font-bold uppercase rounded-lg cursor-pointer" style="background:#fef2f2; color:#e11d48; border:1px solid #fecaca;" title="Review wrong questions in ${escH(subNameForChips || '')} — ${escH(c.name)} (${escH(info.name || 'bank')})" onclick="window.startQBankSession('${bid}', '${jsStr(info.name || 'Exam bank')}', '${jsStr(subNameForChips || '')}', true, '${chSafe}')">Incorrects · ${escH(shortBank(info.name))} (${n})</button>`;
+                  }).join('');
+                  if (chips) btns = `<div class="flex flex-wrap gap-1 justify-end" style="max-width:220px;">${chips}</div>`;
+              }
+              return `
+              <div class="flex items-center gap-2 rounded-lg px-3 py-2" style="background:#f8fafc; border:1px solid #eef2f7;">
+                  <div class="flex-1 min-w-0">
+                      <div class="text-[13px] font-semibold truncate" style="color:#111827;" title="${escH(c.name)}">${escH(c.name)}</div>
+                      <div class="text-[11px]" style="color:#6b7280;">${c.answered} / ${c.total} · <span style="color:${cColor}; font-weight:800;">${c.score}%</span></div>
+                  </div>
+                  ${btns}
+              </div>`;
+          }).join('');
+      }
+
+      function epDetails(title, inner) {
+          if (!inner) return '';
+          return `
+          <details class="mb-4" style="border:1px solid #eef2f7; border-radius:12px; padding:10px 12px; background:#fff;">
+              <summary class="text-[12px] font-bold cursor-pointer" style="color:#007a7a;">${title}</summary>
+              <div class="flex flex-col gap-2 mt-3">${inner}</div>
+          </details>`;
+      }
+
+      const updatedAt = meta && meta.fetchedAt ? Number(meta.fetchedAt) : 0;
+      const updatedLabel = (() => {
+          if (!updatedAt) return '';
+          const d = Date.now() - updatedAt;
+          if (d < 0) return 'just now';
+          const m = Math.floor(d / 60000);
+          if (m < 1) return 'just now';
+          if (m < 60) return m + 'm ago';
+          const h = Math.floor(m / 60);
+          if (h < 24) return h + 'h ago';
+          return Math.floor(h / 24) + 'd ago';
+      })();
+
+      let html = `
+          <div class="grid grid-cols-3 gap-3 w-full mb-6" style="max-width:640px;">
+              <div class="rounded-xl p-3 flex flex-col justify-center border" style="background:#f8fafc; border-color:#e2e8f0;">
+                  <div class="text-[10px] uppercase font-bold tracking-wider mb-1" style="color:#6b7280;">Banks attempted</div>
+                  <div class="font-bold text-[18px]" style="color:#007a7a;">${attempted.length}</div>
+              </div>
+              <div class="rounded-xl p-3 flex flex-col justify-center border" style="background:#f8fafc; border-color:#e2e8f0;">
+                  <div class="text-[10px] uppercase font-bold tracking-wider mb-1" style="color:#6b7280;">Answered</div>
+                  <div class="font-bold text-[18px]" style="color:#007a7a;">${totAnswered}</div>
+              </div>
+              <div class="rounded-xl p-3 flex flex-col justify-center border" style="background:#f8fafc; border-color:#e2e8f0;">
+                  <div class="text-[10px] uppercase font-bold tracking-wider mb-1" style="color:#6b7280;">Avg accuracy</div>
+                  <div class="font-bold text-[18px]" style="color:#111827;">${avg}%</div>
+              </div>
+          </div>
+          <div class="flex flex-wrap items-center gap-3 mb-6">
+              ${updatedLabel ? `<span class="text-[12px]" style="color:#9ca3af;">Updated ${updatedLabel}</span>` : ''}
+          </div>`;
+
+      if (subjList.length > 0) {
+          html += `<div class="text-[12px] font-bold uppercase tracking-wider mb-3" style="color:#6b7280;">Exam-prep subjects</div>
+          <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6 mb-8">`;
+          subjList.forEach(spec => {
+              const barColor = spec.score >= 80 ? 'background:#10b981' : (spec.score >= 50 ? 'background:#007a7a' : 'background:#e11d48');
+              const numColor = spec.score >= 80 ? 'color:#10b981' : (spec.score >= 50 ? 'color:#111827' : 'color:#e11d48');
+              const chCount = Object.keys(spec.chapters || {}).length;
+              html += `
+              <div class="rounded-2xl p-6 shadow-sm flex flex-col" style="background:#fff; border:1px solid #e2e8f0;">
+                  <div class="flex items-start justify-between mb-2">
+                      <div>
+                          <h3 class="text-[18px] mb-1 font-bold" style="color:#111827;">${escH(spec.name)}</h3>
+                          <p class="text-[12px]" style="color:#6b7280;">${spec.answered} / ${spec.total} Answered</p>
+                      </div>
+                      <div class="text-right"><span class="font-black" style="${numColor}; font-size:22px;">${spec.score}%</span></div>
+                  </div>
+                  <div class="w-full rounded-full h-2 mb-4" style="background:#f8fafc;">
+                      <div class="h-2 rounded-full" style="${barColor}; width:${spec.score}%"></div>
+                  </div>
+                  ${epDetails(`Chapters (${chCount}) — chapter by chapter`, epChapterRows(spec.chapters, null, spec.name))}
+                  <div class="mt-auto pt-4 flex gap-4 text-[12px]" style="border-top:1px solid #e2e8f0; color:#6b7280;">
+                      <div class="flex items-center gap-1"><span class="w-2 h-2 rounded-full" style="background:#10b981;"></span> ${spec.correct} Correct</div>
+                      <div class="flex items-center gap-1"><span class="w-2 h-2 rounded-full" style="background:#e11d48;"></span> ${spec.incorrect} Incorrect</div>
+                  </div>
+              </div>`;
+          });
+          html += `</div>`;
+      }
+
+      html += `<div class="text-[12px] font-bold uppercase tracking-wider mb-3" style="color:#6b7280;">Exam-prep banks</div>
+      <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">`;
+      attempted.forEach(r => {
+          const b = r.bank;
+          const meta = [b.college, b.year].filter(Boolean).map(x => escH(x)).join(' · ');
+          const score = r.answered > 0 ? Math.round((r.correct / r.answered) * 100) : 0;
+          const barColor = score >= 80 ? 'background:#10b981' : (score >= 50 ? 'background:#007a7a' : 'background:#e11d48');
+          const numColor = score >= 80 ? 'color:#10b981' : (score >= 50 ? 'color:#111827' : 'color:#e11d48');
+          const countLabel = r.knownTotal ? `${r.answered} / ${r.total} Answered` : `${r.answered} Answered`;
+          const safeName = jsStr(b.name || 'Exam bank');
+          // Per-bank subject -> chapter detail with chapter-scoped actions.
+          const subEntries = Object.keys((r.detail && r.detail.subjects) || {})
+              .map(name => withScore({ name, ...r.detail.subjects[name] }))
+              .sort((a, b2) => b2.answered - a.answered || String(a.name).localeCompare(String(b2.name)));
+          let bankChapHtml = '';
+          if (subEntries.length > 0) {
+              bankChapHtml = subEntries.map(s => {
+                  const rowsHtml = epChapterRows(s.chapters, { bankId: b.id, safeName, subSafe: jsStr(s.name) });
+                  if (!rowsHtml) return '';
+                  return `<div class="mb-2"><div class="text-[12px] font-bold mb-2" style="color:#0f172a;">${escH(s.name)} <span style="color:#6b7280; font-weight:600;">· ${s.answered}/${s.total} · ${s.score}%</span></div>${rowsHtml}</div>`;
+              }).join('');
+              const chTotal = subEntries.reduce((a, s) => a + Object.keys(s.chapters || {}).length, 0);
+              bankChapHtml = epDetails(`Subjects & chapters (${subEntries.length} subjects, ${chTotal} chapters)`, bankChapHtml);
+          }
+          html += `
+          <div class="rounded-2xl p-6 shadow-sm flex flex-col" style="background:#fff; border:1px solid #e2e8f0;">
+              <h3 class="text-[16px] mb-1 font-bold" style="color:#111827;">${escH(b.name || 'Exam bank')}</h3>
+              ${meta ? `<p class="text-[12px] mb-3" style="color:#6b7280;">${meta}</p>` : `<div class="mb-3"></div>`}
+              <div class="flex items-end justify-between mb-2">
+                  <span class="text-[12px]" style="color:#6b7280;">${countLabel}</span>
+                  <span class="font-black" style="${numColor}; font-size:20px;">${score}%</span>
+              </div>
+              <div class="w-full rounded-full h-2 mb-4" style="background:#f8fafc;">
+                  <div class="h-2 rounded-full" style="${barColor}; width:${score}%"></div>
+              </div>
+              ${bankChapHtml}
+              <div class="mt-auto pt-4 flex justify-between items-center" style="border-top:1px solid #e2e8f0;">
+                  <div class="flex gap-3 text-[12px]" style="color:#6b7280;">
+                      <span>${r.correct} Correct</span><span>${r.incorrect} Incorrect</span>
+                  </div>
+                  ${r.incorrect > 0 ? `<button class="px-3 py-1.5 text-[12px] font-bold uppercase rounded-lg border cursor-pointer" style="border-color:#e2e8f0; color:#007a7a; background:transparent;" onclick="window.startQBankSession('${b.id}', '${safeName}', null, true)">Review Incorrects</button>` : ''}
+              </div>
+          </div>`;
+      });
+      html += `</div>`;
+      return html;
   }
   
   window.renderDashboardPlannerWidget = function() {
