@@ -189,7 +189,7 @@ async function fetchTranscript(videoId: string, preferredLang?: string) {
   return { title, transcript }
 }
 
-export const Route = createFileRoute('/api/public/youtube-transcript')({
+export const Route = createFileRoute('/api/api/public/youtube-transcript')({
   server: {
     handlers: {
       OPTIONS: async ({ request }) => {

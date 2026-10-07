@@ -11,7 +11,7 @@ function json(body: unknown, status: number, cors: Record<string, string>) {
   });
 }
 
-export const Route = createFileRoute("/api/public/peer-stats-threshold")({
+export const Route = createFileRoute("/api/api/public/peer-stats-threshold")({
   server: {
     handlers: {
       async GET({ request }) {

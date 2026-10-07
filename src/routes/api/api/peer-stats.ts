@@ -16,7 +16,7 @@ import { getServiceAccount, getGoogleAccessToken, dbStats } from "@/lib/firebase
 import { getCorsHeaders } from "@/lib/cors";
 import { getClientIp, rateLimit, rateLimitResponse } from "@/lib/rate-limit.server";
 
-export const Route = createFileRoute("/api/peer-stats")({
+export const Route = createFileRoute("/api/api/peer-stats")({
   server: {
     handlers: {
       OPTIONS: async ({ request }) => {

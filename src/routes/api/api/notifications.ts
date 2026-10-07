@@ -288,7 +288,7 @@ async function handleSend(body: SendBody, actor: { sub: string; email?: string }
   return { ok: true, id: nid, recipientCount: sent };
 }
 
-export const Route = createFileRoute("/api/notifications")({
+export const Route = createFileRoute("/api/api/notifications")({
   server: {
     handlers: {
       OPTIONS: async ({ request }) => {

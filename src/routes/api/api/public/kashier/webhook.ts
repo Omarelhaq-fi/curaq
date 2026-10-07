@@ -7,7 +7,7 @@ import { verifyKashierWebhook } from "@/lib/kashier.server";
 import { activateSubscription, markPastDue, getSubscription } from "@/lib/subscriptions.server";
 import { isPayablePlan, isCurrency, type PayablePlan, type Currency } from "@/lib/pricing.server";
 
-export const Route = createFileRoute("/api/public/kashier/webhook")({
+export const Route = createFileRoute("/api/api/public/kashier/webhook")({
   server: {
     handlers: {
       POST: async ({ request }) => {

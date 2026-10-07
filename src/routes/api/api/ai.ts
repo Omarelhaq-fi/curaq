@@ -41,7 +41,7 @@ const AIRequestSchema = z.object({
   requireJson: z.boolean().optional(),
 });
 
-export const Route = createFileRoute("/api/ai")({
+export const Route = createFileRoute("/api/api/ai")({
   server: {
     handlers: {
       OPTIONS: async ({ request }) => {

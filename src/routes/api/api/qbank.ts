@@ -60,7 +60,7 @@ function json(body: unknown, status: number, cors: Record<string, string>) {
   });
 }
 
-export const Route = createFileRoute("/api/qbank")({
+export const Route = createFileRoute("/api/api/qbank")({
   server: {
     handlers: {
       OPTIONS: async ({ request }) => {

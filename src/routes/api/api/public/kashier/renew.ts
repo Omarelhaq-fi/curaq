@@ -66,7 +66,7 @@ async function listDueSubscriptions(nowMs: number, limit = 100): Promise<
   return out;
 }
 
-export const Route = createFileRoute("/api/public/kashier/renew")({
+export const Route = createFileRoute("/api/api/public/kashier/renew")({
   server: {
     handlers: {
       POST: async ({ request }) => {

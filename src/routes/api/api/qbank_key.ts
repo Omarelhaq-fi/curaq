@@ -18,7 +18,7 @@ import { getClientIp, rateLimit, rateLimitResponse } from "@/lib/rate-limit.serv
 import { resolveBankAccessEdge, checkAppCheck } from "@/lib/qbank-access.server";
 import { getBankKeyString, getBankKeyId } from "@/lib/qbank-drm.server";
 
-export const Route = createFileRoute("/api/qbank_key")({
+export const Route = createFileRoute("/api/api/qbank_key")({
   server: {
     handlers: {
       OPTIONS: async ({ request }) => {

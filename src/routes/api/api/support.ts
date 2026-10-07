@@ -235,7 +235,7 @@ async function appendMessage(opts: {
   return { mid, now };
 }
 
-export const Route = createFileRoute("/api/support")({
+export const Route = createFileRoute("/api/api/support")({
   server: {
     handlers: {
       OPTIONS: async ({ request }) => {

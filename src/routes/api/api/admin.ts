@@ -785,7 +785,7 @@ async function computeUserDetail(uid: string) {
   };
 }
 
-export const Route = createFileRoute("/api/admin")({
+export const Route = createFileRoute("/api/api/admin")({
   server: {
     handlers: {
       OPTIONS: async ({ request }) => {

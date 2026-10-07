@@ -41,7 +41,7 @@ async function touchActivity(uid: string, email: string | undefined, action: str
   if (!resp.ok) throw new Error(`activity patch failed: ${resp.status}`);
 }
 
-export const Route = createFileRoute("/api/activity")({
+export const Route = createFileRoute("/api/api/activity")({
   server: {
     handlers: {
       OPTIONS: async ({ request }) => {

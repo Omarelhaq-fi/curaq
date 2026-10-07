@@ -45,7 +45,7 @@ function newOrderId(uid: string, plan: PayablePlan): string {
   return `omn_${plan}_${shortUid}_${rand}`;
 }
 
-export const Route = createFileRoute("/api/kashier")({
+export const Route = createFileRoute("/api/api/kashier")({
   server: {
     handlers: {
       OPTIONS: async ({ request }) => {

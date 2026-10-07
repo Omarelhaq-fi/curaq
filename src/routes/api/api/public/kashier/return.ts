@@ -127,7 +127,7 @@ async function handle(request: Request): Promise<Response> {
   return redirect(`${origin}/#${flag}`);
 }
 
-export const Route = createFileRoute("/api/public/kashier/return")({
+export const Route = createFileRoute("/api/api/public/kashier/return")({
   server: {
     handlers: {
       GET: async ({ request }) => handle(request),

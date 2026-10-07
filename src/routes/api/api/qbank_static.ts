@@ -38,7 +38,7 @@ import { encryptForBank, splitQuestionsForStatic, getBankKeyId } from "@/lib/qba
 const metaCache = new Map<string, { provider: string | undefined; exp: number }>();
 const META_TTL_MS = 5 * 60_000;
 
-export const Route = createFileRoute("/api/qbank_static")({
+export const Route = createFileRoute("/api/api/qbank_static")({
   server: {
     handlers: {
       OPTIONS: async ({ request }) => {
