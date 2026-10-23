@@ -45,25 +45,7 @@
       } finally {
         whoamiPromise = null;
       }
-  window.adminLibraryBackfill = async function (btn) {
-    if (!window.__adminLibraryBank) return;
-    if (!confirm("Scan every question once to seed the concepts digest? After this, exports cost 1 read.")) return;
-    const orig = btn ? btn.innerHTML : "";
-    if (btn) { btn.disabled = true; btn.textContent = "Backfilling…"; }
-    try {
-      const res = await api("/api/admin", {
-        method: "POST",
-        body: JSON.stringify({ action: "backfill_concepts_digest", qbankId: window.__adminLibraryBank }),
-      });
-      alert(`Digest seeded: ${res.withConcepts} concepts from ${res.total} questions. Exports are now 1 read.`);
-    } catch (e) {
-      alert("Backfill failed: " + e.message);
-    } finally {
-      if (btn) { btn.disabled = false; btn.innerHTML = orig; }
-    }
-  };
-
-})();
+    })();
     return whoamiPromise;
   };
 
@@ -127,6 +109,7 @@
     if (tab === "reports") loadAdminReports();
     if (tab === "support") loadAdminSupport();
     if (tab === "peerstats") loadAdminPeerStats();
+    if (tab === "colleges" && typeof window.loadAdminColleges === "function") window.loadAdminColleges();
     if (tab === "access" && typeof window.loadAccessRequests === "function") loadAccessRequests();
     if (window.lucide && window.lucide.createIcons) { try { window.lucide.createIcons(); } catch (_) {} }
   };
@@ -2183,8 +2166,10 @@
     
     const list = document.getElementById("admin-qbank-manage-list");
     list.innerHTML = `
-      <div style="margin-bottom:15px; display:flex; justify-content:flex-end; gap:8px;">
-         <button class="btn-action primary" style="font-size:0.8rem; padding:6px 12px;" onclick="window.adminOpenBatchImport('${id}')">Batch Import (TXT)</button>
+      <div style="margin-bottom:15px; display:flex; justify-content:flex-end; gap:8px; flex-wrap:wrap;">
+         <button class="btn-action primary" style="font-size:0.8rem; padding:6px 12px;" onclick="window.adminOpenBatchImport('${id}')">Batch Import (JSON / TXT)</button>
+         <button class="btn-dark-pill" style="font-size:0.8rem; color:#a78bfa;" data-qbank-name="${escapeHtml(name)}" onclick="window.adminOpenQBankTaxonomy('${id}', this.dataset.qbankName)">AI Topic Taxonomy</button>
+         <button class="btn-dark-pill" style="font-size:0.8rem; color:#22d3ee;" data-qbank-name="${escapeHtml(name)}" onclick="window.adminOpenQBankTaxonomy('${id}', this.dataset.qbankName, true)">Tag Pending (AI)</button>
          <button class="btn-dark-pill" style="font-size:0.8rem; color:var(--text-secondary);" onclick="window.adminBackfillQBankCodes('${id}')">Backfill Missing Codes</button>
          <button class="btn-dark-pill" style="font-size:0.8rem; color:#f59e0b;" onclick="window.adminRegenerateQBankCodes('${id}')">♻ Regenerate All IDs</button>
       </div>
@@ -2221,13 +2206,16 @@
            const codeBadge = parsedData.code ? `<span style="font-size:0.75rem; padding:2px 6px; background:rgba(255,255,255,0.1); border-radius:4px; margin-right:8px; font-family:monospace;">${escapeHtml(parsedData.code)}</span>` : "";
            const tagsHtml = (parsedData.tags || []).map(t => `<span style="font-size:0.7rem; padding:2px 6px; background:rgba(167, 139, 250, 0.15); border:1px solid rgba(167, 139, 250, 0.3); border-radius:4px; color:#a78bfa; margin-right:4px;">#${escapeHtml(t)}</span>`).join("");
            const subjectBadge = parsedData.subject && parsedData.subject !== "Uncategorized" ? `<span style="font-size:0.7rem; padding:2px 6px; background:rgba(34, 211, 238, 0.15); border:1px solid rgba(34, 211, 238, 0.3); border-radius:4px; color:#22d3ee; margin-right:4px;">${escapeHtml(parsedData.subject)}</span>` : "";
+           const topicBadge = Array.isArray(parsedData.taxonomyPath) && parsedData.taxonomyPath.length
+             ? `<span style="font-size:0.7rem; padding:2px 6px; background:rgba(34,197,94,0.12); border:1px solid rgba(34,197,94,0.3); border-radius:4px; color:#4ade80; margin-right:4px;">${escapeHtml(parsedData.taxonomyPath.join(" > "))}</span>`
+             : "";
 
            return `
             <div style="padding:12px; background:rgba(255,255,255,0.03); border:1px solid ${q.reported ? 'rgba(244,63,94,0.3)' : 'rgba(255,255,255,0.08)'}; border-radius:8px; display:flex; flex-direction:column; gap:10px;">
               <div style="font-size:0.95rem; color:var(--text-primary); display:flex; gap:10px; align-items:flex-start;">
                 <input type="checkbox" class="qbank-delete-checkbox" value="${q.id}" style="margin-top:4px; cursor:pointer;">
                 <div style="flex:1;">
-                   <div style="margin-bottom:6px;">${codeBadge}${subjectBadge}${tagsHtml}</div>
+                   <div style="margin-bottom:6px;">${codeBadge}${subjectBadge}${topicBadge}${tagsHtml}</div>
                    <span>${snippet}</span>
                 </div>
               </div>
@@ -2272,6 +2260,786 @@
       if (window.lucide && window.lucide.createIcons) window.lucide.createIcons();
     } catch(e) {
       listContent.innerHTML = `<div style="color:#f43;">Error: ${escapeHtml(e.message)}</div>`;
+    }
+  };
+
+  async function adminFetchQBankTaxonomy(qbankId) {
+    return api("/api/admin", { method: "POST", body: JSON.stringify({ action: "get_qbank_taxonomy", qbankId }) });
+  }
+
+  async function adminFetchQBankTagIndex(qbankId) {
+    return api("/api/admin", { method: "POST", body: JSON.stringify({ action: "list_qbank_tag_index", qbankId }) });
+  }
+
+  function adminTaxonomyStatsText(index, extra) {
+    if (!index) return extra || "";
+    const bits = [
+      `${index.total || 0} questions`,
+      `${index.tagged || 0} tagged`,
+      `${index.pending || 0} pending`,
+      `taxonomy v${index.version || 0}`,
+    ];
+    if (index.chunked) bits.push("published bank");
+    if (extra) bits.push(extra);
+    return bits.join(" · ");
+  }
+
+  function adminSetTaxonomyProgress(done, total, label) {
+    const bar = document.getElementById("admin-taxonomy-bar");
+    const status = document.getElementById("admin-taxonomy-status");
+    if (bar) bar.style.width = `${total ? Math.round((done / total) * 100) : 0}%`;
+    if (status && label) status.textContent = label;
+  }
+
+  function adminTaxonomyCleanSegment(value) {
+    return String(value == null ? "" : value)
+      .replace(/^[\s\-*•]+/, "")
+      .replace(/\s+/g, " ")
+      .replace(/:\s*$/, "")
+      .trim()
+      .slice(0, 80);
+  }
+
+  function adminSplitTaxonomyBranch(value) {
+    return String(value || "")
+      .split(/\s*(?:>|\/|→|›|\u203a|\\)\s*/)
+      .map(adminTaxonomyCleanSegment)
+      .filter(Boolean);
+  }
+
+  function adminTaxonomyKey(path) {
+    return path.map((s) => String(s).trim().toLowerCase()).join("\u0001");
+  }
+
+  function adminTaxonomyLevel(depth) {
+    if (depth <= 1) return "Subject";
+    if (depth === 2) return "Chapter";
+    if (depth === 3) return "Part";
+    return "Subtopic";
+  }
+
+  function adminTaxonomyNodes(paths) {
+    const nodes = new Map();
+    for (const path of paths) {
+      for (let depth = 1; depth <= path.length; depth++) {
+        const node = path.slice(0, depth);
+        const key = adminTaxonomyKey(node);
+        if (!nodes.has(key)) nodes.set(key, node);
+      }
+    }
+    return [...nodes.values()];
+  }
+
+  function adminTaxonomyDirectChildren(paths, categoryPath) {
+    const categoryKey = adminTaxonomyKey(categoryPath);
+    const children = new Map();
+    for (const path of paths) {
+      if (path.length <= categoryPath.length) continue;
+      if (adminTaxonomyKey(path.slice(0, categoryPath.length)) !== categoryKey) continue;
+      const child = path.slice(0, categoryPath.length + 1);
+      const key = adminTaxonomyKey(child);
+      if (!children.has(key)) children.set(key, child);
+    }
+    return [...children.values()];
+  }
+
+  function adminQuestionData(question) {
+    try { return JSON.parse(question && question.data ? question.data : "{}"); }
+    catch { return {}; }
+  }
+
+  async function adminEnsureCurrentQuestions(qbankId) {
+    if (Array.isArray(currentAdminQuestions) && currentAdminQuestions.length) return;
+    const res = await api("/api/admin", { method: "POST", body: JSON.stringify({ action: "list_qbank_questions", qbankId }) });
+    currentAdminQuestions = Array.isArray(res.questions) ? res.questions : [];
+  }
+
+  function adminQuestionIdsForCategory(categoryPath) {
+    const target = categoryPath.map((s) => String(s).trim().toLowerCase());
+    if (!target.length) return [];
+    const textarea = document.getElementById("admin-taxonomy-text");
+    const allPaths = adminParseTaxonomyText(textarea ? textarea.value : "");
+    const labels = new Set(target);
+    for (const path of allPaths) {
+      if (path.length <= categoryPath.length) continue;
+      if (adminTaxonomyKey(path.slice(0, categoryPath.length)) !== adminTaxonomyKey(categoryPath)) continue;
+      path.slice(categoryPath.length).forEach((segment) => labels.add(String(segment).trim().toLowerCase()));
+    }
+    const questions = Array.isArray(currentAdminQuestions) ? currentAdminQuestions : [];
+    return questions.filter((question) => {
+      const data = adminQuestionData(question);
+      const path = Array.isArray(data.taxonomyPath)
+        ? data.taxonomyPath.map((s) => String(s).trim().toLowerCase())
+        : [];
+      if (path.length >= target.length && target.every((segment, index) => path[index] === segment)) return true;
+      const subject = String(data.subject || "").trim().toLowerCase();
+      const chapter = String(data.chapter || "").trim().toLowerCase();
+      if (target.length === 1) return subject === target[0];
+      if (subject !== target[0]) return false;
+      return [...labels].some((label) => label && (chapter === label || chapter.includes(label)));
+    }).map((question) => question.id);
+  }
+
+  function adminParseTaxonomyText(value) {
+    const paths = [];
+    const seen = new Set();
+    const stack = [];
+    const addPath = (segments) => {
+      const path = segments.map(adminTaxonomyCleanSegment).filter(Boolean).slice(0, 5);
+      if (!path.length) return;
+      const key = adminTaxonomyKey(path);
+      if (seen.has(key)) return;
+      seen.add(key);
+      paths.push(path);
+    };
+    for (const rawLine of String(value || "").replace(/\r\n?/g, "\n").split("\n")) {
+      const raw = rawLine.replace(/\t/g, "  ");
+      const trimmed = raw.trim();
+      if (!trimmed || trimmed.startsWith("#") || trimmed.startsWith("//")) continue;
+      const indent = (raw.match(/^ */) || [""])[0].length;
+      const line = trimmed.replace(/^[-*•]\s+/, "").trim();
+      if (!line) continue;
+      while (stack.length && indent <= stack[stack.length - 1].indent) stack.pop();
+      if (/(?:>|\/|→|›|\u203a|\\)/.test(line)) {
+        const segments = adminSplitTaxonomyBranch(line);
+        addPath([...stack.map((s) => s.label), ...segments]);
+        segments.forEach((label) => stack.push({ indent, label }));
+        continue;
+      }
+      const label = adminTaxonomyCleanSegment(line);
+      if (!label) continue;
+      addPath([...stack.map((s) => s.label), label]);
+      stack.push({ indent, label });
+    }
+    return paths;
+  }
+
+  function adminTaxonomyParentPath() {
+    const select = document.getElementById("admin-taxonomy-parent");
+    if (!select || !select.value) return [];
+    try {
+      const parsed = JSON.parse(select.value);
+      return Array.isArray(parsed) ? parsed.map((s) => String(s)) : [];
+    } catch {
+      return [];
+    }
+  }
+
+  function adminTaxonomySelectedCategory() {
+    const select = document.getElementById("admin-taxonomy-category");
+    if (!select || !select.value) return [];
+    try {
+      const parsed = JSON.parse(select.value);
+      return Array.isArray(parsed) ? parsed.map((s) => String(s)) : [];
+    } catch {
+      return [];
+    }
+  }
+
+  window.adminRenderTaxonomyQuick = function(preferredPath) {
+    const select = document.getElementById("admin-taxonomy-category");
+    if (!select) return;
+    const textarea = document.getElementById("admin-taxonomy-text");
+    const paths = adminParseTaxonomyText(textarea ? textarea.value : "");
+    const nodes = adminTaxonomyNodes(paths);
+    const chapters = nodes.filter((path) => path.length === 2);
+    const state = window.__adminTaxonomyState;
+    if (state) state.taxonomyNodes = nodes;
+    let selected = null;
+    const candidates = [preferredPath, state && state.selectedTaxonomyCategory, adminTaxonomySelectedCategory()];
+    for (const candidate of candidates) {
+      if (!Array.isArray(candidate) || candidate.length < 2) continue;
+      const chapter = candidate.slice(0, 2);
+      const key = adminTaxonomyKey(chapter);
+      const match = chapters.find((path) => adminTaxonomyKey(path) === key);
+      if (match) { selected = match; break; }
+    }
+    if (!selected && chapters.length) selected = chapters[0];
+    select.innerHTML = chapters.length
+      ? chapters.map((path) => `<option value="${escapeHtml(JSON.stringify(path))}">${escapeHtml(`${path[0]} › ${path[1]}`)}</option>`).join("")
+      : '<option value="">No chapters yet — add one in Advanced</option>';
+    if (selected) {
+      const value = JSON.stringify(selected);
+      const option = [...select.options].find((item) => item.value === value);
+      if (option) select.value = option.value;
+    }
+    if (state) state.selectedTaxonomyCategory = selected;
+
+    const categoryMeta = document.getElementById("admin-taxonomy-category-meta");
+    const questions = selected ? adminQuestionIdsForCategory(selected) : [];
+    if (categoryMeta) {
+      categoryMeta.textContent = selected
+        ? `Chapter · ${selected[0]} › ${selected[1]} · ${questions.length} question(s) match`
+        : "No chapters yet. Open Advanced below and add a Subject, then a Chapter.";
+    }
+
+    const tags = selected ? adminTaxonomyDirectChildren(paths, selected) : [];
+    if (state) state.categoryTags = tags;
+    const tagsBox = document.getElementById("admin-taxonomy-tags");
+    if (tagsBox) {
+      tagsBox.innerHTML = tags.length
+        ? tags.map((path, index) => `<span style="display:inline-flex; align-items:center; gap:5px; font-size:0.78rem; padding:4px 7px; border-radius:999px; background:rgba(34,211,238,0.12); border:1px solid rgba(34,211,238,0.35); color:var(--text-primary);">${escapeHtml(path[path.length - 1])}<button type="button" onclick="window.adminRemoveTaxonomyTag(${index})" title="Remove part" style="background:none; border:0; color:var(--text-muted); cursor:pointer; font-size:0.9rem; line-height:1; padding:0;">×</button></span>`).join("")
+        : '<span style="font-size:0.78rem; color:var(--text-muted);">No parts yet. Add a part above.</span>';
+    }
+    const hint = document.getElementById("admin-taxonomy-tag-hint");
+    if (hint) {
+      if (!selected) hint.textContent = "Add a chapter in Advanced, then choose it here.";
+      else if (!tags.length) hint.textContent = "Add at least one part before scanning this chapter.";
+      else hint.textContent = `${tags.length} part(s) · ${questions.length} question(s) will be scanned.`;
+    }
+    const scanBtn = document.getElementById("admin-taxonomy-scan-category");
+    if (scanBtn) scanBtn.disabled = !selected || !tags.length;
+    const tagInput = document.getElementById("admin-taxonomy-tag");
+    if (tagInput && selected) tagInput.placeholder = `e.g. STEMI (Part in ${selected[1]})`;
+  };
+
+  window.adminTaxonomyCategoryChanged = function() {
+    const state = window.__adminTaxonomyState;
+    const category = adminTaxonomySelectedCategory();
+    if (state) state.selectedTaxonomyCategory = category;
+    window.adminRenderTaxonomyQuick(category);
+    const input = document.getElementById("admin-taxonomy-tag");
+    if (input) input.focus();
+  };
+
+  window.adminAddTaxonomyTag = function() {
+    const textarea = document.getElementById("admin-taxonomy-text");
+    const input = document.getElementById("admin-taxonomy-tag");
+    const status = document.getElementById("admin-taxonomy-status");
+    if (!textarea || !input) return;
+    const category = adminTaxonomySelectedCategory();
+    const segments = adminSplitTaxonomyBranch(input.value);
+    if (category.length !== 2) {
+      if (status) status.textContent = "Choose a chapter first, or add one in Advanced.";
+      return;
+    }
+    if (!segments.length) {
+      if (status) status.textContent = "Type a part name first.";
+      input.focus();
+      return;
+    }
+    if (segments.length !== 1) {
+      if (status) status.textContent = "Add one Part at a time. The hierarchy is Subject › Chapter › Part.";
+      input.select();
+      return;
+    }
+    const paths = adminParseTaxonomyText(textarea.value);
+    const fullPath = [...category, ...segments];
+    if (paths.some((path) => adminTaxonomyKey(path) === adminTaxonomyKey(fullPath))) {
+      if (status) status.textContent = `"${fullPath.join(" › ")}" already exists.`;
+      input.select();
+      return;
+    }
+    if (paths.length >= 2000) {
+      if (status) status.textContent = "Taxonomy is limited to 2,000 paths.";
+      return;
+    }
+    paths.push(fullPath);
+    textarea.value = paths.map((path) => path.join(" > ")).join("\n");
+    const state = window.__adminTaxonomyState;
+    if (state) state.paths = paths;
+    input.value = "";
+    window.adminRenderTaxonomyParents();
+    window.adminRenderTaxonomyQuick(category);
+    if (status) status.textContent = `Added part "${fullPath.join(" › ")}". Add another or click Save & scan.`;
+    input.focus();
+  };
+
+  window.adminRemoveTaxonomyTag = function(index) {
+    const state = window.__adminTaxonomyState;
+    const path = state && Array.isArray(state.categoryTags) ? state.categoryTags[index] : null;
+    const textarea = document.getElementById("admin-taxonomy-text");
+    if (!Array.isArray(path) || !path.length || !textarea) return;
+    if (!window.confirm(`Remove part "${path[path.length - 1]}" and everything inside it?`)) return;
+    const key = adminTaxonomyKey(path);
+    const paths = adminParseTaxonomyText(textarea.value);
+    const kept = paths.filter((item) =>
+      !(item.length >= path.length && adminTaxonomyKey(item.slice(0, path.length)) === key)
+    );
+    textarea.value = kept.map((item) => item.join(" > ")).join("\n");
+    if (state) state.paths = kept;
+    window.adminRefreshTaxonomyUI();
+    const status = document.getElementById("admin-taxonomy-status");
+    if (status) status.textContent = `Removed part "${path[path.length - 1]}". Click Save taxonomy to persist.`;
+  };
+
+  window.adminRefreshTaxonomyUI = function(preferredPath) {
+    window.adminRenderTaxonomyParents();
+    window.adminRenderTaxonomyQuick(preferredPath);
+  };
+
+  window.adminSaveTaxonomyCategory = async function(qbankId) {
+    const category = adminTaxonomySelectedCategory();
+    const textarea = document.getElementById("admin-taxonomy-text");
+    const status = document.getElementById("admin-taxonomy-status");
+    if (category.length !== 2 || !textarea) {
+      if (status) status.textContent = "Choose a chapter first.";
+      return;
+    }
+    const tags = adminTaxonomyDirectChildren(adminParseTaxonomyText(textarea.value), category);
+    if (!tags.length) {
+      if (status) status.textContent = "Add at least one part under this chapter first.";
+      return;
+    }
+    await window.adminSaveQBankTaxonomy(qbankId, true, category);
+  };
+
+  window.adminRenderTaxonomyParents = function(preferredPath) {
+    const select = document.getElementById("admin-taxonomy-parent");
+    if (!select) return;
+    const textarea = document.getElementById("admin-taxonomy-text");
+    const paths = adminParseTaxonomyText(textarea ? textarea.value : "");
+    const nodes = new Map();
+    for (const path of paths) {
+      for (let depth = 1; depth <= path.length; depth++) {
+        const node = path.slice(0, depth);
+        const key = adminTaxonomyKey(node);
+        if (!nodes.has(key)) nodes.set(key, node);
+      }
+    }
+    let currentKey = "";
+    if (Array.isArray(preferredPath) && preferredPath.length) {
+      currentKey = adminTaxonomyKey(preferredPath);
+    } else if (select.value) {
+      try { currentKey = adminTaxonomyKey(JSON.parse(select.value)); } catch { currentKey = ""; }
+    }
+    const nodeList = [...nodes.values()];
+    const state = window.__adminTaxonomyState;
+    if (state) state.taxonomyNodes = nodeList;
+    select.innerHTML = '<option value="">Top level (new subject)</option>' + nodeList.map((path) =>
+      `<option value="${escapeHtml(JSON.stringify(path))}">${escapeHtml(`${adminTaxonomyLevel(path.length)} · ${path.join(" › ")}`)}</option>`
+    ).join("");
+    if (currentKey) {
+      const match = [...select.options].find((option) => {
+        if (!option.value) return false;
+        try { return adminTaxonomyKey(JSON.parse(option.value)) === currentKey; } catch { return false; }
+      });
+      if (match) select.value = match.value;
+    }
+    const tree = document.getElementById("admin-taxonomy-tree");
+    if (tree) {
+      let selectedIndex = -1;
+      nodeList.forEach((path, index) => {
+        if (currentKey && adminTaxonomyKey(path) === currentKey) selectedIndex = index;
+      });
+      tree.innerHTML = nodeList.length
+        ? nodeList.map((path, index) => {
+            const active = index === selectedIndex;
+            const level = adminTaxonomyLevel(path.length);
+            return `<div data-node-index="${index}" style="display:flex; align-items:center; gap:4px; margin-left:${(path.length - 1) * 14}px; padding:3px 4px; border-radius:6px; background:${active ? "rgba(34,211,238,0.14)" : "transparent"};">
+              <button type="button" onclick="window.adminChooseTaxonomyParent(${index})" title="${escapeHtml(path.join(" › "))}" style="flex:1; min-width:0; text-align:left; background:none; border:0; color:inherit; cursor:pointer; font-size:0.8rem; padding:2px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(path[path.length - 1])}</button>
+              <span style="font-size:0.66rem; color:var(--text-muted); border:1px solid rgba(148,163,184,0.28); border-radius:999px; padding:1px 5px; white-space:nowrap;">${level}</span>
+              <button type="button" onclick="window.adminRemoveTaxonomyNode(${index})" title="Remove ${escapeHtml(path.join(" › "))} and everything inside it" style="background:none; border:0; color:var(--text-muted); cursor:pointer; font-size:0.95rem; line-height:1; padding:2px 4px;">×</button>
+            </div>`;
+          }).join("")
+        : '<div style="font-size:0.78rem; color:var(--text-muted); padding:4px 2px;">No categories yet. Start by adding a subject above.</div>';
+      if (selectedIndex >= 0) {
+        const row = tree.querySelector(`[data-node-index="${selectedIndex}"]`);
+        if (row) requestAnimationFrame(() => row.scrollIntoView({ block: "nearest" }));
+      }
+    }
+    window.adminUpdateTaxonomyPreview();
+  };
+
+  window.adminChooseTaxonomyParent = function(index) {
+    const state = window.__adminTaxonomyState;
+    const path = state && Array.isArray(state.taxonomyNodes) ? state.taxonomyNodes[index] : null;
+    if (!Array.isArray(path) || !path.length) return;
+    const select = document.getElementById("admin-taxonomy-parent");
+    if (select) {
+      const value = JSON.stringify(path);
+      const option = [...select.options].find((item) => item.value === value);
+      if (option) select.value = option.value;
+    }
+    const input = document.getElementById("admin-taxonomy-new");
+    const status = document.getElementById("admin-taxonomy-status");
+    if (status) status.textContent = `Adding inside "${path.join(" › ")}". Type its name in the box above.`;
+    window.adminRenderTaxonomyParents(path);
+    if (input) input.focus();
+  };
+
+  window.adminRemoveTaxonomyNode = function(index) {
+    const state = window.__adminTaxonomyState;
+    const path = state && Array.isArray(state.taxonomyNodes) ? state.taxonomyNodes[index] : null;
+    const textarea = document.getElementById("admin-taxonomy-text");
+    if (!Array.isArray(path) || !path.length || !textarea) return;
+    const key = adminTaxonomyKey(path);
+    const paths = adminParseTaxonomyText(textarea.value);
+    const kept = paths.filter((item) =>
+      !(item.length >= path.length && adminTaxonomyKey(item.slice(0, path.length)) === key)
+    );
+    if (kept.length === paths.length) return;
+    if (!window.confirm(`Remove "${path.join(" › ")}" and everything inside it?`)) return;
+    textarea.value = kept.map((item) => item.join(" > ")).join("\n");
+    if (state) state.paths = kept;
+    window.adminRefreshTaxonomyUI();
+    const status = document.getElementById("admin-taxonomy-status");
+    if (status) status.textContent = `Removed "${path.join(" › ")}". Click Save taxonomy to persist.`;
+  };
+
+  window.adminUpdateTaxonomyPreview = function() {
+    const preview = document.getElementById("admin-taxonomy-preview");
+    const input = document.getElementById("admin-taxonomy-new");
+    if (!preview || !input) return;
+    const parent = adminTaxonomyParentPath();
+    const segments = adminSplitTaxonomyBranch(input.value);
+    if (!segments.length) {
+      preview.textContent = parent.length
+        ? `Adding inside ${parent.join(" › ")}. Type a ${adminTaxonomyLevel(parent.length + 1).toLowerCase()} name.`
+        : "Top level adds a new subject. Type its name.";
+      return;
+    }
+    const target = [...parent, ...segments];
+    preview.textContent = `${adminTaxonomyLevel(target.length)}: ${target.slice(0, 3).join(" › ")}${target.length > 3 ? " (only Subject › Chapter › Part is allowed)" : ""}`;
+  };
+
+  window.adminAddTaxonomyBranch = function() {
+    const textarea = document.getElementById("admin-taxonomy-text");
+    const input = document.getElementById("admin-taxonomy-new");
+    const status = document.getElementById("admin-taxonomy-status");
+    if (!textarea || !input) return;
+    const paths = adminParseTaxonomyText(textarea.value);
+    const parent = adminTaxonomyParentPath();
+    const segments = adminSplitTaxonomyBranch(input.value);
+    if (!segments.length) {
+      if (status) status.textContent = "Type a branch name first.";
+      input.focus();
+      return;
+    }
+    const parentKey = parent.length ? adminTaxonomyKey(parent) : "";
+    const parentExists = !parentKey || paths.some((path) =>
+      path.length >= parent.length && adminTaxonomyKey(path.slice(0, parent.length)) === parentKey
+    );
+    if (!parentExists) {
+      if (status) status.textContent = "That parent is no longer in the taxonomy. Choose it again.";
+      window.adminRenderTaxonomyParents();
+      return;
+    }
+    if (parent.length + segments.length > 3) {
+      if (status) status.textContent = "The hierarchy is Subject › Chapter › Part only.";
+      return;
+    }
+    const fullPath = [...parent, ...segments];
+    if (paths.some((path) => adminTaxonomyKey(path) === adminTaxonomyKey(fullPath))) {
+      if (status) status.textContent = `"${fullPath.join(" › ")}" already exists.`;
+      input.select();
+      return;
+    }
+    if (paths.length >= 2000) {
+      if (status) status.textContent = "Taxonomy is limited to 2,000 paths.";
+      return;
+    }
+    paths.push(fullPath);
+    textarea.value = paths.map((path) => path.join(" > ")).join("\n");
+    const state = window.__adminTaxonomyState;
+    if (state) state.paths = paths;
+    input.value = "";
+    window.adminRefreshTaxonomyUI(parent.length ? parent : fullPath);
+    if (status) {
+      const nextStep = parent.length === 1
+        ? "Add Parts inside it from the quick editor above."
+        : parent.length === 2
+          ? "This is a Part. Add another chapter or choose Top level for a new subject."
+          : "Add a chapter inside it, or choose Top level for another subject.";
+      status.textContent = `Added "${fullPath.join(" › ")}". ${nextStep} Click Save taxonomy to persist.`;
+    }
+    input.focus();
+  };
+
+  async function adminTagQuestionsInBatches(qbankId, ids, onProgress, scopePath) {
+    let tagged = 0;
+    let unmatched = 0;
+    for (let i = 0; i < ids.length; i += 20) {
+      const batch = ids.slice(i, i + 20);
+      if (onProgress) onProgress(i, ids.length, tagged);
+      const payload = { action: "tag_qbank_questions", qbankId, questionIds: batch };
+      if (Array.isArray(scopePath) && scopePath.length) payload.scopePath = scopePath;
+      const res = await api("/api/admin", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+      tagged += res.tagged || 0;
+      unmatched += Array.isArray(res.unmatched) ? res.unmatched.length : 0;
+      if (onProgress) onProgress(Math.min(i + batch.length, ids.length), ids.length, tagged);
+    }
+    return { tagged, unmatched };
+  }
+
+  async function adminPublishQBankAfterTagging(qbankId) {
+    return api("/api/admin", {
+      method: "POST",
+      body: JSON.stringify({ action: "publish_qbank_chunks", qbankId }),
+    });
+  }
+
+  window.adminTagImportedQuestionIds = async function(qbankId, ids, onProgress) {
+    if (!qbankId || !Array.isArray(ids) || ids.length === 0) return { tagged: 0, skipped: true };
+    try {
+      const tax = await adminFetchQBankTaxonomy(qbankId);
+      if (!tax || !Array.isArray(tax.paths) || tax.paths.length === 0) {
+        return { tagged: 0, skipped: true, reason: "no_taxonomy" };
+      }
+      const result = await adminTagQuestionsInBatches(qbankId, ids, onProgress);
+      let published = false;
+      let publishError = "";
+      if (tax.chunked) {
+        try {
+          await adminPublishQBankAfterTagging(qbankId);
+          published = true;
+        } catch (publishErr) {
+          publishError = publishErr.message || "Chunk publish failed";
+        }
+      }
+      return { ...result, published, publishError };
+    } catch (e) {
+      console.warn("[taxonomy] auto-tag after import failed:", e.message);
+      return { tagged: 0, error: e.message };
+    }
+  };
+
+  window.adminOpenQBankTaxonomy = async function(qbankId, name, autoRun) {
+    const existing = document.getElementById("admin-taxonomy-modal");
+    if (existing) existing.remove();
+    window.__adminTaxonomyState = { id: qbankId, name: name || "QBank", refresh: false, busy: false, paths: [] };
+    document.body.insertAdjacentHTML("beforeend", `
+      <div id="admin-taxonomy-modal" style="position:fixed; inset:0; z-index:10050; background:rgba(0,0,0,0.58); backdrop-filter:blur(3px); display:flex; align-items:center; justify-content:center; padding:18px;" onclick="if(event.target===this) window.adminCloseQBankTaxonomy()">
+        <div style="width:min(780px,100%); max-height:92vh; overflow:auto; background:var(--surface-color,#fff); color:var(--text-primary); border:1px solid rgba(148,163,184,0.35); border-radius:16px; padding:20px; box-shadow:0 24px 70px rgba(0,0,0,0.45);">
+          <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:12px; margin-bottom:8px;">
+            <div>
+              <div style="font-size:1.15rem; font-weight:800;">AI topic taxonomy</div>
+              <div style="font-size:0.82rem; color:var(--text-muted); margin-top:4px;">${escapeHtml(name || "QBank")}</div>
+            </div>
+            <button type="button" class="btn-dark-pill" style="padding:4px 10px;" onclick="window.adminCloseQBankTaxonomy()">✕</button>
+          </div>
+          <p style="font-size:0.84rem; color:var(--text-secondary); line-height:1.5; margin:0 0 12px;">
+            Browse QBank → Subject → Chapter → Part. Choose a chapter, add its parts, then save. AI scans that chapter and tags each question to one of its parts.
+          </p>
+          <div style="border:1px solid rgba(34,211,238,0.4); border-radius:12px; padding:14px; margin-bottom:12px; background:rgba(34,211,238,0.08);">
+            <div style="font-size:0.95rem; font-weight:800; margin-bottom:2px;">Choose a chapter</div>
+            <div style="font-size:0.77rem; color:var(--text-muted); margin-bottom:10px;">Select the Subject › Chapter you want to organize into Parts.</div>
+            <select id="admin-taxonomy-category" class="login-input" onchange="window.adminTaxonomyCategoryChanged()" style="width:100%; font-size:0.84rem; padding:9px 10px;">
+              <option value="">Loading chapters…</option>
+            </select>
+            <div id="admin-taxonomy-category-meta" style="font-size:0.78rem; color:var(--text-muted); margin-top:7px;"></div>
+
+            <div style="font-size:0.9rem; font-weight:800; margin-top:14px;">Add parts</div>
+            <div style="font-size:0.77rem; color:var(--text-muted); margin-bottom:8px;">Add one part at a time. AI will match each question to the closest part.</div>
+            <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+              <input id="admin-taxonomy-tag" class="login-input" onkeydown="if(event.key==='Enter'){event.preventDefault();window.adminAddTaxonomyTag();}" placeholder="e.g. Heart failure" style="flex:1; min-width:220px; font-size:0.84rem; padding:8px 10px;">
+              <button type="button" class="btn-action primary" style="font-size:0.84rem; padding:8px 14px; white-space:nowrap;" onclick="window.adminAddTaxonomyTag()">+ Add part</button>
+            </div>
+            <div id="admin-taxonomy-tags" style="display:flex; flex-wrap:wrap; gap:6px; margin-top:10px;"></div>
+            <div id="admin-taxonomy-tag-hint" style="font-size:0.78rem; color:var(--text-muted); margin-top:8px;"></div>
+            <div style="display:flex; justify-content:flex-end; margin-top:12px;">
+              <button type="button" id="admin-taxonomy-scan-category" class="btn-action primary" style="font-size:0.84rem; padding:8px 14px;" onclick="window.adminSaveTaxonomyCategory('${escapeHtml(qbankId)}')">Save &amp; scan this chapter</button>
+            </div>
+          </div>
+
+          <details id="admin-taxonomy-advanced" style="border:1px solid rgba(148,163,184,0.28); border-radius:12px; padding:10px 12px; margin-bottom:14px;">
+            <summary style="cursor:pointer; font-size:0.82rem; font-weight:700;">Advanced: add subjects/chapters or edit all paths</summary>
+            <div style="border:1px solid rgba(148,163,184,0.22); border-radius:10px; padding:10px; margin-top:10px; background:rgba(148,163,184,0.06);">
+              <div style="font-size:0.82rem; font-weight:700; margin-bottom:8px;">Add a new subject, chapter, or part</div>
+              <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                <select id="admin-taxonomy-parent" class="login-input" onchange="window.adminUpdateTaxonomyPreview()" style="width:min(280px,100%); font-size:0.82rem; padding:8px 10px;">
+                  <option value="">Top level (new subject)</option>
+                </select>
+                <input id="admin-taxonomy-new" class="login-input" oninput="window.adminUpdateTaxonomyPreview()" onkeydown="if(event.key==='Enter'){event.preventDefault();window.adminAddTaxonomyBranch();}" placeholder="Type a name" style="flex:1; min-width:180px; font-size:0.84rem; padding:8px 10px;">
+                <button type="button" class="btn-dark-pill" style="font-size:0.8rem; padding:8px 12px; white-space:nowrap;" onclick="window.adminAddTaxonomyBranch()">+ Add</button>
+              </div>
+              <div id="admin-taxonomy-preview" style="font-size:0.76rem; color:var(--text-muted); margin-top:6px;"></div>
+              <div style="border-top:1px dashed rgba(148,163,184,0.28); margin-top:8px; padding-top:8px;">
+                <div style="font-size:0.74rem; color:var(--text-muted); margin-bottom:4px;">Click a category to add inside it</div>
+                <div id="admin-taxonomy-tree" style="max-height:150px; overflow:auto; display:flex; flex-direction:column; gap:2px;"></div>
+              </div>
+            </div>
+            <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; margin:12px 0 6px;">
+              <div style="font-size:0.8rem; font-weight:700;">All paths</div>
+              <div style="font-size:0.74rem; color:var(--text-muted);">One full path per line</div>
+            </div>
+            <textarea id="admin-taxonomy-text" class="login-input" spellcheck="false" onblur="window.adminRefreshTaxonomyUI()" placeholder="Cardiology &gt; Heart diseases &gt; Heart failure&#10;Cardiology &gt; Arrhythmias &gt; Atrial fibrillation&#10;Neurology &gt; Stroke &gt; Ischemic stroke" style="width:100%; min-height:180px; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:0.82rem; line-height:1.55; resize:vertical;"></textarea>
+          </details>
+          <div id="admin-taxonomy-stats" style="font-size:0.8rem; color:var(--text-muted); margin-top:8px;">Loading taxonomy…</div>
+          <div style="height:8px; border-radius:999px; background:rgba(148,163,184,0.18); overflow:hidden; margin-top:12px;">
+            <div id="admin-taxonomy-bar" style="height:100%; width:0%; background:linear-gradient(90deg,#007a7a,#22d3ee); transition:width .25s;"></div>
+          </div>
+          <div id="admin-taxonomy-status" style="min-height:20px; font-size:0.82rem; color:var(--text-secondary); margin-top:8px;"></div>
+          <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; justify-content:flex-end; margin-top:14px;">
+            <button type="button" class="btn-dark-pill" onclick="window.adminCloseQBankTaxonomy()">Close</button>
+            <button type="button" id="admin-taxonomy-save" class="btn-dark-pill" style="color:var(--accent-cyan);" onclick="window.adminSaveQBankTaxonomy('${escapeHtml(qbankId)}', false)">Save taxonomy</button>
+            <button type="button" id="admin-taxonomy-run" class="btn-action primary" style="font-size:0.85rem; padding:8px 14px;" onclick="window.adminSaveQBankTaxonomy('${escapeHtml(qbankId)}', true)">Save &amp; tag all questions</button>
+          </div>
+        </div>
+      </div>
+    `);
+
+    const textarea = document.getElementById("admin-taxonomy-text");
+    const stats = document.getElementById("admin-taxonomy-stats");
+    try {
+      const tax = await adminFetchQBankTaxonomy(qbankId);
+      const paths = Array.isArray(tax.paths) ? tax.paths : [];
+      if (textarea) textarea.value = tax.text || "";
+      if (window.__adminTaxonomyState) window.__adminTaxonomyState.paths = paths;
+      window.adminRefreshTaxonomyUI();
+      if (stats) {
+        stats.textContent = `${paths.length} branch(es) · taxonomy v${tax.version || 0}${tax.chunked ? " · published bank" : ""}`;
+      }
+      if (!paths.length) {
+        const advanced = document.getElementById("admin-taxonomy-advanced");
+        if (advanced) advanced.open = true;
+        if (stats) stats.textContent = "No taxonomy saved yet. Add a subject in Advanced, then choose it above.";
+        return;
+      }
+      if (autoRun) setTimeout(() => window.adminRunQBankTaxonomyTagging(qbankId), 150);
+    } catch (e) {
+      if (stats) stats.textContent = "Failed to load taxonomy: " + e.message;
+    }
+  };
+
+  window.adminCloseQBankTaxonomy = function() {
+    const modal = document.getElementById("admin-taxonomy-modal");
+    if (modal) modal.remove();
+    const state = window.__adminTaxonomyState;
+    window.__adminTaxonomyState = null;
+    if (state && state.refresh && currentAdminQBankId) {
+      window.adminManageQBank(currentAdminQBankId, state.name || "QBank");
+    }
+  };
+
+  window.adminSaveQBankTaxonomy = async function(qbankId, run, scopePath) {
+    const state = window.__adminTaxonomyState;
+    if (state && state.busy) return;
+    const textarea = document.getElementById("admin-taxonomy-text");
+    if (!textarea) return;
+    const status = document.getElementById("admin-taxonomy-status");
+    const saveBtn = document.getElementById("admin-taxonomy-save");
+    const runBtn = document.getElementById("admin-taxonomy-run");
+    const scanBtn = document.getElementById("admin-taxonomy-scan-category");
+    if (status) status.textContent = "Saving taxonomy…";
+    if (saveBtn) saveBtn.disabled = true;
+    if (runBtn) runBtn.disabled = true;
+    if (scanBtn) scanBtn.disabled = true;
+    try {
+      const res = await api("/api/admin", {
+        method: "POST",
+        body: JSON.stringify({ action: "save_qbank_taxonomy", qbankId, taxonomyText: textarea.value }),
+      });
+      textarea.value = res.text || "";
+      if (state) {
+        state.refresh = true;
+        state.paths = Array.isArray(res.paths) ? res.paths : [];
+      }
+      window.adminRefreshTaxonomyUI();
+      if (status) status.textContent = `${res.paths ? res.paths.length : 0} branches saved at version ${res.version}.`;
+      if (run) {
+        await window.adminRunQBankTaxonomyTagging(qbankId, scopePath);
+        return;
+      }
+      const stats = document.getElementById("admin-taxonomy-stats");
+      if (stats) stats.textContent = `${res.paths ? res.paths.length : 0} branch(es) · taxonomy v${res.version}${res.chunked ? " · published bank" : ""}`;
+    } catch (e) {
+      if (status) status.textContent = "Save failed: " + e.message;
+    } finally {
+      if (saveBtn) saveBtn.disabled = false;
+      if (runBtn) runBtn.disabled = false;
+      if (scanBtn) scanBtn.disabled = false;
+      window.adminRenderTaxonomyQuick();
+    }
+  };
+
+  window.adminRunQBankTaxonomyTagging = async function(qbankId, scopePath) {
+    const state = window.__adminTaxonomyState;
+    if (state && state.busy) return;
+    if (state) state.busy = true;
+    const scope = Array.isArray(scopePath) ? scopePath.map((s) => String(s)).filter(Boolean).slice(0, 5) : [];
+    const saveBtn = document.getElementById("admin-taxonomy-save");
+    const runBtn = document.getElementById("admin-taxonomy-run");
+    const scanBtn = document.getElementById("admin-taxonomy-scan-category");
+    if (saveBtn) saveBtn.disabled = true;
+    if (runBtn) runBtn.disabled = true;
+    if (scanBtn) scanBtn.disabled = true;
+    const stats = document.getElementById("admin-taxonomy-stats");
+    try {
+      const tax = await adminFetchQBankTaxonomy(qbankId);
+      if (!tax.paths || tax.paths.length === 0) {
+        adminSetTaxonomyProgress(0, 0, "Save a taxonomy first, then run AI tagging.");
+        return;
+      }
+      if (scope.length) {
+        const scopeKey = adminTaxonomyKey(scope);
+        const scopedTags = tax.paths.filter((path) =>
+          path.length > scope.length && adminTaxonomyKey(path.slice(0, scope.length)) === scopeKey
+        );
+        if (!scopedTags.length) {
+          adminSetTaxonomyProgress(0, 0, "Add at least one part under this chapter before scanning.");
+          return;
+        }
+      }
+
+      let pending = [];
+      if (scope.length) {
+        await adminEnsureCurrentQuestions(qbankId);
+        pending = adminQuestionIdsForCategory(scope);
+        if (!pending.length) {
+          adminSetTaxonomyProgress(0, 0, "No questions match this chapter. Check the subject/chapter, or use Save & tag all.");
+          return;
+        }
+        if (stats) stats.textContent = `${scope.join(" › ")} · ${pending.length} matching question(s)`;
+      } else {
+        const index = await adminFetchQBankTagIndex(qbankId);
+        if (stats) stats.textContent = adminTaxonomyStatsText(index);
+        pending = Array.isArray(index.pendingIds) ? index.pendingIds : [];
+        if (pending.length === 0) {
+          if (tax.chunked) {
+            adminSetTaxonomyProgress(1, 1, "All questions are tagged — republishing chunks…");
+            await adminPublishQBankAfterTagging(qbankId);
+            adminSetTaxonomyProgress(1, 1, "All questions are tagged. Chunks republished.");
+          } else {
+            adminSetTaxonomyProgress(1, 1, "All questions are already tagged.");
+          }
+          return;
+        }
+      }
+
+      const scopeLabel = scope.length ? scope.join(" › ") : "";
+      const startText = scope.length
+        ? `Scanning ${pending.length} question(s) in ${scopeLabel}…`
+        : `Tagging ${pending.length} questions in batches of 20…`;
+      adminSetTaxonomyProgress(0, pending.length, startText);
+      const result = await adminTagQuestionsInBatches(qbankId, pending, (done, total, tagged) => {
+        adminSetTaxonomyProgress(done, total, `${scope.length ? "Scanning" : "Tagging"} ${total} questions · ${done}/${total} processed · ${tagged} tagged`);
+      }, scope);
+      if (state) state.refresh = true;
+      let publishError = "";
+      if (tax.chunked) {
+        adminSetTaxonomyProgress(pending.length, pending.length, "Publishing updated question chunks…");
+        try {
+          await adminPublishQBankAfterTagging(qbankId);
+        } catch (publishErr) {
+          publishError = publishErr.message || "Chunk publish failed";
+        }
+      }
+      if (publishError) {
+        adminSetTaxonomyProgress(1, 1, `Tagged ${result.tagged} question(s), but chunks failed to publish: ${publishError}. Run the scan again to retry publishing.`);
+        return;
+      }
+      const chunkNote = tax.chunked ? " Chunks published." : "";
+      if (scope.length) {
+        if (stats) stats.textContent = `${scopeLabel} · ${pending.length} scanned · ${result.tagged} tagged · ${result.unmatched} unmatched`;
+        adminSetTaxonomyProgress(1, 1, `Scanned ${pending.length} question(s) in ${scopeLabel}. ${result.tagged} tagged · ${result.unmatched} unmatched.${chunkNote}`);
+        return;
+      }
+      const after = await adminFetchQBankTagIndex(qbankId);
+      if (stats) stats.textContent = adminTaxonomyStatsText(after);
+      const remainNote = after.pending > 0 ? ` ${after.pending} still pending — run again to retry.` : " All questions tagged.";
+      adminSetTaxonomyProgress(1, 1, `Tagged ${result.tagged} question(s).${chunkNote}${remainNote}`);
+    } catch (e) {
+      adminSetTaxonomyProgress(0, 0, "Tagging stopped: " + e.message);
+    } finally {
+      if (state) state.busy = false;
+      if (saveBtn) saveBtn.disabled = false;
+      if (runBtn) runBtn.disabled = false;
+      if (scanBtn && !scope.length) scanBtn.disabled = false;
+      window.adminRenderTaxonomyQuick();
     }
   };
 
@@ -2472,24 +3240,27 @@
 
   const AI_PROMPT_GUIDE_TEXT = `You are an expert medical professor creating high-yield Multiple Choice Questions (MCQs) for a medical QBank. 
 
-Generate [NUMBER] clinical questions about [TOPIC/SUBCATEGORY]. 
+Generate [NUMBER] clinical questions about [SUBJECT / CHAPTER / PART].
 You MUST format your response EXACTLY following this strict text structure. Do not use markdown tables or JSON. Use plain text exactly as shown below.
 
 STRICT FORMAT RULES:
-1. Start each subcategory with: \`  -> Subject: [Name of Subject]\`
-2. Start each chapter (sub-subcategory) with: \`  -> Chapter: [Name of Chapter]\`
-3. Start each question with: \`Question [Number] [Code: random_5_chars] (Année: [Year]):\`
-4. Write the question text on the next line.
-5. List options A to E. 
-6. For the correct option(s), append exactly \` ✅ (CORRECT)\` immediately after the option text.
-7. For every option (both correct and incorrect), append an explanation arrow exactly formatted as: \` -> Note: [Explanation for this specific option]\`
-8. Add a general explanation at the end starting exactly with: \`Explication générale: [Overall explanation and clinical pearls]\`
-9. Add a separator exactly as: \`--------------------------------------------------\`
+1. Start each subject with: \`  -> Subject: [Name of Subject]\`
+2. Start each chapter inside that subject with: \`  -> Chapter: [Name of Chapter]\`
+3. Start each part inside that chapter with: \`  -> Part: [Name of Part]\`
+4. Subject, Chapter, and Part are ALL mandatory for every question.
+5. Start each question with: \`Question [Number] [Code: random_5_chars] (Année: [Year]):\`
+6. Write the question text on the next line.
+7. List options A to E. 
+8. For the correct option(s), append exactly \` ✅ (CORRECT)\` immediately after the option text.
+9. For every option (both correct and incorrect), append an explanation arrow exactly formatted as: \` -> Note: [Explanation for this specific option]\`
+10. Add a general explanation at the end starting exactly with: \`Explication générale: [Overall explanation and clinical pearls]\`
+11. Add a separator exactly as: \`--------------------------------------------------\`
 
 EXAMPLE OF THE EXACT REQUIRED FORMAT:
 
-  -> Subject: Cardiologie - Douleurs Thoraciques
+  -> Subject: Cardiologie
   -> Chapter: Urgences Cardiologiques
+  -> Part: Syndrome coronarien aigu
 Question 1 [Code: a1b2c] (Année: 2024):
 Un patient de 60 ans présente une douleur thoracique typique... Quel est le diagnostic le plus probable ?
   A. Péricardite aiguë -> Note: La douleur de la péricardite est soulagée par l'antéflexion, ce qui n'est pas le cas ici.
@@ -2500,6 +3271,50 @@ Un patient de 60 ans présente une douleur thoracique typique... Quel est le dia
 Explication générale: Leçon clé: Le SCA doit toujours être suspecté en premier devant une douleur thoracique constrictive chez un patient à risque. Piège à éviter: Ne pas attendre la troponine pour faire un ECG.
 
 --------------------------------------------------`;
+
+  const JSON_IMPORT_GUIDE_TEXT = `You are an expert medical professor creating high-yield Multiple Choice Questions (MCQs) for a medical QBank.
+
+Generate [NUMBER] clinical questions about [SUBJECT / CHAPTER / PART].
+Return ONLY valid JSON. Do not use markdown fences, comments, or text outside the JSON.
+
+Use exactly this structure:
+
+{
+  "questions": [
+    {
+      "questionText": "A 60-year-old man presents with sudden chest pain. Which diagnosis is most likely?",
+      "options": [
+        { "text": "Pericarditis", "correct": false, "explanation": "The pain is usually pleuritic and relieved by leaning forward." },
+        { "text": "Acute coronary syndrome", "correct": true, "explanation": "Constricting chest pain radiating to the left arm is typical." },
+        { "text": "Aortic dissection", "correct": false, "explanation": "Look for tearing pain and unequal blood pressures." },
+        { "text": "Pulmonary embolism", "correct": false, "explanation": "Pleuritic pain and risk factors would be more prominent." },
+        { "text": "Pneumothorax", "correct": false, "explanation": "Reduced breath sounds and hyperresonance would be expected." }
+      ],
+      "explanation": "Overall explanation and clinical pearls.",
+      "subject": "Cardiology",
+      "chapter": "Acute coronary syndromes",
+      "part": "STEMI",
+      "tags": ["Chest pain", "Troponin"],
+      "year": "2024",
+      "code": "a1b2c"
+    }
+  ]
+}
+
+RULES:
+1. Every question MUST include questionText, options, subject, chapter, part, and tags.
+2. Subject, chapter, and part are the required hierarchy: Subject > Chapter > Part. A question cannot be imported without all three.
+3. options must contain 2-6 choices. Use { "text", "correct", "explanation" } objects as shown. Mark every correct option with "correct": true.
+4. String options plus a zero-based "correctIndices" array are also accepted.
+5. part is the Part inside its chapter, for example "STEMI". It becomes the question's browsing location automatically.
+6. tags must be 1-6 free-form disease or topic labels, for example ["Chest pain", "Troponin"]. Do not put years in tags.
+7. Keep subject, chapter, and part names consistent across the whole file.
+8. year and code are optional. Do not invent a code if you are unsure.
+9. explanation is the overall explanation. Each option explanation is shown beside that option.
+10. Do not include duplicate questions. Do not use markdown inside the JSON.
+11. Keep each JSON file to 2,000 questions or fewer.
+
+The top-level value may be the "questions" object shown above or a plain JSON array.`;
 
   // Multi-File Sequential Batch Import State & Helper Functions
   let activeBatchFilesQueue = [];
@@ -2513,7 +3328,7 @@ Explication générale: Leçon clé: Le SCA doit toujours être suspecté en pre
     if (countBadge) countBadge.textContent = `${activeBatchFilesQueue.length} file(s) in queue`;
 
     if (activeBatchFilesQueue.length === 0) {
-      queueList.innerHTML = `<div style="text-align:center; padding:15px; color:var(--text-muted); font-size:0.85rem; background:rgba(0,0,0,0.15); border-radius:6px; border:1px dashed rgba(255,255,255,0.1);">No files added to queue yet. Click "Choose Files" above to select one or multiple .txt files.</div>`;
+      queueList.innerHTML = `<div style="text-align:center; padding:15px; color:var(--text-muted); font-size:0.85rem; background:rgba(0,0,0,0.15); border-radius:6px; border:1px dashed rgba(255,255,255,0.1);">No files added to queue yet. Click "Choose Files" above to select one or multiple .json or .txt files.</div>`;
       return;
     }
 
@@ -2540,7 +3355,7 @@ Explication générale: Leçon clé: Le SCA doit toujours être suspecté en pre
           </div>
 
           <div style="display:flex; align-items:center; gap:8px; flex:1; max-width:320px;">
-            <label style="font-size:0.75rem; color:var(--text-muted); white-space:nowrap;">Subcategory:</label>
+            <label style="font-size:0.75rem; color:var(--text-muted); white-space:nowrap;">Fallback subject:</label>
             <input type="text" class="login-input batch-file-subcat-input" data-idx="${idx}" value="${escapeHtml(item.subcategory)}" placeholder="e.g. Cardiologie" style="font-size:0.8rem; padding:4px 8px; flex:1;" ${isBatchImportingRunning ? 'disabled' : ''}>
           </div>
 
@@ -2571,7 +3386,7 @@ Explication générale: Leçon clé: Le SCA doit toujours être suspecté en pre
     const globalInput = document.getElementById(`${prefix}-global-subcat-input`);
     if (!globalInput) return;
     const val = globalInput.value.trim();
-    if (!val) return alert("Enter a subcategory name to apply to all files in queue.");
+    if (!val) return alert("Enter a subject name to apply to all files in queue.");
 
     activeBatchFilesQueue.forEach(item => {
       item.subcategory = val;
@@ -2606,7 +3421,7 @@ Explication générale: Leçon clé: Le SCA doit toujours être suspecté en pre
     }
 
     if (activeBatchFilesQueue.length === 0) {
-      return alert("Please select one or multiple .txt files, or paste formatted questions first.");
+      return alert("Please select one or multiple .json or .txt files, or paste formatted questions first.");
     }
 
     if (isBatchImportingRunning) return;
@@ -2628,7 +3443,10 @@ Explication générale: Leçon clé: Le SCA doit toujours être suspecté en pre
     let totalImportedAll = 0;
     let totalFoundAll = 0;
     let totalDuplicatesAll = 0;
+    let totalInvalidAll = 0;
     let failedCount = 0;
+    const untaggedQuestionIds = [];
+    const preTaggedQuestionIds = [];
 
     const totalFiles = activeBatchFilesQueue.length;
 
@@ -2671,6 +3489,12 @@ Explication générale: Leçon clé: Le SCA doit toujours être suspecté en pre
         totalImportedAll += item.imported;
         totalFoundAll += item.totalFound;
         totalDuplicatesAll += item.duplicatesSkipped;
+        totalInvalidAll += res.invalidSkipped || 0;
+        const incomingIds = Array.isArray(res.untaggedQuestionIds)
+          ? res.untaggedQuestionIds
+          : (Array.isArray(res.questionIds) ? res.questionIds : []);
+        untaggedQuestionIds.push(...incomingIds);
+        if (Array.isArray(res.preTaggedQuestionIds)) preTaggedQuestionIds.push(...res.preTaggedQuestionIds);
       } catch (e) {
         item.status = 'error';
         item.errorMsg = e.message || "Upload failed";
@@ -2681,8 +3505,47 @@ Explication générale: Leçon clé: Le SCA doit toujours être suspecté en pre
     }
 
     if (progressBar) progressBar.style.width = '100%';
+
+    const uniqueUntaggedIds = Array.from(new Set(untaggedQuestionIds));
+    const uniquePreTaggedIds = Array.from(new Set(preTaggedQuestionIds));
+    let tagResult = null;
+    let didPublish = false;
+    let publishError = "";
+
+    if (uniqueUntaggedIds.length && typeof window.adminTagImportedQuestionIds === "function") {
+      if (progressStatus) progressStatus.innerHTML = `<span style="color:#22d3ee; font-weight:bold;">Tagging ${uniqueUntaggedIds.length} untagged question(s) with AI (20 per batch)…</span>`;
+      tagResult = await window.adminTagImportedQuestionIds(qbankId, uniqueUntaggedIds, (done, total, tagged) => {
+        if (progressStatus) progressStatus.innerHTML = `<span style="color:#22d3ee; font-weight:bold;">Tagging imported questions · ${done}/${total} processed · ${tagged} tagged</span>`;
+      });
+      didPublish = !!(tagResult && tagResult.published);
+      if (tagResult && tagResult.publishError) publishError = tagResult.publishError;
+    }
+
+    if (uniquePreTaggedIds.length && !didPublish && typeof adminFetchQBankTaxonomy === "function" && typeof adminPublishQBankAfterTagging === "function") {
+      try {
+        const tax = await adminFetchQBankTaxonomy(qbankId);
+        if (tax && tax.chunked) {
+          if (progressStatus) progressStatus.innerHTML = `<span style="color:#22d3ee; font-weight:bold;">Publishing chunks for ${uniquePreTaggedIds.length} structured question(s)…</span>`;
+          await adminPublishQBankAfterTagging(qbankId);
+          didPublish = true;
+        }
+      } catch (publishErr) {
+        publishError = publishErr.message || "Chunk publish failed";
+      }
+    }
+
     if (progressStatus) {
-      progressStatus.innerHTML = `<span style="color:#4ade80; font-weight:bold;">🎉 Batch import complete! ${totalImportedAll} questions imported across ${totalFiles - failedCount} file(s). ${totalDuplicatesAll > 0 ? '(' + totalDuplicatesAll + ' duplicates skipped)' : ''}</span>`;
+      const bits = [`${totalImportedAll} imported`];
+      if (uniquePreTaggedIds.length) bits.push(`${uniquePreTaggedIds.length} structured from import`);
+      if (tagResult && tagResult.tagged) bits.push(`${tagResult.tagged} AI-tagged`);
+      if (didPublish) bits.push("chunks published");
+      if (publishError) bits.push(`publish failed: ${escapeHtml(publishError)}`);
+      if (totalInvalidAll) bits.push(`${totalInvalidAll} invalid JSON item(s) skipped`);
+      if (totalDuplicatesAll) bits.push(`${totalDuplicatesAll} duplicates skipped`);
+      if (failedCount) bits.push(`${failedCount} file(s) failed`);
+      if (tagResult && tagResult.error) bits.push(`AI tagging failed: ${escapeHtml(tagResult.error)}`);
+      const statusColor = failedCount || (tagResult && tagResult.error) ? '#f59e0b' : '#4ade80';
+      progressStatus.innerHTML = `<span style="color:${statusColor}; font-weight:bold;">Import complete · ${bits.join(" · ")}.</span>`;
     }
 
     isBatchImportingRunning = false;
@@ -2699,24 +3562,25 @@ Explication générale: Leçon clé: Le SCA doit toujours être suspecté en pre
   function createBatchImportFormHTML(prefix, qbankId, isModal) {
     return `
       <div style="font-size:0.85rem; color:var(--text-secondary); margin-bottom:12px;">
-        Upload multiple <code>.txt</code> subject files or paste formatted questions. Subcategories are automatically set from filenames.
-        <button class="btn-dark-pill" style="font-size:0.7rem; padding:2px 8px; margin-left:8px; color:var(--accent-cyan);" onclick="window.adminToggleAIPromptGuideForm('${prefix}')">View AI Prompt Guide</button>
+        Upload <code>.json</code> files (tags + parts per question), multiple <code>.txt</code> files, or paste either format. Subject defaults from filenames.
+        <button class="btn-dark-pill" style="font-size:0.7rem; padding:2px 8px; margin-left:8px; color:var(--accent-cyan);" onclick="window.adminShowImportGuide('${prefix}', 'json')">JSON Format Guide</button>
+        <button class="btn-dark-pill" style="font-size:0.7rem; padding:2px 8px; margin-left:4px; color:var(--accent-cyan);" onclick="window.adminShowImportGuide('${prefix}', 'txt')">TXT Guide</button>
       </div>
 
       <div id="${prefix}-ai-prompt-guide-container" style="display:none; padding:12px; background:rgba(6,182,212,0.1); border:1px solid rgba(6,182,212,0.2); border-radius:8px; margin-bottom:15px;">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-          <strong style="color:var(--text-primary); font-size:0.9rem;">Copy-Paste this to your AI:</strong>
-          <button class="btn-action primary" style="font-size:0.75rem; padding:4px 10px;" onclick="window.adminCopyPromptGuide()">Copy to Clipboard</button>
+          <strong id="${prefix}-guide-title" style="color:var(--text-primary); font-size:0.9rem;">JSON import format</strong>
+          <button class="btn-action primary" style="font-size:0.75rem; padding:4px 10px;" onclick="window.adminCopyImportGuide('${prefix}')">Copy to Clipboard</button>
         </div>
-        <textarea readonly style="width:100%; height:120px; background:rgba(0,0,0,0.2); border:1px solid rgba(255,255,255,0.1); border-radius:6px; color:var(--text-primary); font-family:monospace; font-size:0.8rem; padding:8px; resize:vertical;">${escapeHtml(AI_PROMPT_GUIDE_TEXT)}</textarea>
+        <textarea id="${prefix}-guide-text" readonly style="width:100%; height:180px; background:rgba(0,0,0,0.2); border:1px solid rgba(255,255,255,0.1); border-radius:6px; color:var(--text-primary); font-family:monospace; font-size:0.8rem; padding:8px; resize:vertical;"></textarea>
       </div>
 
       <!-- File Select Dropzone & Input -->
       <div style="padding:15px; background:rgba(255,255,255,0.02); border:2px dashed rgba(255,255,255,0.15); border-radius:10px; margin-bottom:14px; text-align:center;">
-        <input type="file" id="${prefix}-file-input" accept=".txt" multiple style="display:none;">
-        <div style="font-size:0.9rem; color:var(--text-primary); font-weight:600; margin-bottom:6px;">Select one or multiple .txt files</div>
-        <div style="font-size:0.8rem; color:var(--text-secondary); margin-bottom:12px;">Choose multiple files (e.g. Cardiologie.txt, Pneumologie.txt) to queue them up.</div>
-        <button class="btn-action primary" type="button" style="font-size:0.85rem; padding:8px 16px;" onclick="document.getElementById('${prefix}-file-input').click()">📁 Select TXT Files...</button>
+        <input type="file" id="${prefix}-file-input" accept=".txt,.json,application/json,text/plain" multiple style="display:none;">
+        <div style="font-size:0.9rem; color:var(--text-primary); font-weight:600; margin-bottom:6px;">Select one or multiple .json or .txt files</div>
+        <div style="font-size:0.8rem; color:var(--text-secondary); margin-bottom:12px;">Choose multiple files (e.g. Cardiologie.json, Pneumologie.txt) to queue them up.</div>
+        <button class="btn-action primary" type="button" style="font-size:0.85rem; padding:8px 16px;" onclick="document.getElementById('${prefix}-file-input').click()">📁 Select JSON / TXT Files...</button>
       </div>
 
       <!-- File Queue Area -->
@@ -2728,7 +3592,7 @@ Explication générale: Leçon clé: Le SCA doit toujours être suspecté en pre
           </div>
 
           <div style="display:flex; gap:6px; align-items:center;">
-            <input type="text" id="${prefix}-global-subcat-input" class="login-input" placeholder="Bulk subcategory..." style="font-size:0.75rem; padding:4px 8px; width:140px;">
+            <input type="text" id="${prefix}-global-subcat-input" class="login-input" placeholder="Bulk subject..." style="font-size:0.75rem; padding:4px 8px; width:140px;">
             <button class="btn-dark-pill" style="font-size:0.75rem; padding:4px 8px; color:var(--accent-cyan);" onclick="window.adminApplyGlobalSubcategory('${prefix}')">Apply to All</button>
             <button class="btn-dark-pill" style="font-size:0.75rem; padding:4px 8px; color:var(--text-muted);" onclick="window.adminClearBatchQueue('${prefix}')">Clear Queue</button>
           </div>
@@ -2739,11 +3603,11 @@ Explication générale: Leçon clé: Le SCA doit toujours être suspecté en pre
 
       <!-- Optional Raw Text Area -->
       <details style="margin-bottom:14px;">
-        <summary style="font-size:0.8rem; color:var(--text-secondary); cursor:pointer; padding:6px 0; font-weight:600;">Or Paste Formatted Raw Text Directly</summary>
+        <summary style="font-size:0.8rem; color:var(--text-secondary); cursor:pointer; padding:6px 0; font-weight:600;">Or Paste TXT or JSON Directly</summary>
         <div style="margin-top:8px;">
-          <textarea id="${prefix}-text" class="login-input" rows="6" placeholder="Paste questions here..." style="font-family:monospace; font-size:0.85rem; margin-bottom:8px;"></textarea>
+          <textarea id="${prefix}-text" class="login-input" rows="6" placeholder="Paste formatted TXT or JSON here..." style="font-family:monospace; font-size:0.85rem; margin-bottom:8px;"></textarea>
           <div style="display:flex; align-items:center; gap:8px;">
-            <label style="font-size:0.8rem; color:var(--text-secondary); white-space:nowrap;">Subcategory for pasted text:</label>
+            <label style="font-size:0.8rem; color:var(--text-secondary); white-space:nowrap;">Fallback subject for pasted text:</label>
             <input type="text" id="${prefix}-subcategory" class="login-input" placeholder="e.g. Cardiologie" style="flex:1; font-size:0.8rem; padding:4px 8px;">
           </div>
         </div>
@@ -2788,9 +3652,37 @@ Explication générale: Leçon clé: Le SCA doit toujours être suspecté en pre
     }
   }
 
+  window.adminShowImportGuide = function(prefix, format) {
+    const container = document.getElementById(`${prefix}-ai-prompt-guide-container`);
+    const title = document.getElementById(`${prefix}-guide-title`);
+    const textarea = document.getElementById(`${prefix}-guide-text`);
+    if (!container) return;
+    const isJson = format === "json";
+    container.style.display = "block";
+    container.dataset.format = isJson ? "json" : "txt";
+    if (title) title.textContent = isJson ? "JSON import format (tags + parts per question)" : "TXT format (Subject > Chapter > Part)";
+    if (textarea) textarea.value = isJson ? JSON_IMPORT_GUIDE_TEXT : AI_PROMPT_GUIDE_TEXT;
+  };
+
   window.adminToggleAIPromptGuideForm = function(prefix) {
     const container = document.getElementById(`${prefix}-ai-prompt-guide-container`);
-    if (container) container.style.display = container.style.display === "none" ? "block" : "none";
+    if (!container) return;
+    if (container.style.display === "none") {
+      window.adminShowImportGuide(prefix, "txt");
+    } else {
+      container.style.display = "none";
+    }
+  };
+
+  window.adminCopyImportGuide = function(prefix) {
+    const textarea = document.getElementById(`${prefix}-guide-text`);
+    const text = textarea ? textarea.value : "";
+    if (!text) return alert("Open a format guide first.");
+    navigator.clipboard.writeText(text).then(() => {
+      alert("Import guide copied to clipboard!");
+    }).catch(() => {
+      alert("Failed to copy. Please select the text and copy manually.");
+    });
   };
 
   window.adminOpenBatchImport = function(qbankId) {
@@ -2800,7 +3692,7 @@ Explication générale: Leçon clé: Le SCA doit toujours être suspecté en pre
     const prefix = "admin-batch-import";
     area.innerHTML = `
       <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
-        <h3 style="margin:0; font-size:1.1rem; color:var(--text-primary);">Batch Import Questions (TXT)</h3>
+        <h3 style="margin:0; font-size:1.1rem; color:var(--text-primary);">Batch Import Questions (JSON / TXT)</h3>
         <button class="btn-dark-pill" style="font-size:0.75rem;" onclick="document.getElementById('admin-batch-import-area').style.display='none'">Close</button>
       </div>
       ${createBatchImportFormHTML(prefix, qbankId, false)}
@@ -2822,7 +3714,7 @@ Explication générale: Leçon clé: Le SCA doit toujours être suspecté en pre
     modal.innerHTML = `
       <div class="modal-content" style="max-width: 680px;">
         <button class="exam-close-btn" onclick="document.getElementById('admin-global-batch-import-modal').style.display='none'"><i data-lucide="x"></i></button>
-        <div class="exam-title" style="margin-bottom: 18px;"><i data-lucide="upload"></i> Batch Import Questions: ${escapeHtml(qbankName)}</div>
+        <div class="exam-title" style="margin-bottom: 18px;"><i data-lucide="upload"></i> Batch Import Questions (JSON / TXT): ${escapeHtml(qbankName)}</div>
         ${createBatchImportFormHTML(prefix, qbankId, true)}
         <div style="display:flex; gap:10px; justify-content:flex-end; margin-top: 16px;">
           <button class="btn-dark-pill" type="button" onclick="document.getElementById('admin-global-batch-import-modal').style.display='none'">Close</button>
@@ -3015,7 +3907,7 @@ Explication générale: Leçon clé: Le SCA doit toujours être suspecté en pre
 
   window.adminSelectBySubject = function() {
     if (!currentAdminQuestions || currentAdminQuestions.length === 0) return alert("No questions available.");
-    const subject = prompt("Enter the exact sub-category (subject) name to select all its questions:");
+    const subject = prompt("Enter the exact subject name to select all its questions:");
     if (!subject) return;
     
     let matchIds = [];
@@ -3072,8 +3964,22 @@ Explication générale: Leçon clé: Le SCA doit toujours être suspecté en pre
         msg += ` (${res.duplicatesSkipped} duplicate(s) skipped)`;
       }
       status.textContent = msg;
+      if (Array.isArray(res.questionIds) && res.questionIds.length && typeof window.adminTagImportedQuestionIds === "function") {
+        status.textContent = msg + " Tagging topics with AI…";
+        const tagResult = await window.adminTagImportedQuestionIds(qbankId, res.questionIds, (done, total, tagged) => {
+          status.textContent = `Tagging topics · ${done}/${total} processed · ${tagged} tagged`;
+        });
+        if (tagResult && tagResult.tagged) {
+          msg += ` ${tagResult.tagged} AI-tagged${tagResult.published ? " · chunks published" : ""}.`;
+          if (tagResult.publishError) msg += ` Chunk publish failed: ${tagResult.publishError}.`;
+          status.textContent = msg;
+        } else if (tagResult && tagResult.error) {
+          msg += ` AI tagging failed: ${tagResult.error}`;
+          status.textContent = msg;
+        }
+      }
       textarea.value = "";
-      setTimeout(() => { status.textContent = ""; }, 5000);
+      setTimeout(() => { status.textContent = ""; }, 6500);
     } catch (e) {
       status.style.color = "var(--danger)";
       status.textContent = "Failed: " + e.message;
@@ -3482,7 +4388,7 @@ Explication générale: Leçon clé: Le SCA doit toujours être suspecté en pre
   window.adminLibraryExportConcepts = async function (btn) {
     if (!window.__adminLibraryBank) return;
     const orig = btn ? btn.innerHTML : "";
-    if (btn) { btn.disabled = true; btn.textContent = "Exporting…"; }
+      if (btn) { btn.disabled = true; btn.textContent = "Exporting…"; }
     try {
       const res = await api("/api/admin", {
         method: "POST",
@@ -3495,9 +4401,334 @@ Explication générale: Leçon clé: Le SCA doit toujours être suspecté en pre
       document.body.appendChild(a);
       a.click();
       setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
-      alert(`Exported ${res.withConcepts} concepts.${res.backfilledAt ? ` Digest backfilled: ${res.backfilledAt}.` : " Digest never backfilled — run Backfill digest for full coverage of older concepts."} Served from digest — 1 read.`);
+      alert(`Exported ${res.withConcepts} concepts.${res.backfilledAt ? ` Digest backfilled: ${res.backfilledAt}.` : " Digest never backfilled - run Backfill digest for full coverage of older concepts."} Served from digest - 1 read.`);
     } catch (e) {
       alert("Export failed: " + e.message);
+    } finally {
+      if (btn) { btn.disabled = false; btn.innerHTML = orig; }
+    }
+  };
+
+  // ---------- COLLEGE CATALOGUE & BANK ASSOCIATIONS ----------
+  let collegeStructure = null;
+  let collegeBanks = [];
+  let collegeEditingId = "";
+  let collegeSaving = false;
+
+  function acSlug(value) {
+    return String(value || "").toLowerCase().normalize("NFKD")
+      .replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "").slice(0, 48) || "item";
+  }
+
+  function acUniqueId(prefix, seed, used) {
+    const base = `${prefix}-${acSlug(seed)}`.slice(0, 64);
+    let id = base;
+    let n = 2;
+    while (used.has(id)) id = `${base}-${n++}`;
+    return id;
+  }
+
+  function acStatus(message, bad) {
+    const el = document.getElementById("admin-colleges-status");
+    if (!el) return;
+    el.textContent = message || "";
+    el.style.color = bad ? "var(--danger)" : "var(--accent-cyan)";
+    if (message) setTimeout(() => { if (el.textContent === message) el.textContent = ""; }, 3500);
+  }
+
+  async function acPersist(message) {
+    if (!collegeStructure || collegeSaving) return;
+    collegeSaving = true;
+    acStatus("Saving...");
+    try {
+      const res = await api("/api/admin", {
+        method: "POST",
+        body: JSON.stringify({ action: "save_academic_structure", structure: collegeStructure }),
+      });
+      collegeStructure = res.structure;
+      acStatus(message || "Saved.");
+      acRenderColleges();
+    } catch (e) {
+      acStatus("Save failed: " + e.message, true);
+      alert("Could not save college catalogue: " + e.message);
+    } finally {
+      collegeSaving = false;
+    }
+  }
+
+  function acBankName(id) {
+    const bank = collegeBanks.find((b) => b.id === id);
+    return bank ? bank.name : id;
+  }
+
+  function acBankCheckboxes(college, kind) {
+    const list = collegeBanks
+      .filter((b) => (kind === "prep" ? b.kind === "exam_prep" : b.kind !== "exam_prep"))
+      .sort((a, b) => String(a.name).localeCompare(String(b.name)));
+    const selected = new Set(kind === "prep" ? college.prepIds || [] : college.qbankIds || []);
+    if (!list.length) {
+      return `<div style="color:var(--text-muted);font-size:0.82rem;padding:8px 0;">No ${kind === "prep" ? "exam-prep" : "main"} banks available.</div>`;
+    }
+    return `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:6px;">${list.map((b) => `
+      <label style="display:flex;align-items:center;gap:8px;padding:7px 9px;border:1px solid rgba(255,255,255,0.08);border-radius:7px;font-size:0.82rem;color:var(--text-secondary);cursor:pointer;">
+        <input type="checkbox" data-ac-bank="${escapeHtml(b.id)}" data-ac-kind="${kind}" ${selected.has(b.id) ? "checked" : ""} style="accent-color:#22d3ee;">
+        <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(b.name)}</span>
+        ${b.college ? `<span style="margin-left:auto;color:var(--text-muted);font-size:0.72rem;">${escapeHtml(b.college)}</span>` : ""}
+      </label>`).join("")}</div>`;
+  }
+
+  function acRenderEditor(college) {
+    if (!college) return "";
+    return `
+      <div style="margin:10px 0 4px;padding:14px;border:1px solid rgba(34,211,238,0.25);border-radius:10px;background:rgba(34,211,238,0.04);">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:10px;">
+          <div style="font-weight:700;color:var(--text-primary);font-size:0.9rem;">Attach banks to ${escapeHtml(college.name)}</div>
+          <button class="btn-dark-pill" onclick="window.adminCollegeCancelBanks()">Cancel</button>
+        </div>
+        <div style="font-size:0.72rem;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:var(--text-muted);margin:8px 0 5px;">Main QBanks</div>
+        ${acBankCheckboxes(college, "main")}
+        <div style="font-size:0.72rem;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:var(--text-muted);margin:14px 0 5px;">Exam Prep</div>
+        ${acBankCheckboxes(college, "prep")}
+        <div style="display:flex;gap:8px;margin-top:14px;">
+          <button class="btn-action primary" style="padding:8px 18px;" onclick="window.adminCollegeSaveBanks('${escapeHtml(college.id)}')">Save attachments</button>
+        </div>
+      </div>`;
+  }
+
+  function acRenderColleges() {
+    const box = document.getElementById("admin-colleges-content");
+    if (!box) return;
+    if (!collegeStructure) {
+      box.innerHTML = '<div style="color:var(--text-muted);">Loading college catalogue...</div>';
+      return;
+    }
+    const countries = collegeStructure.countries || [];
+    const majors = collegeStructure.majors || [];
+    const colleges = collegeStructure.colleges || [];
+    const countryOptions = countries.map((c) => `<option value="${escapeHtml(c.id)}">${escapeHtml(c.name)}</option>`).join("");
+    const majorOptions = majors.map((m) => {
+      const c = countries.find((x) => x.id === m.countryId);
+      return `<option value="${escapeHtml(m.id)}">${escapeHtml(m.name)}${c ? " — " + escapeHtml(c.name) : ""}</option>`;
+    }).join("");
+
+    const tree = countries.map((country) => {
+      const cMajors = majors.filter((m) => m.countryId === country.id);
+      const cColleges = colleges.filter((c) => c.countryId === country.id);
+      const majorBlocks = cMajors.map((major) => {
+        const mColleges = cColleges.filter((c) => c.majorId === major.id);
+        const collegeRows = mColleges.map((college) => {
+          const mainCount = (college.qbankIds || []).length;
+          const prepCount = (college.prepIds || []).length;
+          return `
+            <div style="border:1px solid rgba(255,255,255,0.08);border-radius:8px;padding:10px 12px;background:rgba(255,255,255,0.02);">
+              <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                <i data-lucide="school" style="width:15px;height:15px;color:#a78bfa;"></i>
+                <span style="font-weight:600;color:var(--text-primary);">${escapeHtml(college.name)}</span>
+                ${college.source === "user" ? '<span style="font-size:0.68rem;padding:2px 7px;border-radius:99px;background:rgba(251,191,36,0.15);color:#fbbf24;font-weight:700;">USER ADDED</span>' : ""}
+                <span style="font-size:0.72rem;color:var(--text-muted);margin-left:auto;">${mainCount} main · ${prepCount} prep</span>
+                <button class="btn-dark-pill" style="color:var(--accent-cyan);" onclick="window.adminCollegeEditBanks('${escapeHtml(college.id)}')">Banks</button>
+                <button class="btn-dark-pill" style="color:var(--danger);" onclick="window.adminCollegeDelete('${escapeHtml(college.id)}')">Delete</button>
+              </div>
+              ${collegeEditingId === college.id ? acRenderEditor(college) : ""}
+            </div>`;
+        }).join("");
+        return `
+          <div style="margin:12px 0 0 14px;padding-left:14px;border-left:2px solid rgba(255,255,255,0.08);">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+              <i data-lucide="book-marked" style="width:14px;height:14px;color:#22d3ee;"></i>
+              <span style="font-weight:700;color:var(--text-secondary);font-size:0.88rem;">${escapeHtml(major.name)}</span>
+              <button class="btn-dark-pill" style="padding:3px 9px;font-size:0.7rem;" onclick="window.adminCollegeDeleteMajor('${escapeHtml(major.id)}')">Delete major</button>
+            </div>
+            ${collegeRows || '<div style="color:var(--text-muted);font-size:0.8rem;padding:4px 0 8px;">No colleges yet.</div>'}
+          </div>`;
+      }).join("");
+      return `
+        <div style="border:1px solid rgba(255,255,255,0.1);border-radius:12px;padding:14px 16px;background:rgba(255,255,255,0.025);">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
+            <span style="font-size:1.05rem;">${country.code ? `<img src="https://flagcdn.com/${escapeHtml(country.code)}.svg" alt="" style="width:22px;border-radius:3px;">` : "🌍"}</span>
+            <span style="font-weight:800;color:var(--text-primary);">${escapeHtml(country.name)}</span>
+            <span style="font-size:0.72rem;color:var(--text-muted);">${cColleges.length} college${cColleges.length === 1 ? "" : "s"}</span>
+            <button class="btn-dark-pill" style="color:var(--danger);margin-left:auto;padding:4px 10px;font-size:0.72rem;" onclick="window.adminCollegeDeleteCountry('${escapeHtml(country.id)}')">Delete country</button>
+          </div>
+          ${majorBlocks || '<div style="color:var(--text-muted);font-size:0.8rem;padding:6px 0 2px;">No majors yet.</div>'}
+        </div>`;
+    }).join("");
+
+    box.innerHTML = `
+      <div id="admin-colleges-status" style="min-height:18px;font-size:0.82rem;font-weight:600;margin-bottom:10px;"></div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px;margin-bottom:22px;">
+        <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:14px;">
+          <div style="font-weight:700;color:var(--text-primary);margin-bottom:8px;">Add country</div>
+          <input id="ac-country-name" class="login-input" placeholder="Country name" style="width:100%;margin-bottom:8px;">
+          <div style="display:flex;gap:8px;">
+            <input id="ac-country-code" class="login-input" placeholder="Flag code (eg: tn)" maxlength="2" style="width:130px;">
+            <button class="btn-action primary" style="flex:1;" onclick="window.adminCollegeAddCountry()">Add</button>
+          </div>
+        </div>
+        <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:14px;">
+          <div style="font-weight:700;color:var(--text-primary);margin-bottom:8px;">Add major</div>
+          <select id="ac-major-country" class="login-input" style="width:100%;margin-bottom:8px;">${countryOptions}</select>
+          <div style="display:flex;gap:8px;">
+            <input id="ac-major-name" class="login-input" placeholder="Major name" style="flex:1;">
+            <button class="btn-action primary" onclick="window.adminCollegeAddMajor()">Add</button>
+          </div>
+        </div>
+        <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:14px;">
+          <div style="font-weight:700;color:var(--text-primary);margin-bottom:8px;">Add college</div>
+          <select id="ac-college-major" class="login-input" style="width:100%;margin-bottom:8px;">${majorOptions || '<option value="">Create a major first</option>'}</select>
+          <div style="display:flex;gap:8px;">
+            <input id="ac-college-name" class="login-input" placeholder="College name" style="flex:1;">
+            <button class="btn-action primary" onclick="window.adminCollegeAddCollege()">Add</button>
+          </div>
+        </div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:12px;">${tree || '<div style="color:var(--text-muted);">No countries yet.</div>'}</div>`;
+
+    if (window.lucide && window.lucide.createIcons) {
+      try { window.lucide.createIcons(); } catch (_) {}
+    }
+  }
+
+  window.loadAdminColleges = async function () {
+    const box = document.getElementById("admin-colleges-content");
+    if (!box) return;
+    box.innerHTML = '<div style="color:var(--text-muted);padding:16px;">Loading college catalogue...</div>';
+    try {
+      const [ac, qb] = await Promise.all([
+        api("/api/admin?action=get_academic_structure", { method: "GET" }),
+        api("/api/admin?action=list_qbanks", { method: "GET" }),
+      ]);
+      collegeStructure = ac.structure;
+      collegeBanks = qb.qbanks || [];
+      if (collegeEditingId && !(collegeStructure.colleges || []).some((c) => c.id === collegeEditingId)) {
+        collegeEditingId = "";
+      }
+      acRenderColleges();
+    } catch (e) {
+      box.innerHTML = `<div style="color:var(--danger);padding:16px;">Could not load colleges: ${escapeHtml(e.message)}</div>`;
+    }
+  };
+
+  window.adminCollegeAddCountry = function () {
+    if (!collegeStructure) return;
+    const nameEl = document.getElementById("ac-country-name");
+    const codeEl = document.getElementById("ac-country-code");
+    const name = (nameEl.value || "").trim();
+    if (name.length < 2) return alert("Enter a country name.");
+    const used = new Set((collegeStructure.countries || []).map((c) => c.id));
+    const code = (codeEl.value || "").trim().toLowerCase().replace(/[^a-z]/g, "").slice(0, 2);
+    let id = code || acSlug(name);
+    if (used.has(id)) id = acUniqueId("country", name, used);
+    collegeStructure.countries.push({ id, name, code, source: "admin" });
+    nameEl.value = "";
+    codeEl.value = "";
+    acPersist("Country added.");
+  };
+
+  window.adminCollegeAddMajor = function () {
+    if (!collegeStructure) return;
+    const countryId = (document.getElementById("ac-major-country") || {}).value || "";
+    const nameEl = document.getElementById("ac-major-name");
+    const name = (nameEl.value || "").trim();
+    if (!countryId) return alert("Add a country first.");
+    if (name.length < 2) return alert("Enter a major name.");
+    const used = new Set((collegeStructure.majors || []).map((m) => m.id));
+    collegeStructure.majors.push({ id: acUniqueId("major", `${countryId}-${name}`, used), countryId, name, source: "admin" });
+    nameEl.value = "";
+    acPersist("Major added.");
+  };
+
+  window.adminCollegeAddCollege = function () {
+    if (!collegeStructure) return;
+    const majorId = (document.getElementById("ac-college-major") || {}).value || "";
+    const nameEl = document.getElementById("ac-college-name");
+    const name = (nameEl.value || "").trim();
+    if (!majorId) return alert("Add a major first.");
+    if (name.length < 2) return alert("Enter a college name.");
+    const major = collegeStructure.majors.find((m) => m.id === majorId);
+    if (!major) return alert("That major no longer exists.");
+    const used = new Set((collegeStructure.colleges || []).map((c) => c.id));
+    collegeStructure.colleges.push({
+      id: acUniqueId("college", `${majorId}-${name}`, used),
+      countryId: major.countryId,
+      majorId,
+      name,
+      qbankIds: [],
+      prepIds: [],
+      source: "admin",
+    });
+    nameEl.value = "";
+    acPersist("College added.");
+  };
+
+  window.adminCollegeDeleteCountry = function (id) {
+    if (!collegeStructure || !confirm("Delete this country and all of its majors and colleges?")) return;
+    const removedCollegeIds = collegeStructure.colleges.filter((c) => c.countryId === id).map((c) => c.id);
+    collegeStructure.colleges = collegeStructure.colleges.filter((c) => c.countryId !== id);
+    collegeStructure.majors = collegeStructure.majors.filter((m) => m.countryId !== id);
+    collegeStructure.countries = collegeStructure.countries.filter((c) => c.id !== id);
+    if (removedCollegeIds.includes(collegeEditingId)) collegeEditingId = "";
+    acPersist("Country deleted.");
+  };
+
+  window.adminCollegeDeleteMajor = function (id) {
+    if (!collegeStructure || !confirm("Delete this major and its colleges?")) return;
+    const removedCollegeIds = collegeStructure.colleges.filter((c) => c.majorId === id).map((c) => c.id);
+    collegeStructure.colleges = collegeStructure.colleges.filter((c) => c.majorId !== id);
+    collegeStructure.majors = collegeStructure.majors.filter((m) => m.id !== id);
+    if (removedCollegeIds.includes(collegeEditingId)) collegeEditingId = "";
+    acPersist("Major deleted.");
+  };
+
+  window.adminCollegeDelete = function (id) {
+    if (!collegeStructure || !confirm("Delete this college?")) return;
+    collegeStructure.colleges = collegeStructure.colleges.filter((c) => c.id !== id);
+    if (collegeEditingId === id) collegeEditingId = "";
+    acPersist("College deleted.");
+  };
+
+  window.adminCollegeEditBanks = function (id) {
+    collegeEditingId = collegeEditingId === id ? "" : id;
+    acRenderColleges();
+  };
+
+  window.adminCollegeCancelBanks = function () {
+    collegeEditingId = "";
+    acRenderColleges();
+  };
+
+  window.adminCollegeSaveBanks = function (id) {
+    if (!collegeStructure) return;
+    const college = collegeStructure.colleges.find((c) => c.id === id);
+    if (!college) return;
+    const main = [];
+    const prep = [];
+    document.querySelectorAll("[data-ac-bank]").forEach((el) => {
+      if (!el.checked) return;
+      const bankId = el.getAttribute("data-ac-bank");
+      if (el.getAttribute("data-ac-kind") === "prep") prep.push(bankId);
+      else main.push(bankId);
+    });
+    college.qbankIds = main;
+    college.prepIds = prep;
+    collegeEditingId = "";
+    acPersist("Bank attachments saved.");
+  };
+
+  window.adminLibraryBackfill = async function (btn) {
+    if (!window.__adminLibraryBank) return;
+    if (!confirm("Scan every question once to seed the concepts digest? After this, exports cost 1 read.")) return;
+    const orig = btn ? btn.innerHTML : "";
+    if (btn) { btn.disabled = true; btn.textContent = "Backfilling…"; }
+    try {
+      const res = await api("/api/admin", {
+        method: "POST",
+        body: JSON.stringify({ action: "backfill_concepts_digest", qbankId: window.__adminLibraryBank }),
+      });
+      alert(`Digest seeded: ${res.withConcepts} concepts from ${res.total} questions. Exports are now 1 read.`);
+    } catch (e) {
+      alert("Backfill failed: " + e.message);
     } finally {
       if (btn) { btn.disabled = false; btn.innerHTML = orig; }
     }

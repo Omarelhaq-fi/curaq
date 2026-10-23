@@ -333,6 +333,16 @@
   }
 
   function startTimer() {
+    const block = window.__qbankBlock;
+    if (block && block.active && block.submitted) {
+      const display = document.getElementById("qbank-timer-display");
+      if (display) display.innerHTML = `<i data-lucide="search" style="width:14px;height:14px;vertical-align:-2px;"></i> Review mode`;
+      return;
+    }
+    if (block && block.active && block.mode === "exam") {
+      qblockTick();
+      return;
+    }
     stopTimer();
     questionStartTime = Date.now();
     const display = document.getElementById("qbank-timer-display");
@@ -395,9 +405,11 @@
   };
 
   // --- Session persistence ---
-  function saveQBankSession(qbankId, qbankName, subject) {
+  function saveQBankSession(qbankId, qbankName, subject, topicPath = null, tag = null) {
     try {
       const session = { qbankId, qbankName, subject, timestamp: Date.now() };
+      if (Array.isArray(topicPath) && topicPath.length) session.topicPath = topicPath;
+      if (tag) session.tag = tag;
       localStorage.setItem("omnote_qbank_last_session", JSON.stringify(session));
       // Also save to recent list (max 5)
       let recent = [];
@@ -450,6 +462,9 @@
     if (!window.db) window.db = {};
     window.db.access = {
       country: bundle.profileCountry || "",
+      major: bundle.profileMajor || "",
+      college: bundle.profileCollege || "",
+      collegeId: bundle.collegeId || "",
       mainIds: Array.isArray(bundle.mainIds) ? bundle.mainIds : [],
       prepIds: Array.isArray(bundle.prepIds) ? bundle.prepIds : [],
       grants: Array.isArray(bundle.grants) ? bundle.grants : [],
@@ -463,6 +478,13 @@
     if (!window.db.selectedQBankId && a.mainIds.length > 0) {
       window.db.selectedQBankId = a.mainIds[0];
     }
+    try {
+      const banksBtn = document.getElementById("qbank-banks-btn");
+      if (banksBtn) {
+        banksBtn.innerHTML = `<i class="fa-solid fa-layer-group text-[14px]"></i> ${a.legacy ? "All Banks" : "My banks"}`;
+        banksBtn.title = a.legacy ? "Browse all banks and request access" : "Banks linked to your academic profile";
+      }
+    } catch (_) {}
     if (typeof saveDb === "function") saveDb();
     // Seed the bootstrap memo so later bootstrapAccess() calls within
     // 5 min cost 0 HTTP.
@@ -532,7 +554,10 @@
         if (!res.ok) throw new Error(data.error || ("HTTP " + res.status));
         close();
         if (typeof window.__markAccessPending === "function") window.__markAccessPending(bankId);
-        else if (window.__pendingAccess instanceof Set) window.__pendingAccess.add(bankId);
+        else {
+          if (window.__pendingAccess instanceof Set) window.__pendingAccess.add(bankId);
+          if (typeof window.__epRefresh === "function") window.__epRefresh();
+        }
         alert(data && data.alreadyRequested
           ? "You already have a pending request for this bank — you'll be notified once it's reviewed."
           : "Request sent! You'll get a notification once it's reviewed.");
@@ -651,6 +676,17 @@
       }
       if (navStale(myNav)) return;
 
+      // Only banks linked to the student's academic profile (college
+      // attachments or explicit grants) are offered. Foreign banks are not
+      // listed at all.
+      const accSel = (window.db && window.db.access) || null;
+      const profileScoped = !!(accSel && !accSel.legacy);
+      if (profileScoped) {
+        const mainIds = Array.isArray(accSel.mainIds) ? accSel.mainIds : [];
+        const grants = Array.isArray(accSel.grants) ? accSel.grants : [];
+        qbanks = qbanks.filter(q => mainIds.includes(q.id) || grants.includes(q.id));
+      }
+
       // Banks already requested (pending review) render as "Pending" so a
       // repeat tap can never file a duplicate request.
       let pendingAccess = new Set();
@@ -673,12 +709,16 @@
             el.style.color = "#92400E";
             el.style.background = "#FEF3C7";
           });
+          if (typeof window.__epRefresh === "function") window.__epRefresh();
           if (window.lucide && window.lucide.createIcons) window.lucide.createIcons();
         } catch (_) {}
       };
 
       if (qbanks.length === 0) {
-        area.innerHTML = '<div style="max-width:1000px; margin:0 auto; padding:32px 24px; font-family:Inter,-apple-system,BlinkMacSystemFont,\'Segoe UI\',Roboto,sans-serif;"><div style="border:1px solid #F1F5F9; border-radius:6px; background:#FAFAFA; color:#64748B; text-align:center; padding:16px 12px; font-size:12px;">No QBanks available yet. Admins can create them in the Admin Panel.</div></div>';
+        const emptyMsg = profileScoped
+          ? "No banks are linked to your academic profile yet. Ask your admin to attach a bank to your college."
+          : "No QBanks available yet. Admins can create them in the Admin Panel.";
+        area.innerHTML = `<div style="max-width:1000px; margin:0 auto; padding:32px 24px; font-family:Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;"><div style="border:1px solid #F1F5F9; border-radius:6px; background:#FAFAFA; color:#64748B; text-align:center; padding:16px 12px; font-size:12px;">${emptyMsg}</div></div>`;
         if (window.hideGlobalLoader) window.hideGlobalLoader();
         return;
       }
@@ -686,10 +726,10 @@
 
       let html = `<div style="max-width:1000px; margin:0 auto; padding:32px 24px; font-family:Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
         <div style="margin-bottom:20px;">
-          <h2 style="margin:0; font-size:1.5rem; font-weight:700; color:#0F172A;">Select Question Bank</h2>
-          <p style="margin:6px 0 0 0; font-size:0.9rem; color:#64748B;">Choose a bank to start practicing. You can switch anytime.</p>
+          <h2 style="margin:0; font-size:1.5rem; font-weight:700; color:#0F172A;">${profileScoped ? "Your banks" : "All Banks"}</h2>
+          <p style="margin:6px 0 0 0; font-size:0.9rem; color:#64748B;">${profileScoped ? "Banks linked to your academic profile." : "Your college banks are ready to open."}</p>
         </div>
-        <div style="font-size:12px; font-weight:700; letter-spacing:0.06em; text-transform:uppercase; color:#64748B; margin:0 0 10px 0;">Available banks</div>
+        <div style="font-size:12px; font-weight:700; letter-spacing:0.06em; text-transform:uppercase; color:#64748B; margin:0 0 10px 0;">${profileScoped ? "Linked to your academic profile" : "Available banks"}</div>
         <div class="ep-card-rows" style="background:#fff; border:1px solid #E2E8F0; border-radius:6px; padding:6px 16px;">`;
 
       const flagMap = { usa: "us", uk: "gb", australia: "au", canada: "ca", india: "in", europe: "eu", tunisia: "tn", algeria: "dz", egypt: "eg", morocco: "ma", saudi: "sa", global: null };
@@ -707,7 +747,7 @@
         const cached = cachedQBanks[q.id];
         const qCount = cached ? (cached.questions || []).length : 0;
         const subLabel = qCount > 0
-          ? `${escQ(countryLabels[q.country] || q.country || "")} &middot; ${qCount.toLocaleString()} questions`
+          ? `${escQ(countryLabels[q.country] || q.country || "")} · ${qCount.toLocaleString()} questions`
           : escQ(countryLabels[q.country] || q.country || "");
 
         const allowed = isAllowedMain(q.id);
@@ -767,8 +807,1373 @@
     }
   };
 
+  // --- Student home: saved college + one-tap exam prep ---
+  const CQ_COLLEGE_KEY = "curaq_student_college_v1";
+  const CQ_COUNTRY_LABELS = { usa: "USA", uk: "UK", australia: "Australia", canada: "Canada", india: "India", europe: "Europe", tunisia: "Tunisia", algeria: "Algeria", egypt: "Egypt", morocco: "Morocco", saudi: "Saudi Arabia", global: "International" };
+  const CQ_FLAG_CODES = { usa: "us", uk: "gb", australia: "au", canada: "ca", india: "in", europe: "eu", tunisia: "tn", algeria: "dz", egypt: "eg", morocco: "ma", saudi: "sa", global: "un" };
+
+  function cqEsc(s) {
+    const base = window.escapeHtml ? window.escapeHtml(s) : String(s == null ? "" : s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+    return String(base).replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+  }
+  function cqJsArg(s) {
+    return String(s == null ? "" : s).replace(/\\/g, "\\\\").replace(/'/g, "\\'").replace(/"/g, "\\x22").replace(/\r?\n/g, " ");
+  }
+  function cqPrepBanks() {
+    let list = (cachedCategories || []).filter(q => q && q.kind === "exam_prep");
+    if (!list.length && Array.isArray(window.__epBanks)) list = window.__epBanks.filter(q => q && q.kind === "exam_prep");
+    return list;
+  }
+
+  window.cqHomeSearchTerm = function (term) {
+    const input = document.getElementById("cq-home-search-input");
+    if (!input) return;
+    input.value = String(term == null ? "" : term);
+    input.focus();
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  };
+
+  window.cqGetSavedCollege = function () {
+    try {
+      const saved = JSON.parse(localStorage.getItem(CQ_COLLEGE_KEY) || "null");
+      if (saved && saved.country && saved.college) return saved;
+    } catch (_) {}
+    return null;
+  };
+
+  window.cqSetSavedCollege = function (country, college) {
+    try {
+      if (!country || !college) return;
+      localStorage.setItem(CQ_COLLEGE_KEY, JSON.stringify({ country: String(country), college: String(college), savedAt: Date.now() }));
+    } catch (_) {}
+  };
+
+  window.cqCloseCollegePicker = function () {
+    const modal = document.getElementById("cq-college-modal");
+    if (!modal || modal.hidden) return;
+    modal.hidden = true;
+    const prev = modal.dataset.prevOverflow;
+    document.documentElement.style.overflow = prev || "";
+    delete modal.dataset.prevOverflow;
+    const trigger = window.__cqCollegeTrigger;
+    window.__cqCollegeTrigger = null;
+    if (trigger && trigger.focus && document.body.contains(trigger)) trigger.focus();
+  };
+
+  window.cqOpenCollegePicker = function (country) {
+    const modal = document.getElementById("cq-college-modal");
+    if (!modal) return;
+    window.__cqCollegeTrigger = document.activeElement;
+    if (modal.hidden) modal.dataset.prevOverflow = document.documentElement.style.overflow || "";
+    modal.hidden = false;
+    document.documentElement.style.overflow = "hidden";
+    window.cqRenderCollegePicker(country || null);
+    setTimeout(() => {
+      const focusEl = modal.querySelector("[data-cq-autofocus]") || modal.querySelector("button");
+      if (focusEl) focusEl.focus();
+    }, 30);
+  };
+
+  window.cqRenderCollegePicker = function (country) {
+    const body = document.getElementById("cq-college-body");
+    const title = document.getElementById("cq-college-title");
+    const sub = document.getElementById("cq-college-sub");
+    if (!body || !title) return;
+
+    const prep = cqPrepBanks();
+    const byCountry = {};
+    prep.forEach(q => {
+      const c = q.country || "global";
+      if (!byCountry[c]) byCountry[c] = [];
+      byCountry[c].push(q);
+    });
+
+    if (!country) {
+      title.textContent = "Choose your country";
+      if (sub) sub.textContent = "Then pick your college. We will remember it for next time.";
+      const countries = Object.keys(byCountry).sort((a, b) => (byCountry[b].length - byCountry[a].length) || a.localeCompare(b));
+      if (!countries.length) {
+        body.innerHTML = `<div class="cq-inline-empty">No past exams have been added yet. Check back soon.</div>`;
+        return;
+      }
+      body.innerHTML = `<div class="cq-country-grid">` + countries.map(c => {
+        const cols = new Set(byCountry[c].map(q => q.college || "General"));
+        const code = CQ_FLAG_CODES[c] || "un";
+        return `<button type="button" class="cq-pick-country" data-cq-autofocus onclick="window.cqRenderCollegePicker('${cqJsArg(c)}')">
+          <img src="https://flagcdn.com/${code}.svg" alt="" class="cq-pick-flag">
+          <span class="cq-pick-text"><b>${cqEsc(CQ_COUNTRY_LABELS[c] || c)}</b><small>${cols.size} ${cols.size === 1 ? "college" : "colleges"} · ${byCountry[c].length} ${byCountry[c].length === 1 ? "exam" : "exams"}</small></span>
+          <i data-lucide="chevron-right" class="cq-pick-chev"></i>
+        </button>`;
+      }).join("") + `</div>`;
+    } else {
+      const list = byCountry[country] || [];
+      const byCollege = {};
+      list.forEach(q => {
+        const col = q.college || "General";
+        if (!byCollege[col]) byCollege[col] = [];
+        byCollege[col].push(q);
+      });
+      const code = CQ_FLAG_CODES[country] || "un";
+      const cLabel = CQ_COUNTRY_LABELS[country] || country;
+      title.textContent = "Choose your college";
+      if (sub) sub.textContent = "Pick once. We will open this college's past exams for you.";
+      const cols = Object.keys(byCollege).sort((a, b) => a.localeCompare(b));
+      if (!cols.length) {
+        body.innerHTML = `
+          <button type="button" class="cq-back-link" onclick="window.cqRenderCollegePicker(null)">
+            <i data-lucide="arrow-left"></i> All countries
+          </button>
+          <div class="cq-current-country">
+            <img src="https://flagcdn.com/${code}.svg" alt="" class="cq-pick-flag">
+            <b>${cqEsc(cLabel)}</b>
+          </div>
+          <div class="cq-inline-empty">No past exams in this country yet. Please check back soon.</div>`;
+        if (window.lucide && window.lucide.createIcons) window.lucide.createIcons();
+        return;
+      }
+      body.innerHTML = `
+        <button type="button" class="cq-back-link" onclick="window.cqRenderCollegePicker(null)">
+          <i data-lucide="arrow-left"></i> All countries
+        </button>
+        <div class="cq-current-country">
+          <img src="https://flagcdn.com/${code}.svg" alt="" class="cq-pick-flag">
+          <b>${cqEsc(cLabel)}</b>
+          <span>${cols.length} ${cols.length === 1 ? "college" : "colleges"}</span>
+        </div>
+        <div class="cq-college-list">
+          ${cols.map(col => {
+            const n = byCollege[col].length;
+            return `<button type="button" class="cq-pick-college" data-cq-autofocus onclick="window.cqChooseCollege('${cqJsArg(country)}', '${cqJsArg(col)}')">
+              <span class="cq-college-ic"><i data-lucide="school"></i></span>
+              <span class="cq-pick-text"><b>${cqEsc(col)}</b><small>${n} past ${n === 1 ? "exam" : "exams"} · ${cqEsc(cLabel)}</small></span>
+              <i data-lucide="chevron-right" class="cq-pick-chev"></i>
+            </button>`;
+          }).join("")}
+        </div>`;
+    }
+    if (window.lucide && window.lucide.createIcons) window.lucide.createIcons();
+  };
+
+  window.cqChooseCollege = function (country, college) {
+    window.__cqCollegeTrigger = null;
+    window.cqSetSavedCollege(country, college);
+    window.cqCloseCollegePicker();
+    window.openExamPrepForCollege(country, college);
+  };
+
+  window.cqOpenSavedCollege = function () {
+    const saved = window.cqGetSavedCollege();
+    if (!saved) {
+      window.cqOpenCollegePicker();
+      return;
+    }
+    window.openExamPrepForCollege(saved.country, saved.college);
+  };
+
+  if (!window.__cqCollegeEscBound) {
+    window.__cqCollegeEscBound = true;
+    document.addEventListener("keydown", function (e) {
+      const modal = document.getElementById("cq-college-modal");
+      if (!modal || modal.hidden) return;
+      if (e.key === "Escape") {
+        window.cqCloseCollegePicker();
+        return;
+      }
+      if (e.key !== "Tab") return;
+      const focusables = [...modal.querySelectorAll("button:not([disabled]), [href], [tabindex]:not([tabindex='-1'])")].filter(el => el.offsetParent !== null);
+      if (!focusables.length) return;
+      const first = focusables[0];
+      const last = focusables[focusables.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    });
+  }
+
+  // --- Study blocks: 40-question timed/tutor sessions ---
+  const QBLOCK_CSS = `
+    #qbank-block-bar { position: sticky; top: 8px; z-index: 20; display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; width: min(1360px, calc(100% - 40px)); margin: 12px auto 0; padding: 10px 12px; background: #FFFFFF; border: 1px solid #DCE7E7; border-radius: 12px; box-shadow: 0 4px 14px rgba(15, 23, 42, 0.08); color: #0F172A; font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; box-sizing: border-box; }
+    .qb-block-left, .qb-block-right { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .qb-block-chip { display: inline-flex; align-items: center; gap: 6px; min-height: 30px; padding: 0 10px; border-radius: 999px; background: #E6F2F2; color: #006B6B; font-size: 11px; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; white-space: nowrap; }
+    .qb-block-meta { font-size: 12.5px; font-weight: 600; color: #425C5C; white-space: nowrap; }
+    .qb-block-meta b { color: #0F172A; }
+    .qb-block-clock { display: inline-flex; align-items: center; gap: 5px; min-height: 30px; padding: 0 10px; border-radius: 8px; background: #F1F5F9; border: 1px solid #E2E8F0; color: #0F172A; font-size: 12.5px; font-weight: 800; font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .qb-block-clock.warn { background: #FEF2F2; border-color: #FECACA; color: #B91C1C; }
+    .qb-block-btn { min-height: 38px; padding: 0 12px; border: 1px solid #DCE7E7; border-radius: 8px; background: #FFFFFF; color: #0F172A; font: inherit; font-size: 12.5px; font-weight: 800; display: inline-flex; align-items: center; justify-content: center; gap: 6px; cursor: pointer; white-space: nowrap; }
+    .qb-block-btn svg { width: 15px; height: 15px; }
+    .qb-block-btn.primary { background: #007A7A; border-color: #007A7A; color: #FFFFFF; }
+    .qb-block-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+    #qbank-block-bar button:focus-visible { outline: 3px solid #007A7A; outline-offset: 2px; }
+    html.dark #qbank-block-bar, body.dark-exam #qbank-block-bar { background: #10191C; border-color: #1F2E33; color: #EAF2F4; box-shadow: none; }
+    html.dark .qb-block-chip, body.dark-exam .qb-block-chip { background: #123A3F; color: #7ADDE4; }
+    html.dark .qb-block-meta, body.dark-exam .qb-block-meta { color: #C1D1D6; }
+    html.dark .qb-block-meta b, body.dark-exam .qb-block-meta b { color: #EAF2F4; }
+    html.dark .qb-block-clock, body.dark-exam .qb-block-clock { background: #0B1416; border-color: #1F2E33; color: #EAF2F4; }
+    html.dark .qb-block-clock.warn, body.dark-exam .qb-block-clock.warn { background: rgba(244, 63, 94, 0.14); border-color: rgba(244, 63, 94, 0.35); color: #FDA4AF; }
+    html.dark .qb-block-btn, body.dark-exam .qb-block-btn { background: #10191C; border-color: #1F2E33; color: #EAF2F4; }
+    html.dark .qb-block-btn.primary, body.dark-exam .qb-block-btn.primary { background: #45C9D2; border-color: #45C9D2; color: #071A1D; }
+    @media (hover: hover) { .qb-block-btn:hover { border-color: #007A7A; color: #007A7A; } .qb-block-btn.primary:hover { background: #005F5F; border-color: #005F5F; color: #FFFFFF; } }
+
+    .qbb-page { --qb-ink: var(--text-primary, #0F172A); --qb-muted: var(--text-muted, #64748B); --qb-line: var(--border-color, #E2E8F0); --qb-card: var(--surface-color, #FFFFFF); width: 100%; max-width: 980px; margin: 0 auto; padding: 26px 20px 80px; color: var(--qb-ink); font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; box-sizing: border-box; }
+    .qbb-page *, .qbb-page *::before, .qbb-page *::after { box-sizing: border-box; }
+    .qbb-top { display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap; margin-bottom: 18px; }
+    .qbb-back { min-height: 42px; padding: 0 14px; border: 1px solid var(--qb-line); border-radius: 999px; background: var(--qb-card); color: var(--qb-ink); font: inherit; font-size: 13px; font-weight: 700; display: inline-flex; align-items: center; gap: 7px; cursor: pointer; }
+    .qbb-kicker { font-size: 11px; font-weight: 800; letter-spacing: 0.14em; text-transform: uppercase; color: #007A7A; }
+    .qbb-title { margin: 0 0 6px; font-size: clamp(26px, 4vw, 34px); line-height: 1.08; letter-spacing: -0.025em; font-weight: 800; }
+    .qbb-sub { margin: 0 0 20px; max-width: 64ch; color: var(--qb-muted); font-size: 14px; line-height: 1.55; }
+    .qbb-layout { display: grid; grid-template-columns: 1.15fr 0.85fr; gap: 14px; align-items: start; }
+    .qbb-card { padding: 18px; background: var(--qb-card); border: 1px solid var(--qb-line); border-radius: 14px; }
+    .qbb-card.wide { grid-column: 1 / -1; }
+    .qbb-card h2 { margin: 0 0 4px; font-size: 15px; font-weight: 800; color: var(--qb-ink); }
+    .qbb-card .qbb-help { margin: 0 0 12px; color: var(--qb-muted); font-size: 12px; line-height: 1.45; }
+    .qbb-modes { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .qbb-mode { position: relative; min-height: 112px; padding: 14px; border: 1.5px solid var(--qb-line); border-radius: 12px; background: var(--qb-card); color: var(--qb-ink); font: inherit; text-align: left; cursor: pointer; display: flex; flex-direction: column; gap: 5px; }
+    .qbb-mode b { font-size: 14px; }
+    .qbb-mode small { color: var(--qb-muted); font-size: 11.5px; line-height: 1.4; }
+    .qbb-mode .qbb-mode-ic { width: 32px; height: 32px; border-radius: 9px; background: #E6F2F2; color: #007A7A; display: inline-flex; align-items: center; justify-content: center; margin-bottom: 3px; }
+    .qbb-mode .qbb-mode-ic svg { width: 17px; height: 17px; }
+    .qbb-mode.on { border-color: #007A7A; background: #F2FAFA; box-shadow: 0 0 0 1px #007A7A inset; }
+    .qbb-mode.on::after { content: "✓"; position: absolute; top: 10px; right: 11px; width: 20px; height: 20px; border-radius: 50%; background: #007A7A; color: #fff; font-size: 12px; line-height: 20px; text-align: center; font-weight: 800; }
+    .qbb-pills { display: flex; gap: 7px; flex-wrap: wrap; margin-bottom: 10px; }
+    .qbb-pill { min-height: 40px; padding: 0 13px; border: 1px solid var(--qb-line); border-radius: 9px; background: var(--qb-card); color: var(--qb-ink); font: inherit; font-size: 13px; font-weight: 800; cursor: pointer; }
+    .qbb-pill.on { background: #007A7A; border-color: #007A7A; color: #FFFFFF; }
+    .qbb-field { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; color: var(--qb-muted); font-size: 12px; font-weight: 600; }
+    .qbb-input { width: 86px; min-height: 40px; padding: 0 10px; border: 1px solid var(--qb-line); border-radius: 9px; background: var(--qb-card); color: var(--qb-ink); font: inherit; font-size: 14px; font-weight: 700; }
+    .qbb-input:focus { outline: 3px solid rgba(0, 122, 122, 0.18); border-color: #007A7A; }
+    .qbb-input:disabled { opacity: 0.5; }
+    .qbb-select { width: 100%; min-height: 44px; padding: 0 12px; border: 1px solid var(--qb-line); border-radius: 9px; background: var(--qb-card); color: var(--qb-ink); font: inherit; font-size: 13px; font-weight: 700; cursor: pointer; }
+    .qbb-select:focus { outline: 3px solid rgba(0, 122, 122, 0.18); border-color: #007A7A; }
+    html.dark .qbb-select, body.dark-exam .qbb-select { background: #10191C; border-color: #1F2E33; color: #EAF2F4; }
+    .qbb-switch { display: inline-flex; padding: 3px; border: 1px solid var(--qb-line); border-radius: 10px; background: #F8FAFC; gap: 3px; }
+    .qbb-switch button { min-height: 34px; padding: 0 11px; border: 0; border-radius: 7px; background: transparent; color: var(--qb-muted); font: inherit; font-size: 12px; font-weight: 800; cursor: pointer; }
+    .qbb-switch button.on { background: var(--qb-card); color: #007A7A; box-shadow: 0 1px 3px rgba(0,0,0,.1); }
+    .qbb-chips { display: flex; gap: 7px; flex-wrap: wrap; max-height: 190px; overflow-y: auto; padding: 2px; }
+    .qbb-chip { min-height: 38px; padding: 0 12px; border: 1px solid var(--qb-line); border-radius: 999px; background: var(--qb-card); color: var(--qb-ink); font: inherit; font-size: 12.5px; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+    .qbb-chip span { color: var(--qb-muted); font-size: 10.5px; font-weight: 800; }
+    .qbb-chip.on { background: #E6F2F2; border-color: #9CCFCF; color: #006B6B; }
+    .qbb-chip.on span { color: #007A7A; }
+    .qbb-topic-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+    .qbb-topic-toolbar span { color: var(--qb-muted); font-size: 11.5px; font-weight: 600; }
+    .qbb-topic-clear { min-height: 30px; padding: 0 10px; border: 1px solid var(--qb-line); border-radius: 999px; background: var(--qb-card); color: var(--qb-ink); font: inherit; font-size: 11px; font-weight: 700; cursor: pointer; }
+    .qbb-topics { max-height: 280px; overflow-y: auto; padding: 5px; border: 1px solid var(--qb-line); border-radius: 11px; background: #F8FAFC; }
+    .qbb-topic-row { display: flex; align-items: center; gap: 8px; min-height: 34px; padding: 5px 8px; border-radius: 7px; color: var(--qb-ink); font-size: 12.5px; font-weight: 600; cursor: pointer; }
+    .qbb-topic-row:hover { background: rgba(0, 122, 122, 0.06); }
+    .qbb-topic-row.dim { opacity: 0.38; }
+    .qbb-topic-check { width: 15px; height: 15px; flex: 0 0 auto; accent-color: #007A7A; cursor: pointer; }
+    .qbb-topic-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .qbb-topic-count { margin-left: auto; color: var(--qb-muted); font-size: 10.5px; font-weight: 800; }
+    .qbb-available { margin: 9px 0 0; color: var(--qb-muted); font-size: 11.5px; }
+    .qbb-available b { color: var(--qb-ink); }
+    .qbb-summary { position: sticky; bottom: 12px; display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-top: 16px; padding: 14px 16px; border: 1px solid #CBE3E3; border-radius: 14px; background: rgba(255, 255, 255, 0.96); box-shadow: 0 12px 32px rgba(15, 23, 42, 0.12); backdrop-filter: blur(8px); }
+    .qbb-summary b { display: block; font-size: 15px; color: var(--qb-ink); }
+    .qbb-summary span { display: block; margin-top: 2px; color: var(--qb-muted); font-size: 12px; }
+    .qbb-start { min-height: 50px; padding: 0 22px; border: 1px solid #007A7A; border-radius: 10px; background: #007A7A; color: #FFFFFF; font: inherit; font-size: 14px; font-weight: 800; cursor: pointer; white-space: nowrap; }
+    .qbb-start:disabled { opacity: 0.5; cursor: not-allowed; }
+    .qbb-check { display: inline-flex; align-items: center; gap: 7px; margin-top: 10px; color: var(--qb-muted); font-size: 12px; font-weight: 600; cursor: pointer; }
+    .qbb-check input { width: 17px; height: 17px; accent-color: #007A7A; }
+    .qbb-page button:focus-visible, .qbb-page input:focus-visible { outline: 3px solid #007A7A; outline-offset: 2px; }
+    .qbr-wrap { max-width: 780px; margin: 0 auto; padding: 28px 20px 60px; font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; color: var(--text-primary, #0F172A); }
+    .qbr-hero { padding: 24px; text-align: center; border: 1px solid var(--border-color, #E2E8F0); border-radius: 18px; background: var(--surface-color, #FFFFFF); }
+    .qbr-score { display: inline-flex; align-items: center; justify-content: center; width: 118px; height: 118px; margin: 4px auto 12px; border-radius: 50%; background: #E6F2F2; color: #006B6B; font-size: 34px; font-weight: 800; letter-spacing: -0.04em; }
+    .qbr-hero h2 { margin: 0 0 4px; font-size: 24px; font-weight: 800; }
+    .qbr-hero p { margin: 0; color: var(--text-muted, #64748B); font-size: 13px; }
+    .qbr-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 9px; margin: 14px 0; }
+    .qbr-stat { padding: 12px; border: 1px solid var(--border-color, #E2E8F0); border-radius: 11px; background: var(--surface-color, #FFFFFF); text-align: center; }
+    .qbr-stat b { display: block; font-size: 22px; line-height: 1.1; }
+    .qbr-stat small { color: var(--text-muted, #64748B); font-size: 10.5px; }
+    .qbr-actions { display: flex; gap: 9px; flex-wrap: wrap; justify-content: center; margin-top: 16px; }
+    .qbr-btn { min-height: 48px; padding: 0 18px; border: 1px solid var(--border-color, #E2E8F0); border-radius: 10px; background: var(--surface-color, #FFFFFF); color: var(--text-primary, #0F172A); font: inherit; font-size: 13.5px; font-weight: 800; cursor: pointer; display: inline-flex; align-items: center; gap: 7px; }
+    .qbr-btn.primary { background: #007A7A; border-color: #007A7A; color: #FFF; }
+    @media (max-width: 760px) { .qbb-layout { grid-template-columns: 1fr; } .qbb-card.wide { grid-column: auto; } .qbb-modes { grid-template-columns: 1fr; } .qbr-grid { grid-template-columns: 1fr 1fr; } }
+    @media (max-width: 520px) { .qbb-page { padding: 18px 14px 70px; } .qbb-summary { align-items: stretch; flex-direction: column; } .qbb-start { width: 100%; } .qbr-actions .qbr-btn { width: 100%; justify-content: center; } }
+    html.dark .qbb-page, body.dark-exam .qbb-page, html.dark .qbr-wrap, body.dark-exam .qbr-wrap { color: #EAF2F4; }
+    html.dark .qbb-card, body.dark-exam .qbb-card, html.dark .qbb-summary, body.dark-exam .qbb-summary { background: #10191C; border-color: #1F2E33; }
+    html.dark .qbb-summary, body.dark-exam .qbb-summary { background: rgba(16, 25, 28, 0.96); border-color: #2E6478; box-shadow: 0 12px 32px rgba(0,0,0,.4); }
+    html.dark .qbb-pill, body.dark-exam .qbb-pill, html.dark .qbb-chip, body.dark-exam .qbb-chip, html.dark .qbb-input, body.dark-exam .qbb-input, html.dark .qbb-back, body.dark-exam .qbb-back { background: #10191C; border-color: #1F2E33; color: #EAF2F4; }
+    html.dark .qbb-switch, body.dark-exam .qbb-switch { background: #0B1416; border-color: #1F2E33; }
+    html.dark .qbb-switch button.on, body.dark-exam .qbb-switch button.on { background: #10191C; color: #7ADDE4; }
+    html.dark .qbb-pill.on, body.dark-exam .qbb-pill.on { background: #45C9D2; border-color: #45C9D2; color: #071A1D; }
+    html.dark .qbb-chip.on, body.dark-exam .qbb-chip.on { background: #123A3F; border-color: #2E6478; color: #7ADDE4; }
+    html.dark .qbb-topics, body.dark-exam .qbb-topics { background: #0B1416; border-color: #1F2E33; }
+    html.dark .qbb-topic-row, body.dark-exam .qbb-topic-row { color: #EAF2F4; }
+    html.dark .qbb-topic-row:hover, body.dark-exam .qbb-topic-row:hover { background: rgba(69, 201, 210, 0.09); }
+    html.dark .qbb-topic-clear, body.dark-exam .qbb-topic-clear { background: #10191C; border-color: #1F2E33; color: #EAF2F4; }
+    html.dark .qbb-topic-count, body.dark-exam .qbb-topic-count { color: #9FB3B8; }
+    html.dark .qbb-mode, body.dark-exam .qbb-mode { background: #10191C; border-color: #1F2E33; color: #EAF2F4; }
+    html.dark .qbb-mode.on, body.dark-exam .qbb-mode.on { background: #0F2A2E; border-color: #45C9D2; box-shadow: 0 0 0 1px #45C9D2 inset; }
+    html.dark .qbb-mode.on::after, body.dark-exam .qbb-mode.on::after { background: #45C9D2; color: #071A1D; }
+    html.dark .qbr-hero, body.dark-exam .qbr-hero, html.dark .qbr-stat, body.dark-exam .qbr-stat, html.dark .qbr-btn, body.dark-exam .qbr-btn { background: #10191C; border-color: #1F2E33; color: #EAF2F4; }
+    html.dark .qbr-score, body.dark-exam .qbr-score { background: #123A3F; color: #7ADDE4; }
+  `;
+
+  function qblockEnsureStyles() {
+    if (document.getElementById("qblock-styles")) return;
+    const style = document.createElement("style");
+    style.id = "qblock-styles";
+    style.textContent = QBLOCK_CSS;
+    document.head.appendChild(style);
+  }
+
+  function qblockActiveQuestions() {
+    const id = currentQBankId || (window.db && window.db.selectedQBankId);
+    const entry = id ? cachedQBanks[id] : null;
+    if (entry && Array.isArray(entry.questions)) return entry.questions;
+    return Array.isArray(allQuestions) ? allQuestions : [];
+  }
+
+  function qblockBankName() {
+    const id = currentQBankId || (window.db && window.db.selectedQBankId);
+    const meta = (cachedCategories || []).find(q => q.id === id);
+    if (meta && meta.name) return meta.name;
+    const el = document.getElementById("qbank-active-name");
+    return el && el.textContent && el.textContent !== "None" ? el.textContent : "QBank";
+  }
+
+  function qblockSubjectOf(q) {
+    const data = (q && q.data) || {};
+    return data.subject || data.subcategory || "Uncategorized";
+  }
+
+  function qblockTagNames(q) {
+    const data = (q && q.data) || {};
+    const out = [];
+    const push = raw => {
+      if (raw == null) return;
+      if (Array.isArray(raw)) { raw.forEach(push); return; }
+      if (typeof raw === "object") {
+        const name = String(raw.name || raw.tag || raw.value || raw.label || raw.text || raw.title || "").trim();
+        if (name) out.push(name);
+        return;
+      }
+      const text = String(raw).trim();
+      if (!text) return;
+      if (/[,;|]/.test(text)) { text.split(/[,;|]/).forEach(push); return; }
+      out.push(text);
+    };
+    push(data.tags);
+    push(data.tag);
+    push(q && q.tags);
+    return out;
+  }
+
+  function qblockSubjectCounts() {
+    const map = {};
+    qblockActiveQuestions().forEach(q => {
+      const sub = qblockSubjectOf(q);
+      map[sub] = (map[sub] || 0) + 1;
+    });
+    return Object.keys(map).sort((a, b) => a.localeCompare(b)).map(name => ({ name, count: map[name] }));
+  }
+
+  function qblockTaxonomyPath(q) {
+    const data = (q && q.data) || {};
+    const raw = data.taxonomyPath;
+    const path = Array.isArray(raw) ? raw.map(s => String(s == null ? "" : s).trim()).filter(Boolean) : [];
+    const subject = String(data.subject || data.subcategory || "").trim();
+    const chapter = String(data.chapter || "").trim();
+    const part = String(data.part || "").trim();
+    const staleRoot = path.length > 0 && subject && String(path[0]).toLowerCase() !== subject.toLowerCase();
+    const yearSegment = path.some((segment, index) => index > 0 && /^(19|20)\d{2}$/.test(segment));
+    if (subject && chapter && (!path.length || path.length < 3 || staleRoot || yearSegment)) {
+      return [subject, chapter, part].filter(Boolean);
+    }
+    return path;
+  }
+
+  function qblockTopicKey(path) {
+    return JSON.stringify(path);
+  }
+
+  function qblockTopicPathFromKey(key) {
+    try {
+      const parsed = JSON.parse(key);
+      return Array.isArray(parsed) ? parsed.map(s => String(s)) : [];
+    } catch (_) {
+      return [];
+    }
+  }
+
+  function qblockTopicMatches(path, prefix) {
+    if (!prefix.length || path.length < prefix.length) return false;
+    for (let i = 0; i < prefix.length; i++) {
+      if (String(path[i]).toLowerCase() !== String(prefix[i]).toLowerCase()) return false;
+    }
+    return true;
+  }
+
+  function qblockTopicTree(questions) {
+    const root = { path: [], children: new Map(), count: 0 };
+    (questions || []).forEach(q => {
+      const path = qblockTaxonomyPath(q);
+      if (!path.length) return;
+      root.count++;
+      let node = root;
+      const acc = [];
+      path.forEach(segment => {
+        acc.push(segment);
+        if (!node.children.has(segment)) {
+          node.children.set(segment, { path: [...acc], children: new Map(), count: 0 });
+        }
+        node = node.children.get(segment);
+        node.count++;
+      });
+    });
+    const sortNode = (node) => {
+      const children = [...node.children.values()].sort((a, b) => {
+        const al = a.path[a.path.length - 1] || "";
+        const bl = b.path[b.path.length - 1] || "";
+        return al.localeCompare(bl);
+      });
+      children.forEach(sortNode);
+      node.children = children;
+      return node;
+    };
+    return sortNode(root).children;
+  }
+
+  function qblockTopicCounts(questions) {
+    const map = {};
+    const walk = (nodes) => {
+      nodes.forEach(node => {
+        map[qblockTopicKey(node.path)] = node.count;
+        if (node.children.length) walk(node.children);
+      });
+    };
+    walk(qblockTopicTree(questions));
+    return map;
+  }
+
+  function qblockRenderTopicRows(nodes, depth = 0) {
+    return nodes.map(node => {
+      const key = qblockTopicKey(node.path);
+      const label = node.path[node.path.length - 1] || "";
+      const children = Array.isArray(node.children) ? node.children : [];
+      return `
+        <label class="qbb-topic-row" data-topic-row="${cqEsc(key)}" style="padding-left:${8 + depth * 16}px;">
+          <input type="checkbox" class="qbb-topic-check" data-topic="${cqEsc(key)}" onchange="window.qbankBuilderToggleTopic(this.dataset.topic, this.checked)">
+          <span class="qbb-topic-label">${cqEsc(label)}</span>
+          <span class="qbb-topic-count">${node.count}</span>
+        </label>
+        ${children.length ? qblockRenderTopicRows(children, depth + 1) : ""}`;
+    }).join("");
+  }
+
+  function qblockTopicLabel(topics) {
+    const paths = (topics || []).map(qblockTopicPathFromKey).filter(p => p.length);
+    if (!paths.length) return "";
+    const first = paths[0][paths[0].length - 1];
+    return paths.length === 1 ? first : `${first} +${paths.length - 1}`;
+  }
+
+  function qblockShuffle(list) {
+    const a = [...list];
+    for (let i = a.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [a[i], a[j]] = [a[j], a[i]];
+    }
+    return a;
+  }
+
+  function qblockFormatClock(seconds) {
+    const s = Math.max(0, Math.round(seconds));
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    const sec = s % 60;
+    const pad = n => String(n).padStart(2, "0");
+    return h > 0 ? `${h}:${pad(m)}:${pad(sec)}` : `${pad(m)}:${pad(sec)}`;
+  }
+
+  function qblockBuilderPool() {
+    const b = window.__qbankBuilder;
+    if (!b) return [];
+    const all = qblockActiveQuestions();
+    let pool = all;
+    if (b.subjects && b.subjects.length) {
+      const picked = new Set(b.subjects);
+      pool = pool.filter(q => picked.has(qblockSubjectOf(q)));
+    }
+    if (b.topics && b.topics.length) {
+      const prefixes = b.topics.map(qblockTopicPathFromKey).filter(p => p.length);
+      if (prefixes.length) {
+        pool = pool.filter(q => {
+          const path = qblockTaxonomyPath(q);
+          return prefixes.some(prefix => qblockTopicMatches(path, prefix));
+        });
+      }
+    }
+    return pool;
+  }
+
+  function qblockSubjectLabel(subjects) {
+    if (!subjects || !subjects.length) return "Mixed subjects";
+    if (subjects.length === 1) return subjects[0];
+    return `${subjects[0]} +${subjects.length - 1}`;
+  }
+
+  function qblockPrepAllowed(id) {
+    const acc = window.db && window.db.access;
+    if (!acc) return true;
+    if (acc.legacy || (!acc.collegeId && !acc.country)) return true;
+    const grants = Array.isArray(acc.grants) ? acc.grants : [];
+    const prepIds = Array.isArray(acc.prepIds) ? acc.prepIds : [];
+    return grants.includes(id) || prepIds.includes(id);
+  }
+
+  function qblockSourceBanks() {
+    const all = (cachedCategories || []).filter(q => q && q.id);
+    const seen = new Set(all.map(q => q.id));
+    if (Array.isArray(window.__epBanks)) {
+      window.__epBanks.forEach(q => {
+        if (q && q.id && !seen.has(q.id)) {
+          all.push(q);
+          seen.add(q.id);
+        }
+      });
+    }
+    const acc = window.db && window.db.access;
+    const mainAllowed = (id) => !acc || acc.legacy
+      || (Array.isArray(acc.mainIds) && acc.mainIds.includes(id))
+      || (Array.isArray(acc.grants) && acc.grants.includes(id));
+    return {
+      main: all.filter(q => q.kind !== "exam_prep" && mainAllowed(q.id)),
+      prep: all.filter(q => q.kind === "exam_prep" && qblockPrepAllowed(q.id)),
+    };
+  }
+
+  function qblockSourceBankLabel(q) {
+    const bits = [];
+    if (q.college) bits.push(q.college);
+    if (q.year) bits.push(q.year);
+    const name = q.name || q.id || "Exam prep";
+    return bits.length ? `${name} - ${bits.join(" · ")}` : name;
+  }
+
+  async function qblockLoadBankQuestions(bankId) {
+    const existing = cachedQBanks[bankId];
+    const usable = existing && Array.isArray(existing.questions) && (existing.questions.length > 0 || existing._fullEmpty);
+    if (usable) return existing;
+    const meta = (cachedCategories || []).find(q => q.id === bankId)
+      || (Array.isArray(window.__epBanks) ? window.__epBanks.find(q => q && q.id === bankId) : null)
+      || {};
+    const updatedAt = Number(meta.updatedAt) || 0;
+    const idbData = await getCachedQBank(bankId);
+    if (idbData && (!updatedAt || Number(idbData.updatedAt) === updatedAt) && Array.isArray(idbData.questions) && idbData.questions.length > 0) {
+      const res = await apiGet("get_questions", { qbankId: bankId, onlyProgress: true });
+      cachedQBanks[bankId] = { questions: idbData.questions, progress: applyLocalQueueProgress(bankId, res.progress || {}) };
+    } else {
+      const res = await apiGet("get_questions", { qbankId: bankId });
+      cachedQBanks[bankId] = { questions: res.questions || [], progress: applyLocalQueueProgress(bankId, res.progress || {}) };
+      setCachedQBank(bankId, { updatedAt, questions: res.questions || [] });
+    }
+    if (!cachedQBanks[bankId].questions.length) cachedQBanks[bankId]._fullEmpty = true;
+    return cachedQBanks[bankId];
+  }
+
+  window.qbankOpenBlockBuilder = async function(opts = {}) {
+    qblockEnsureStyles();
+    const area = document.getElementById("qbank-home-content");
+    if (!area) return;
+    if (window.hideAllMainViews) window.hideAllMainViews();
+    const modal = document.getElementById("qbank-modal");
+    if (modal) modal.style.display = "none";
+    const view = document.getElementById("qbank-home-view");
+    if (view) view.style.display = "flex";
+    if (window.setQBankNav) window.setQBankNav("home");
+
+    try { await window.bootstrapAccess(); } catch (_) {}
+    const sourceBanks = qblockSourceBanks();
+    let bankId = opts.bankId || currentQBankId || (window.db && window.db.selectedQBankId);
+    if (opts.pickExamPrep && !opts.bankId) {
+      const saved = window.cqGetSavedCollege ? window.cqGetSavedCollege() : null;
+      const preferred = saved
+        ? sourceBanks.prep.filter(q => (q.country || "global") === saved.country && (q.college || "General") === saved.college)
+        : [];
+      bankId = (preferred[0] || sourceBanks.prep[0] || {}).id || "";
+      if (!bankId) {
+        if (window.qbankToast) window.qbankToast("No exam-prep banks are available yet.", true);
+        return;
+      }
+    }
+    if (!bankId) {
+      if (window.qbankToast) window.qbankToast("Choose a QBank before building a block.", true);
+      return;
+    }
+
+    const loadToken = (window.__qbankBuilderLoadToken || 0) + 1;
+    window.__qbankBuilderLoadToken = loadToken;
+    const cached = cachedQBanks[bankId];
+    const needsLoad = !cached || !Array.isArray(cached.questions) || (cached.questions.length === 0 && !cached._fullEmpty);
+    if (needsLoad) {
+      area.innerHTML = `<div class="qbb-page"><div class="qbb-card" style="text-align:center; color:var(--qb-muted);">Loading questions…</div></div>`;
+      try {
+        await qblockLoadBankQuestions(bankId);
+      } catch (e) {
+        if (window.__qbankBuilderLoadToken !== loadToken) return;
+        area.innerHTML = `<div class="qbb-page"><div class="qbb-card" style="text-align:center;">
+          <h2 style="margin-bottom:8px;">Could not load this bank</h2>
+          <p class="qbb-help">${cqEsc((e && e.message) || "Please try again.")}</p>
+          <button type="button" class="qbb-back" onclick="window.openQBank()">Back to home</button>
+        </div></div>`;
+        return;
+      }
+      if (window.__qbankBuilderLoadToken !== loadToken) return;
+    }
+
+    currentQBankId = bankId;
+    const loaded = cachedQBanks[bankId];
+    allQuestions = loaded && Array.isArray(loaded.questions) ? loaded.questions : [];
+    if (loaded && loaded.progress) window.qbankProgress = loaded.progress;
+    const sourceMeta = (cachedCategories || []).find(q => q.id === bankId) || null;
+    if (sourceMeta && sourceMeta.name) {
+      const nameEl = document.getElementById("qbank-active-name");
+      if (nameEl) nameEl.textContent = sourceMeta.name;
+    }
+    if (bankId && !sourceBanks.main.some(q => q.id === bankId) && !sourceBanks.prep.some(q => q.id === bankId)) {
+      sourceBanks.main.unshift(sourceMeta || { id: bankId, name: qblockBankName() });
+    }
+
+    const counts = qblockSubjectCounts();
+    const total = counts.reduce((n, s) => n + s.count, 0);
+    const preset = Array.isArray(opts.subjects) ? opts.subjects.filter(s => counts.some(c => c.name === s)) : [];
+    const topicTree = qblockTopicTree(qblockActiveQuestions());
+    const defaultCount = total > 0 ? Math.min(40, total) : 40;
+    window.__qbankBuilder = {
+      mode: "exam",
+      count: defaultCount,
+      timed: true,
+      minutes: Math.max(1, Math.ceil(defaultCount * 1.5)),
+      subjects: preset,
+      topics: [],
+      random: true,
+      total,
+      counts,
+      sourceBankId: bankId,
+    };
+    if (opts.subject && counts.some(c => c.name === opts.subject)) window.__qbankBuilder.subjects = [opts.subject];
+
+    const b = window.__qbankBuilder;
+    const chips = counts.map(s => `
+      <button type="button" class="qbb-chip" data-sub="${cqEsc(s.name)}" onclick="window.qbankBuilderToggleSubject('${cqJsArg(s.name)}')">
+        ${cqEsc(s.name)} <span>${s.count}</span>
+      </button>`).join("");
+    const topicRows = topicTree.length ? qblockRenderTopicRows(topicTree) : "";
+    const topicSection = topicTree.length ? `
+          <section class="qbb-card wide">
+            <h2>5. Parts</h2>
+            <p class="qbb-help">Optional filter. Pick a Part inside a Chapter to focus your block. Selecting a chapter includes all of its Parts.</p>
+            <div class="qbb-topic-toolbar">
+              <button type="button" class="qbb-topic-clear" onclick="window.qbankBuilderSelectAllTopics()">Clear parts</button>
+              <span id="qbb-topic-selected">No part filter</span>
+            </div>
+            <div class="qbb-topics" id="qbb-topics">${topicRows}</div>
+          </section>` : "";
+    const sourceOptions = [
+      sourceBanks.main.length ? `<optgroup label="Regular QBanks">${sourceBanks.main.map(q => `<option value="${cqEsc(q.id)}" ${q.id === bankId ? "selected" : ""}>${cqEsc(q.name || q.id)}</option>`).join("")}</optgroup>` : "",
+      sourceBanks.prep.length ? `<optgroup label="Exam prep">${sourceBanks.prep.map(q => `<option value="${cqEsc(q.id)}" ${q.id === bankId ? "selected" : ""}>${cqEsc(qblockSourceBankLabel(q))}</option>`).join("")}</optgroup>` : "",
+    ].join("");
+    const isPrep = !!(sourceMeta && sourceMeta.kind === "exam_prep");
+    const sourceName = (sourceMeta && sourceMeta.name) || qblockBankName();
+
+    area.innerHTML = `
+      <div class="qbb-page">
+        <div class="qbb-top">
+          <button type="button" class="qbb-back" onclick="window.openQBank()"><i data-lucide="arrow-left"></i> Back to home</button>
+          <span class="qbb-kicker">${isPrep ? "Past-exam blocks" : "USMLE-style blocks"}</span>
+        </div>
+        <h1 class="qbb-title">${isPrep ? "Build an exam-prep block" : "Build a study block"}</h1>
+        <p class="qbb-sub">Pick your mode, length, and subjects. Timed blocks hide answers until you submit; tutor blocks explain each answer as you go.</p>
+
+        <div class="qbb-layout">
+          <section class="qbb-card wide">
+            <h2>Question source</h2>
+            <p class="qbb-help">Build from your regular QBank or any exam-prep bank you can access.</p>
+            <select id="qbb-source" class="qbb-select" onchange="window.qbankBuilderChangeSource(this.value)">${sourceOptions}</select>
+            <p class="qbb-available">Building from <b>${cqEsc(sourceName)}</b> · <b>${total}</b> question${total === 1 ? "" : "s"}</p>
+          </section>
+
+          <section class="qbb-card wide">
+            <h2>1. Choose a mode</h2>
+            <p class="qbb-help">Both modes end with a score report and full answer review.</p>
+            <div class="qbb-modes">
+              <button type="button" class="qbb-mode" data-mode="exam" onclick="window.qbankBuilderSetMode('exam')">
+                <span class="qbb-mode-ic"><i data-lucide="timer"></i></span>
+                <b>Timed exam</b>
+                <small>Answers and explanations stay hidden until you submit. Best for simulating test day.</small>
+              </button>
+              <button type="button" class="qbb-mode" data-mode="tutor" onclick="window.qbankBuilderSetMode('tutor')">
+                <span class="qbb-mode-ic"><i data-lucide="lightbulb"></i></span>
+                <b>Tutor mode</b>
+                <small>See the answer and explanation immediately after each question. Best for learning.</small>
+              </button>
+            </div>
+          </section>
+
+          <section class="qbb-card">
+            <h2>2. Questions</h2>
+            <p class="qbb-help">Standard USMLE block is 40 questions. Use any number you like.</p>
+            <div class="qbb-pills">
+              ${[10, 20, 40, 60].map(n => `<button type="button" class="qbb-pill" data-count="${n}" onclick="window.qbankBuilderSetCount(${n})">${n}</button>`).join("")}
+            </div>
+            <label class="qbb-field" for="qbb-count">Custom
+              <input id="qbb-count" class="qbb-input" type="number" min="1" max="${Math.max(1, total)}" value="${b.count}" oninput="window.qbankBuilderCountInput(this.value)">
+              questions
+            </label>
+            <p class="qbb-available">Available in this bank: <b id="qbb-available">${total}</b></p>
+          </section>
+
+          <section class="qbb-card">
+            <h2>3. Time limit</h2>
+            <p class="qbb-help">60 minutes is about 90 seconds per question.</p>
+            <div class="qbb-switch" role="group" aria-label="Time limit">
+              <button type="button" data-timed="1" onclick="window.qbankBuilderSetTimed(true)">Timed</button>
+              <button type="button" data-timed="0" onclick="window.qbankBuilderSetTimed(false)">Untimed</button>
+            </div>
+            <label class="qbb-field" for="qbb-minutes" style="margin-top:10px;">Minutes
+              <input id="qbb-minutes" class="qbb-input" type="number" min="1" max="300" value="${b.minutes}" oninput="window.qbankBuilderMinutesInput(this.value)">
+            </label>
+            <p class="qbb-available" id="qbb-pace"></p>
+            <label class="qbb-check"><input id="qbb-random" type="checkbox" checked onchange="window.qbankBuilderToggleRandom(this.checked)"> Randomize question order</label>
+          </section>
+
+          <section class="qbb-card wide">
+            <h2>4. Subjects / systems</h2>
+            <p class="qbb-help">Leave “All subjects” selected for a mixed block, or choose specific organ systems and disciplines.</p>
+            <div class="qbb-chips" id="qbb-chips">
+              <button type="button" class="qbb-chip" data-sub="" onclick="window.qbankBuilderSelectAll()">All subjects <span>${total}</span></button>
+              ${chips}
+            </div>
+          </section>
+          ${topicSection}
+        </div>
+
+        <div class="qbb-summary">
+          <div>
+            <b id="qbb-summary-count">${b.count} questions</b>
+            <span id="qbb-summary-detail"></span>
+          </div>
+          <button type="button" class="qbb-start" id="qbb-start" onclick="window.qbankBuilderStart()">Start block</button>
+        </div>
+      </div>`;
+    if (window.lucide && window.lucide.createIcons) window.lucide.createIcons();
+    window.qbankBuilderSync();
+  };
+
+  window.qbankBuilderChangeSource = function(bankId) {
+    if (!bankId) return;
+    return window.qbankOpenBlockBuilder({ bankId });
+  };
+
+  window.qbankOpenExamPrepBlockBuilder = function() {
+    return window.qbankOpenBlockBuilder({ pickExamPrep: true });
+  };
+
+  window.qbankBuilderSetMode = function(mode) {
+    const b = window.__qbankBuilder;
+    if (!b || (mode !== "exam" && mode !== "tutor")) return;
+    b.mode = mode;
+    if (mode === "tutor") b.timed = false;
+    else if (!b.timed) b.timed = true;
+    window.qbankBuilderSync();
+  };
+
+  window.qbankBuilderSetCount = function(n) {
+    const b = window.__qbankBuilder;
+    if (!b) return;
+    b.count = Math.max(1, parseInt(n, 10) || 1);
+    window.qbankBuilderSync();
+  };
+
+  window.qbankBuilderCountInput = function(value) {
+    const b = window.__qbankBuilder;
+    if (!b) return;
+    b.count = Math.max(1, parseInt(value, 10) || 1);
+    window.qbankBuilderSync(true);
+  };
+
+  window.qbankBuilderSetTimed = function(timed) {
+    const b = window.__qbankBuilder;
+    if (!b) return;
+    b.timed = !!timed;
+    window.qbankBuilderSync();
+  };
+
+  window.qbankBuilderMinutesInput = function(value) {
+    const b = window.__qbankBuilder;
+    if (!b) return;
+    b.minutes = Math.max(1, Math.min(300, parseInt(value, 10) || 1));
+    window.qbankBuilderSync(true);
+  };
+
+  window.qbankBuilderToggleRandom = function(checked) {
+    if (!window.__qbankBuilder) return;
+    window.__qbankBuilder.random = !!checked;
+  };
+
+  function qblockPruneTopics() {
+    const b = window.__qbankBuilder;
+    if (!b || !b.topics || !b.topics.length) return;
+    const all = qblockActiveQuestions();
+    const pool = b.subjects.length ? all.filter(q => b.subjects.includes(qblockSubjectOf(q))) : all;
+    const counts = qblockTopicCounts(pool);
+    b.topics = b.topics.filter(key => (counts[key] || 0) > 0);
+  }
+
+  window.qbankBuilderSelectAllTopics = function() {
+    const b = window.__qbankBuilder;
+    if (!b) return;
+    b.topics = [];
+    window.qbankBuilderSync();
+  };
+
+  window.qbankBuilderToggleTopic = function(key, checked) {
+    const b = window.__qbankBuilder;
+    if (!b || !key) return;
+    const has = b.topics.includes(key);
+    if (checked && !has) b.topics = [...b.topics, key];
+    if (!checked && has) b.topics = b.topics.filter(k => k !== key);
+    window.qbankBuilderSync();
+  };
+
+  window.qbankBuilderSelectAll = function() {
+    const b = window.__qbankBuilder;
+    if (!b) return;
+    b.subjects = [];
+    b.topics = [];
+    window.qbankBuilderSync();
+  };
+
+  window.qbankBuilderToggleSubject = function(subject) {
+    const b = window.__qbankBuilder;
+    if (!b) return;
+    if (!subject) {
+      b.subjects = [];
+    } else if (b.subjects.includes(subject)) {
+      b.subjects = b.subjects.filter(s => s !== subject);
+    } else {
+      b.subjects = [...b.subjects, subject];
+    }
+    qblockPruneTopics();
+    window.qbankBuilderSync();
+  };
+
+  window.qbankBuilderSync = function(skipInputs) {
+    const b = window.__qbankBuilder;
+    if (!b) return;
+    const pool = qblockBuilderPool();
+    const count = Math.max(1, Math.min(parseInt(b.count, 10) || 1, Math.max(1, pool.length)));
+    const timed = b.timed;
+    const total = Number(b.total) || qblockActiveQuestions().length;
+
+    document.querySelectorAll(".qbb-mode").forEach(el => el.classList.toggle("on", el.dataset.mode === b.mode));
+    document.querySelectorAll(".qbb-pill[data-count]").forEach(el => el.classList.toggle("on", Number(el.dataset.count) === b.count));
+    document.querySelectorAll(".qbb-switch button[data-timed]").forEach(el => el.classList.toggle("on", (el.dataset.timed === "1") === !!timed));
+    document.querySelectorAll(".qbb-chip[data-sub]").forEach(el => {
+      const on = el.dataset.sub ? b.subjects.includes(el.dataset.sub) : b.subjects.length === 0;
+      el.classList.toggle("on", on);
+    });
+    const builderQuestions = qblockActiveQuestions();
+    const topicPool = b.subjects.length ? builderQuestions.filter(q => b.subjects.includes(qblockSubjectOf(q))) : builderQuestions;
+    const topicCounts = qblockTopicCounts(topicPool);
+    document.querySelectorAll("[data-topic-row]").forEach(row => {
+      const key = row.getAttribute("data-topic-row");
+      const input = row.querySelector(".qbb-topic-check");
+      const countEl = row.querySelector(".qbb-topic-count");
+      const topicCount = topicCounts[key] || 0;
+      if (input) input.checked = b.topics.includes(key);
+      if (countEl) countEl.textContent = String(topicCount);
+      row.classList.toggle("dim", topicCount === 0);
+    });
+    const topicSelectedEl = document.getElementById("qbb-topic-selected");
+    if (topicSelectedEl) {
+      topicSelectedEl.textContent = b.topics.length ? `${b.topics.length} selected - ${qblockTopicLabel(b.topics)}` : "No part filter";
+    }
+    if (!skipInputs) {
+      const countInput = document.getElementById("qbb-count");
+      if (countInput) countInput.value = b.count;
+      const minutesInput = document.getElementById("qbb-minutes");
+      if (minutesInput) minutesInput.value = b.minutes;
+    }
+    const minutesInput = document.getElementById("qbb-minutes");
+    if (minutesInput) minutesInput.disabled = !b.timed;
+    const availableEl = document.getElementById("qbb-available");
+    if (availableEl) availableEl.textContent = String(pool.length);
+    const paceEl = document.getElementById("qbb-pace");
+    if (paceEl) paceEl.textContent = b.timed ? `${Math.round((b.minutes * 60) / Math.max(1, count))} seconds per question` : "No clock — study at your own pace.";
+    const countEl = document.getElementById("qbb-summary-count");
+    if (countEl) countEl.textContent = `${count} question${count === 1 ? "" : "s"}`;
+    const detailEl = document.getElementById("qbb-summary-detail");
+    if (detailEl) {
+      const timeText = b.timed ? `${b.minutes} minute${b.minutes === 1 ? "" : "s"}` : "Untimed";
+      const modeText = b.mode === "exam" ? (b.timed ? "Timed exam" : "Exam") : "Tutor";
+      const filterText = qblockTopicLabel(b.topics) || qblockSubjectLabel(b.subjects);
+      detailEl.textContent = `${modeText} · ${timeText} · ${filterText}`;
+      if (count < b.count) detailEl.textContent += ` · only ${pool.length} available`;
+    }
+    const startEl = document.getElementById("qbb-start");
+    if (startEl) {
+      startEl.disabled = pool.length === 0;
+      startEl.textContent = pool.length === 0 ? "No questions available" : `Start ${count}-question block`;
+    }
+    if (total && !b.total) b.total = total;
+  };
+
+  window.qbankBuilderStart = function() {
+    const b = window.__qbankBuilder;
+    if (!b) return;
+    let pool = qblockBuilderPool();
+    if (!pool.length) {
+      if (window.qbankToast) window.qbankToast("No questions match these filters.", true);
+      return;
+    }
+    const count = Math.max(1, Math.min(parseInt(b.count, 10) || 1, pool.length));
+    if (b.random) pool = qblockShuffle(pool);
+    const questions = pool.slice(0, count);
+    const minutes = Math.max(1, Math.min(300, parseInt(b.minutes, 10) || 60));
+    window.qbankStartBlock({
+      bankId: b.sourceBankId || currentQBankId || (window.db && window.db.selectedQBankId),
+      bankName: qblockBankName(),
+      mode: b.mode,
+      questions,
+      timeLimitSec: b.timed ? minutes * 60 : null,
+      filters: { subjects: [...b.subjects], topics: b.topics.map(qblockTopicPathFromKey).filter(p => p.length), random: !!b.random },
+    });
+  };
+
+  function qblockUpdateEndButton(label) {
+    const btn = document.getElementById("qbank-end-btn");
+    if (!btn) return;
+    const text = label || "End Session";
+    btn.innerHTML = `<i class="fa-solid fa-times"></i> ${text}`;
+  }
+
+  function qblockStopTimer() {
+    const b = window.__qbankBlock;
+    if (b && b.timerId) {
+      clearInterval(b.timerId);
+      b.timerId = null;
+    }
+  }
+
+  function qblockClockText() {
+    const b = window.__qbankBlock;
+    if (!b || !b.active) return "";
+    if (b.deadline) return `${qblockFormatClock(Math.max(0, Math.ceil((b.deadline - Date.now()) / 1000)))} left`;
+    return `${qblockFormatClock((Date.now() - b.startedAt) / 1000)} elapsed`;
+  }
+
+  function qblockTick() {
+    const b = window.__qbankBlock;
+    if (!b || !b.active || b.submitted) return;
+    const text = qblockClockText();
+    const clock = document.getElementById("qbank-block-clock");
+    if (clock) {
+      clock.textContent = text;
+      clock.classList.toggle("warn", !!(b.deadline && b.deadline - Date.now() <= 5 * 60 * 1000));
+    }
+    if (b.mode === "exam") {
+      const header = document.getElementById("qbank-timer-display");
+      if (header) header.innerHTML = `<i class="fa-regular fa-clock" style="width:14px;height:14px;vertical-align:-2px;"></i> ${text}`;
+    }
+    if (b.deadline && Date.now() >= b.deadline) {
+      window.qbankSubmitBlock(true);
+    }
+  }
+
+  function qblockStartTimer() {
+    qblockStopTimer();
+    const b = window.__qbankBlock;
+    if (!b || !b.active) return;
+    qblockTick();
+    b.timerId = setInterval(qblockTick, 1000);
+  }
+
+  function qblockTrackTime() {
+    const b = window.__qbankBlock;
+    if (!b || !b.active || b.submitted) return;
+    const q = currentQuestions[currentIndex];
+    if (!q) return;
+    const now = Date.now();
+    const delta = Math.max(0, now - (b.questionStartedAt || now));
+    b.timeByQ[q.id] = (b.timeByQ[q.id] || 0) + delta;
+    b.questionStartedAt = now;
+  }
+
+  function qblockAnsweredCount() {
+    const b = window.__qbankBlock;
+    if (!b) return 0;
+    return currentQuestions.reduce((n, q) => n + (Array.isArray(b.answers[q.id]) && b.answers[q.id].length ? 1 : 0), 0);
+  }
+
+  function qblockCleanup() {
+    const b = window.__qbankBlock;
+    if (!b) return;
+    qblockStopTimer();
+    b.active = false;
+    window.__qbankBlock = null;
+    qblockUpdateEndButton("End Session");
+    const sidebar = document.getElementById("qbank-sidebar");
+    if (sidebar) sidebar.style.display = "none";
+  }
+  window.qbankBlockCleanup = qblockCleanup;
+
+  window.qbankStartBlock = function(config) {
+    qblockEnsureStyles();
+    qblockCleanup();
+    const block = {
+      active: true,
+      mode: config.mode === "tutor" ? "tutor" : "exam",
+      submitted: false,
+      reviewing: false,
+      submitting: false,
+      results: null,
+      answers: {},
+      timeByQ: {},
+      startedAt: Date.now(),
+      deadline: config.timeLimitSec ? Date.now() + config.timeLimitSec * 1000 : null,
+      timeLimitSec: config.timeLimitSec || null,
+      questionStartedAt: Date.now(),
+      timerId: null,
+      bankId: config.bankId || currentQBankId || (window.db && window.db.selectedQBankId),
+      bankName: config.bankName || qblockBankName(),
+      filters: config.filters || { subjects: [], random: true },
+    };
+    window.__qbankBlock = block;
+
+    currentQBankId = block.bankId;
+    allQuestions = qblockActiveQuestions();
+    const entry = block.bankId ? cachedQBanks[block.bankId] : null;
+    if (entry && entry.progress) window.qbankProgress = entry.progress;
+    currentQuestions = config.questions || [];
+    currentIndex = 0;
+    window.currentQuestions = currentQuestions;
+    window.currentIndex = currentIndex;
+    currentSelectedIndices = [];
+
+    const title = block.mode === "exam" ? "Timed exam block" : "Tutor block";
+    const activeNameEl = document.getElementById("qbank-active-name");
+    if (activeNameEl) activeNameEl.textContent = `${block.bankName} · ${title}`;
+    if (window.hideAllMainViews) window.hideAllMainViews();
+    const view = document.getElementById("qbank-home-view");
+    if (view) view.style.display = "flex";
+    const modal = document.getElementById("qbank-modal");
+    if (modal) modal.style.display = "flex";
+    const sidebar = document.getElementById("qbank-sidebar");
+    if (sidebar) sidebar.style.display = "flex";
+    qblockUpdateEndButton("End Block");
+    window.qbankRenderCurrent();
+    qblockStartTimer();
+  };
+
+  window.qbankBlockPick = function(index) {
+    const b = window.__qbankBlock;
+    const q = currentQuestions[currentIndex];
+    if (!b || !b.active || b.submitted || b.mode !== "exam" || !q) return;
+    const data = q.data || {};
+    const correctIndices = Array.isArray(data.correctIndices) ? data.correctIndices : (data.correctOptionIndex !== undefined ? [data.correctOptionIndex] : []);
+    const isMultiple = correctIndices.length > 1 || (correctIndices.length === 0 && data.multi === true);
+    let selected = Array.isArray(b.answers[q.id]) ? [...b.answers[q.id]] : [];
+    if (isMultiple) {
+      selected = selected.includes(index) ? selected.filter(i => i !== index) : [...selected, index].sort((a, z) => a - z);
+    } else {
+      selected = [index];
+    }
+    if (selected.length) b.answers[q.id] = selected;
+    else delete b.answers[q.id];
+
+    const container = document.getElementById("qbank-options-container");
+    if (container) {
+      container.querySelectorAll('input[name="qbank-radio"]').forEach(input => {
+        input.checked = selected.includes(parseInt(input.value, 10));
+      });
+      if (window.qbankSyncOptionSelected) window.qbankSyncOptionSelected();
+    }
+    window.qbankRenderSidebar();
+    const answeredEl = document.getElementById("qb-block-answered");
+    if (answeredEl) answeredEl.textContent = `${qblockAnsweredCount()}/${currentQuestions.length}`;
+    const hintEl = document.getElementById("qb-block-hint-text");
+    if (hintEl) hintEl.textContent = selected.length
+      ? "Answer saved. Correct answers and explanations unlock after you submit."
+      : (isMultiple ? "Select all that apply. Answers unlock after you submit." : "Select one answer. Answers unlock after you submit.");
+  };
+
+  window.qbankBlockNext = function() {
+    const b = window.__qbankBlock;
+    if (!b || !b.active) return;
+    if (b.submitted) return window.qbankBlockNextReview();
+    if (currentIndex >= currentQuestions.length - 1) {
+      window.qbankSubmitBlock(false);
+      return;
+    }
+    qblockTrackTime();
+    currentIndex++;
+    window.currentIndex = currentIndex;
+    window.qbankRenderSidebar();
+    window.qbankRenderCurrent();
+  };
+
+  window.qbankBlockPrev = function() {
+    const b = window.__qbankBlock;
+    if (!b || !b.active) return;
+    if (b.submitted) {
+      if (currentIndex > 0) {
+        currentIndex--;
+        window.currentIndex = currentIndex;
+        window.qbankRenderSidebar();
+        window.qbankRenderCurrent();
+      }
+      return;
+    }
+    if (currentIndex <= 0) return;
+    qblockTrackTime();
+    currentIndex--;
+    window.currentIndex = currentIndex;
+    window.qbankRenderSidebar();
+    window.qbankRenderCurrent();
+  };
+
+  function qblockBarHtml() {
+    const b = window.__qbankBlock;
+    if (!b || !b.active) return "";
+    const total = currentQuestions.length;
+    const answered = qblockAnsweredCount();
+    const atStart = currentIndex <= 0;
+    const atEnd = currentIndex >= total - 1;
+    if (b.submitted) {
+      return `<div id="qbank-block-bar">
+        <div class="qb-block-left">
+          <span class="qb-block-chip">Review</span>
+          <span class="qb-block-meta">Question <b>${currentIndex + 1}</b> of <b>${total}</b></span>
+        </div>
+        <div class="qb-block-right">
+          <button type="button" class="qb-block-btn" onclick="window.qbankBlockShowResults()"><i data-lucide="bar-chart-3"></i> Results</button>
+          <button type="button" class="qb-block-btn" onclick="window.qbankBlockPrev()" ${atStart ? "disabled" : ""}><i data-lucide="chevron-left"></i> Previous</button>
+          <button type="button" class="qb-block-btn primary" onclick="window.qbankBlockNextReview()">${atEnd ? "Finish review" : "Next"} <i data-lucide="chevron-right"></i></button>
+        </div>
+      </div>`;
+    }
+    const modeLabel = b.mode === "exam" ? (b.timeLimitSec ? "Timed exam" : "Untimed exam") : "Tutor";
+    const nextLabel = atEnd ? "Review & submit" : "Next";
+    return `<div id="qbank-block-bar">
+      <div class="qb-block-left">
+        <span class="qb-block-chip">${modeLabel}</span>
+        <span class="qb-block-meta">Question <b>${currentIndex + 1}</b> of <b>${total}</b> · <span id="qb-block-answered">${answered}/${total}</span> answered</span>
+        <span class="qb-block-clock" id="qbank-block-clock"><i data-lucide="clock"></i> ${qblockClockText()}</span>
+      </div>
+      <div class="qb-block-right">
+        <button type="button" class="qb-block-btn" onclick="window.qbankBlockPrev()" ${atStart ? "disabled" : ""}><i data-lucide="chevron-left"></i> Previous</button>
+        <button type="button" class="qb-block-btn" onclick="window.qbankBlockNext()">${nextLabel} <i data-lucide="chevron-right"></i></button>
+        <button type="button" class="qb-block-btn primary" onclick="window.qbankSubmitBlock(false)">${b.mode === "exam" ? "Submit block" : "Finish block"}</button>
+      </div>
+    </div>`;
+  }
+  window.qbankBlockBarHtml = qblockBarHtml;
+
+  window.qbankSubmitBlock = async function(auto) {
+    const b = window.__qbankBlock;
+    if (!b || !b.active || b.submitted || b.submitting) return;
+    const total = currentQuestions.length;
+    const answered = qblockAnsweredCount();
+    const missing = total - answered;
+    if (!auto && missing > 0) {
+      const ok = window.confirm(`You still have ${missing} unanswered question${missing === 1 ? "" : "s"}. Submit this block anyway?`);
+      if (!ok) return;
+    }
+    b.submitting = true;
+    qblockTrackTime();
+    qblockStopTimer();
+    const area = document.getElementById("qbank-question-area");
+    if (area) {
+      area.innerHTML = `<div style="padding:60px 20px;text-align:center;color:var(--text-muted);">
+        <div class="press-wrapper" style="margin:0 auto 18px;display:flex;justify-content:center;"><div class="press"><div class="sheet"></div><div class="roll"></div><div class="sheet"></div><div class="roll"></div><div class="sheet"></div><div class="roll"></div><div class="sheet"></div><div class="sheet"></div><div class="sheet"></div><div class="sheet"></div><div class="sheet"></div><div class="roll"></div></div></div>
+        <div style="font-weight:700;color:var(--text-primary);">Scoring your block…</div>
+        <div style="font-size:12px;margin-top:4px;">Loading answers and explanations</div>
+      </div>`;
+    }
+    try {
+      const ids = currentQuestions.map(q => q.id).filter(Boolean);
+      if (ids.length && typeof window.ensureQBankAnswers === "function") {
+        await window.ensureQBankAnswers(currentQBankId, ids);
+        if (typeof window.mergeQBankAnswers === "function") window.mergeQBankAnswers(currentQuestions, currentQBankId);
+      }
+      if (window.__qbankBlock !== b) return;
+      const byId = {};
+      let correct = 0, incorrect = 0, partial = 0, unanswered = 0;
+      currentQuestions.forEach(q => {
+        const selected = Array.isArray(b.answers[q.id]) ? b.answers[q.id] : [];
+        const data = q.data || {};
+        const correctIndices = Array.isArray(data.correctIndices) ? data.correctIndices : (data.correctOptionIndex !== undefined ? [data.correctOptionIndex] : []);
+        const isMultiple = correctIndices.length > 1 || (correctIndices.length === 0 && data.multi === true);
+        let isCorrect = false;
+        let isPartial = false;
+        if (!selected.length) {
+          unanswered++;
+          byId[q.id] = { correct: false, partial: false, unanswered: true, selected: [] };
+          return;
+        }
+        if (isMultiple) {
+          const s = [...selected].sort((a, z) => a - z);
+          const c = [...correctIndices].sort((a, z) => a - z);
+          isCorrect = s.length === c.length && s.every((v, i) => v === c[i]);
+          isPartial = !isCorrect && selected.length > 0 && selected.every(v => correctIndices.includes(v)) && selected.length < correctIndices.length;
+        } else {
+          isCorrect = correctIndices.includes(selected[0]);
+        }
+        if (isCorrect) correct++; else incorrect++;
+        if (isPartial) partial++;
+        const timeMs = Math.max(0, Math.round(b.timeByQ[q.id] || 0));
+        const p = window.qbankProgress[q.id] || {};
+        const alreadyGraded = b.mode === "tutor" && p.correct !== undefined;
+        if (!alreadyGraded) {
+          p.correct = isCorrect;
+          p.partial = isPartial;
+          p.timeTakenMs = timeMs;
+          window.qbankProgress[q.id] = p;
+        }
+        if (currentQBankId && !alreadyGraded) {
+          pushToSyncQueue({
+            qbankId: currentQBankId,
+            questionId: q.id,
+            correct: isCorrect,
+            timeTakenMs: timeMs,
+            subject: (q.data && q.data.subject) || "",
+            chapter: (q.data && q.data.chapter) || "",
+          });
+        }
+        byId[q.id] = { correct: isCorrect, partial: isPartial, unanswered: false, selected, correctIndices, timeMs };
+      });
+      try { await flushSyncQueue(); } catch (_) {}
+      const secondsUsed = Math.max(0, Math.round((Date.now() - b.startedAt) / 1000));
+      b.results = {
+        total,
+        answered,
+        correct,
+        incorrect,
+        partial,
+        unanswered,
+        score: total > 0 ? Math.round((correct / total) * 100) : 0,
+        secondsUsed,
+        byId,
+      };
+      b.submitted = true;
+      b.reviewing = false;
+      b.submitting = false;
+      qblockStopTimer();
+      window.qbankRenderSidebar();
+      window.qbankBlockShowResults();
+    } catch (e) {
+      b.submitting = false;
+      if (area) area.innerHTML = `<div style="padding:50px 20px;text-align:center;color:#e11d48;">Could not score this block: ${cqEsc(e.message || e)}<br><button class="qb-block-btn primary" style="margin-top:14px;" onclick="window.qbankRenderCurrent()">Try again</button></div>`;
+    }
+  };
+
+  window.qbankBlockShowResults = function() {
+    const b = window.__qbankBlock;
+    if (!b || !b.active || !b.results) return;
+    b.reviewing = false;
+    qblockUpdateEndButton("End Session");
+    const timerEl = document.getElementById("qbank-timer-display");
+    if (timerEl) timerEl.innerHTML = `<i class="fa-solid fa-circle-check" style="width:14px;height:14px;vertical-align:-2px;"></i> Block complete`;
+    const r = b.results;
+    const area = document.getElementById("qbank-question-area");
+    const sidebar = document.getElementById("qbank-sidebar");
+    if (sidebar) sidebar.style.display = "none";
+    if (!area) return;
+    const scoreColor = r.score >= 80 ? "#15803D" : (r.score >= 60 ? "#B45309" : "#BE123C");
+    area.innerHTML = `
+      <div class="qbr-wrap">
+        <div class="qbr-hero">
+          <div class="qbr-score" style="color:${scoreColor};background:${r.score >= 80 ? "#E9F9EF" : (r.score >= 60 ? "#FFF7E6" : "#FFF0F3")};">${r.score}%</div>
+          <h2>Block complete</h2>
+          <p>${r.correct} of ${r.total} correct${r.partial ? ` · ${r.partial} partial` : ""} · ${b.timeLimitSec ? (b.mode === "exam" ? "Timed exam" : "Tutor, timed") : (b.mode === "exam" ? "Untimed exam" : "Tutor")} · ${qblockFormatClock(r.secondsUsed)} used</p>
+        </div>
+        <div class="qbr-grid">
+          <div class="qbr-stat"><b style="color:#15803D;">${r.correct}</b><small>Correct</small></div>
+          <div class="qbr-stat"><b style="color:#BE123C;">${r.incorrect}</b><small>Incorrect</small></div>
+          <div class="qbr-stat"><b style="color:#B45309;">${r.unanswered}</b><small>Unanswered</small></div>
+          <div class="qbr-stat"><b>${qblockFormatClock(r.secondsUsed)}</b><small>Time used</small></div>
+        </div>
+        <div class="qbr-actions">
+          <button type="button" class="qbr-btn primary" onclick="window.qbankBlockReview()"><i data-lucide="book-open"></i> Review all answers</button>
+          <button type="button" class="qbr-btn" onclick="window.qbankBlockRetake()"><i data-lucide="rotate-ccw"></i> Retake this block</button>
+          <button type="button" class="qbr-btn" onclick="window.qbankEndSession()"><i data-lucide="home"></i> Back to home</button>
+        </div>
+        <p style="margin:16px 0 0;text-align:center;font-size:11.5px;color:var(--text-muted,#64748B);">Scores and explanations are saved to your QBank progress.</p>
+      </div>`;
+    if (window.lucide && window.lucide.createIcons) window.lucide.createIcons();
+  };
+
+  window.qbankBlockReview = function() {
+    const b = window.__qbankBlock;
+    if (!b || !b.active || !b.submitted) return;
+    b.reviewing = true;
+    currentIndex = 0;
+    window.currentIndex = currentIndex;
+    const sidebar = document.getElementById("qbank-sidebar");
+    if (sidebar) sidebar.style.display = "flex";
+    window.qbankRenderSidebar();
+    window.qbankRenderCurrent();
+  };
+
+  window.qbankBlockNextReview = function() {
+    const b = window.__qbankBlock;
+    if (!b || !b.active || !b.submitted) return;
+    if (currentIndex >= currentQuestions.length - 1) {
+      window.qbankBlockShowResults();
+      return;
+    }
+    currentIndex++;
+    window.currentIndex = currentIndex;
+    window.qbankRenderSidebar();
+    window.qbankRenderCurrent();
+  };
+
+  window.qbankBlockRetake = function() {
+    const b = window.__qbankBlock;
+    if (!b || !b.active) return;
+    b.submitted = false;
+    b.reviewing = false;
+    b.submitting = false;
+    b.results = null;
+    b.answers = {};
+    b.timeByQ = {};
+    b.startedAt = Date.now();
+    b.deadline = b.timeLimitSec ? Date.now() + b.timeLimitSec * 1000 : null;
+    b.questionStartedAt = Date.now();
+    currentIndex = 0;
+    window.currentIndex = currentIndex;
+    const sidebar = document.getElementById("qbank-sidebar");
+    if (sidebar) sidebar.style.display = "flex";
+    qblockUpdateEndButton("End Block");
+    window.qbankRenderSidebar();
+    window.qbankRenderCurrent();
+    qblockStartTimer();
+  };
+
+  window.qbankEndSession = function() {
+    const b = window.__qbankBlock;
+    if (b && b.active && !b.submitted) {
+      const ok = window.confirm("Leave this block? Your answers will not be scored.");
+      if (!ok) return;
+    }
+    if (b) {
+      qblockCleanup();
+      window.openQBank();
+      return;
+    }
+    if (window.closeFullscreen) window.closeFullscreen("qbank-modal");
+  };
+
   // --- QBank Home Dashboard ---
   window.openQBank = async function () {
+    if (window.__qbankBlock && window.__qbankBlock.active && !window.__qbankBlock.submitted) {
+      const ok = window.confirm("Leave this block? Your answers will not be scored.");
+      if (!ok) return;
+    }
+    if (window.__qbankBlock && window.__qbankBlock.active) qblockCleanup();
     const myNav = nextNavToken();
     const area = document.getElementById("qbank-home-content");
     if (!area) { if (window.hideGlobalLoader) window.hideGlobalLoader(); return; }
@@ -815,9 +2220,16 @@
     
     try {
       if (!window.db || !window.db.selectedQBankId) {
-        try { await window.openQBankSelection(); }
-        finally { if (window.hideGlobalLoader) window.hideGlobalLoader(); }
-        return;
+        // Resolve access from the academic profile first: the profile's
+        // college already decides which bank the student should use, so
+        // auto-select it instead of showing the bank chooser.
+        try { await window.bootstrapAccess(true); } catch (_) {}
+        if (navStale(myNav)) return;
+        if (!window.db || !window.db.selectedQBankId) {
+          try { await window.openQBankSelection(); }
+          finally { if (window.hideGlobalLoader) window.hideGlobalLoader(); }
+          return;
+        }
       }
       const activeQBankId = window.db.selectedQBankId;
 
@@ -848,7 +2260,6 @@
 
       const activeQBankMeta = (cachedCategories || []).find(qb => qb.id === activeQBankId) || qbanks.find(qb => qb.kind !== "exam_prep") || qbanks[0];
       const activeQBankName = activeQBankMeta ? activeQBankMeta.name : "Your QBank";
-      const isActiveExamPrep = activeQBankMeta && activeQBankMeta.kind === "exam_prep";
       
        if (!cachedQBanks[activeQBankId]) {
           area.innerHTML = `
@@ -864,9 +2275,9 @@
            </div>`;
           let batchedAccess = null; // ?includeAccess=1 piggyback (replaces standalone bootstrap)
           try {
-              const catUpdated = activeQBankMeta.updatedAt || 0;
+              const catUpdated = Number(activeQBankMeta.updatedAt) || 0;
               const idbData = await getCachedQBank(activeQBankId);
-              if (idbData && idbData.updatedAt === catUpdated && idbData.questions && idbData.questions.length > 0) {
+              if (idbData && (!catUpdated || Number(idbData.updatedAt) === catUpdated) && idbData.questions && idbData.questions.length > 0) {
                   // Questions are fresh in IndexedDB — only fetch progress (tiny, private)
                   // + access bundle (batched: 0 extra HTTP vs standalone bootstrap).
                   const res = await apiGet("get_questions", { qbankId: activeQBankId, onlyProgress: true, includeAccess: true });
@@ -959,291 +2370,8 @@
       }
       
       const globalScore = totalAnswered > 0 ? Math.round((totalCorrect / totalAnswered) * 100) : 0;
-      const scoreColor = globalScore >= 80 ? '#22c55e' : (globalScore >= 50 ? '#eab308' : '#f43f5e');
-      
       const lastSession = getLastSession();
-      const recentSessions = getRecentSessions();
-      
-      let specialtyStats = [];
-      for (const [sub, stat] of Object.entries(subjectStats)) {
-          if (sub === "Uncategorized") continue;
-          let specScore = stat.answered > 0 ? Math.round((stat.correct / stat.answered) * 100) : 0;
-          specialtyStats.push({ name: sub, total: stat.total, answered: stat.answered, score: specScore });
-      }
-      specialtyStats.sort((a, b) => b.answered - a.answered || b.total - a.total);
-      
-      let specialtyHtml = '';
-      if (specialtyStats.length > 0) {
-        const topSpecs = specialtyStats.slice(0, 4);
-        topSpecs.forEach(spec => {
-          let colorClass = spec.score >= 80 ? 'bg-primary' : (spec.score >= 50 ? 'bg-primary/70' : 'bg-error/70');
-          specialtyHtml += `
-            <div>
-              <div class="flex justify-between text-sm mb-1">
-                <span class="font-medium">${window.escapeHtml ? window.escapeHtml(spec.name) : spec.name}</span>
-                <span class="text-on-surface-variant">${spec.score}% (${spec.answered}/${spec.total})</span>
-              </div>
-              <div class="w-full bg-surface-container rounded-full h-2">
-                <div class="${colorClass} h-2 rounded-full" style="width: ${spec.score}%"></div>
-              </div>
-            </div>`;
-        });
-      } else {
-        specialtyHtml = '<div class="text-on-surface-variant text-sm">No specialty data yet. Start practicing!</div>';
-      }
 
-      // Continuing Session HTML
-      let continueSessionHtml = '';
-      if (lastSession && lastSession.qbankId) {
-        const lastBankName = lastSession.qbankName || "QBank";
-        const lastSubject = lastSession.subject && lastSession.subject !== "All Subjects" ? lastSession.subject : "active";
-        
-        let subStat = subjectStats[lastSubject];
-        let progPct = 0;
-        let answeredStr = "Q0 / 0";
-        if (subStat && subStat.total > 0) {
-            progPct = Math.round((subStat.answered / subStat.total) * 100);
-            answeredStr = `Q${subStat.answered} / ${subStat.total}`;
-        } else {
-            // Fallback to global if subject isn't active
-            progPct = totalQuestions > 0 ? Math.round((totalAnswered / totalQuestions) * 100) : 0;
-            answeredStr = `Q${totalAnswered} / ${totalQuestions}`;
-        }
-        
-        continueSessionHtml = `
-          <div class="mb-4">
-              <h3 class="font-title-md text-[20px] mb-2 font-bold">Continue ${window.escapeHtml ? window.escapeHtml(lastSubject) : lastSubject}</h3>
-              <p class="font-body-md opacity-90">${answeredStr}</p>
-          </div>
-          <div class="flex items-center gap-3 mb-6">
-              <div class="h-1.5 flex-1 bg-surface-container-highest/30 rounded-full overflow-hidden">
-                  <div class="h-full bg-on-primary rounded-full transition-all" style="width: ${progPct}%"></div>
-              </div>
-              <span class="text-sm font-bold">${progPct}%</span>
-          </div>
-          <div class="flex items-center gap-2 font-label-caps text-label-caps tracking-widest mt-auto">
-              CONTINUE <span class="material-symbols-outlined text-[16px] group-hover:translate-x-1 transition-transform">arrow_forward</span>
-          </div>
-        `;
-      } else {
-        continueSessionHtml = `
-          <div class="mb-4">
-              <h3 class="font-title-md text-[20px] mb-2 font-bold">Start Session</h3>
-              <p class="font-body-md opacity-90 mb-6">Start a new practice block.</p>
-          </div>
-          <div class="flex items-center gap-2 font-label-caps text-label-caps tracking-widest mt-auto">
-              START <span class="material-symbols-outlined text-[16px] group-hover:translate-x-1 transition-transform">arrow_forward</span>
-          </div>
-        `;
-      }
-
-      // Review Incorrects HTML
-      let incorrectBySubject = [];
-      for (const [sub, stat] of Object.entries(subjectStats)) {
-          let inc = stat.answered - stat.correct;
-          if (inc > 0 && sub !== "Uncategorized") {
-              incorrectBySubject.push({ name: sub, count: inc });
-          }
-      }
-      incorrectBySubject.sort((a,b) => b.count - a.count);
-      
-      let reviewIncorrectsHtml = '';
-      if (incorrectBySubject.length > 0) {
-          const topInc = incorrectBySubject.slice(0, 3);
-          const totalInc = incorrectBySubject.reduce((sum, item) => sum + item.count, 0);
-          
-          let breakdown = '';
-          topInc.forEach(inc => {
-              breakdown += `<div class="text-sm text-on-surface-variant mb-1 flex items-center gap-2"><span class="font-bold text-on-surface w-6 text-right">${inc.count}</span> <span class="truncate">${window.escapeHtml ? window.escapeHtml(inc.name) : inc.name}</span></div>`;
-          });
-          
-          reviewIncorrectsHtml = `
-            <div class="mb-4">
-                <h3 class="font-title-md text-[20px] mb-2 font-bold text-primary">Review Incorrects</h3>
-                <p class="font-body-md font-bold mb-3">${totalInc} questions</p>
-                <div class="flex flex-col">${breakdown}</div>
-            </div>
-            <div class="flex items-center gap-2 font-label-caps text-label-caps text-primary tracking-widest mt-auto pt-4">
-                REVIEW <span class="material-symbols-outlined text-[16px] group-hover:translate-x-1 transition-transform">arrow_forward</span>
-            </div>
-          `;
-      } else {
-          reviewIncorrectsHtml = `
-            <div class="mb-4">
-                <h3 class="font-title-md text-[20px] mb-2 font-bold text-primary">Review Incorrects</h3>
-                <p class="font-body-md font-bold text-primary mb-2">You're all caught up 🎉</p>
-                <p class="font-body-md text-on-surface-variant text-sm">No incorrect questions waiting for review.</p>
-            </div>
-            <div class="flex items-center gap-2 font-label-caps text-label-caps text-primary tracking-widest mt-auto pt-4">
-                START NEW BLOCK <span class="material-symbols-outlined text-[16px] group-hover:translate-x-1 transition-transform">arrow_forward</span>
-            </div>
-          `;
-      }
-      
-      // Weak Areas HTML
-      let weakAreas = specialtyStats.filter(s => s.answered > 0).sort((a, b) => a.score - b.score).slice(0, 3);
-      let weakAreasHtml = '';
-      if (weakAreas.length > 0) {
-          let list = '';
-          weakAreas.forEach(wa => {
-              list += `
-              <div class="mb-3 last:mb-0">
-                  <div class="flex justify-between text-sm mb-1">
-                      <span class="font-medium truncate mr-2">${window.escapeHtml ? window.escapeHtml(wa.name) : wa.name}</span>
-                      <span class="text-on-surface-variant">${wa.score}%</span>
-                  </div>
-                  <div class="w-full bg-surface-container rounded-full h-1.5">
-                      <div class="bg-[var(--accent-purple)] h-1.5 rounded-full transition-all" style="width: ${wa.score}%"></div>
-                  </div>
-              </div>`;
-          });
-          weakAreasHtml = `
-            <div class="mb-4 flex-1 w-full">
-                <h3 class="font-title-md text-[20px] mb-2 font-bold" style="color:var(--accent-purple);">Weak Areas</h3>
-                <p class="text-xs text-on-surface-variant mb-4">Topics where you need the most practice</p>
-                <div class="flex flex-col w-full">${list}</div>
-            </div>
-            <div class="flex items-center gap-2 font-label-caps text-label-caps tracking-widest mt-auto pt-2" style="color:var(--accent-purple);">
-                PRACTICE WEAK AREAS <span class="material-symbols-outlined text-[16px] group-hover:translate-x-1 transition-transform">arrow_forward</span>
-            </div>
-          `;
-      } else {
-          weakAreasHtml = `
-            <div class="mb-4 flex-1">
-                <h3 class="font-title-md text-[20px] mb-2 font-bold" style="color:var(--accent-purple);">Weak Areas</h3>
-                <p class="text-sm text-on-surface-variant mt-4">Answer more questions to reveal your weak areas.</p>
-            </div>
-            <div class="flex items-center gap-2 font-label-caps text-label-caps tracking-widest mt-auto pt-2" style="color:var(--accent-purple);">
-                BROWSE SUBJECTS <span class="material-symbols-outlined text-[16px] group-hover:translate-x-1 transition-transform">arrow_forward</span>
-            </div>
-          `;
-      }
-      
-      let recentActivityHtml = '';
-      if (recentSessions && recentSessions.length > 0) {
-        recentSessions.forEach(rs => {
-            const timeDiff = Date.now() - (rs.timestamp || Date.now());
-            let timeStr = 'just now';
-            const mins = Math.floor(timeDiff / 60000);
-            if (mins > 0 && mins < 60) timeStr = `${mins}m ago`;
-            else if (mins >= 60 && mins < 1440) timeStr = `${Math.floor(mins / 60)}h ago`;
-            else if (mins >= 1440) timeStr = `${Math.floor(mins / 1440)}d ago`;
-
-            let subStat = subjectStats[rs.subject];
-            let score = 0;
-            if (subStat && subStat.answered > 0) {
-                score = Math.round((subStat.correct / subStat.answered) * 100);
-            } else if (rs.subject === "All Subjects") {
-                score = globalScore;
-            }
-            
-            const colorClass = score >= 80 ? 'bg-primary' : (score >= 50 ? 'bg-primary/70' : 'bg-error/70');
-            const icon = rs.subject === "All Subjects" ? "dashboard" : "psychology";
-
-            recentActivityHtml += `
-            <div class="flex items-center p-3 rounded-xl hover:bg-surface-container transition-colors group cursor-pointer" onclick="window.startQBankSession('${rs.qbankId}', '${window.escapeHtml ? window.escapeHtml(rs.qbankName) : rs.qbankName}', '${window.escapeHtml ? window.escapeHtml(rs.subject) : rs.subject}')">
-              <div class="w-10 h-10 rounded-full bg-primary-container/30 flex items-center justify-center mr-3">
-                <span class="material-symbols-outlined text-primary text-sm">${icon}</span>
-              </div>
-              <div class="flex-1 min-w-0">
-                <h4 class="font-title-md text-sm text-on-surface truncate">${window.escapeHtml ? window.escapeHtml(rs.subject) : rs.subject}</h4>
-                <div class="flex items-center gap-2 mt-1">
-                  <div class="h-1 w-12 bg-surface-container-highest rounded-full overflow-hidden">
-                    <div class="h-full ${colorClass} rounded-full" style="width: ${score}%"></div>
-                  </div>
-                  <span class="font-label-sm text-[10px] text-on-surface-variant">${score}%</span>
-                </div>
-              </div>
-              <span class="font-label-sm text-[10px] text-on-surface-variant opacity-60 group-hover:opacity-100 transition-opacity whitespace-nowrap">${timeStr}</span>
-            </div>
-            `;
-        });
-      } else {
-          recentActivityHtml = `<div class="text-on-surface-variant text-sm p-4 text-center">No recent sessions yet. Start practicing!</div>`;
-      }
-
-      let resourcesHtml = '';
-      if (activeQBankMeta.resources && activeQBankMeta.resources.length > 0) {
-        let normalizedResources = [];
-        let uncategorized = [];
-        
-        activeQBankMeta.resources.forEach(r => {
-            if (r.isCategory) {
-                normalizedResources.push(r);
-            } else {
-                uncategorized.push(r);
-            }
-        });
-        if (uncategorized.length > 0) {
-            normalizedResources.push({ id: 'cat-general', isCategory: true, title: 'General Resources', items: uncategorized });
-        }
-        
-        let catsHtml = normalizedResources.map(cat => {
-            if (!cat.items || cat.items.length === 0) return '';
-            let itemsHtml = cat.items.map(r => {
-                let icon = 'link';
-                let color = 'text-primary';
-                let action = `href="${window.escapeHtml ? window.escapeHtml(r.url) : r.url}" target="_blank"`;
-                
-                if (r.type === 'youtube') { 
-                    icon = 'play_circle'; 
-                    color = 'text-[#ef4444]'; 
-                    action = `href="javascript:void(0)" onclick="window.openYouTubeModal('${r.url}')"`;
-                }
-                if (r.type === 'pdf') { icon = 'picture_as_pdf'; color = 'text-[#3b82f6]'; }
-                if (r.type === 'flashcards') { icon = 'style'; color = 'text-[#eab308]'; }
-                
-                return `
-                <a ${action} class="flex items-center gap-3 p-4 rounded-xl bg-surface-container hover:bg-surface-container-high transition-colors group border border-transparent hover:border-outline-variant/30">
-                  <div class="w-10 h-10 rounded-full bg-surface-container-highest flex items-center justify-center flex-shrink-0 group-hover:scale-105 transition-transform">
-                    <span class="material-symbols-outlined ${color}">${icon}</span>
-                  </div>
-                  <div class="flex-1 min-w-0">
-                    <h4 class="font-title-sm text-sm text-on-surface truncate font-medium">${window.escapeHtml ? window.escapeHtml(r.title || r.url) : (r.title || r.url)}</h4>
-                    ${r.description ? `<p class="text-xs text-on-surface-variant truncate opacity-80 mt-1">${window.escapeHtml(r.description)}</p>` : ''}
-                  </div>
-                  <span class="material-symbols-outlined text-on-surface-variant opacity-0 group-hover:opacity-100 transition-opacity -translate-x-2 group-hover:translate-x-0">open_in_new</span>
-                </a>
-                `;
-            }).join('');
-            
-            return `
-            <div class="mb-6 last:mb-0">
-              <h4 class="text-sm font-label-caps text-on-surface-variant tracking-wider uppercase mb-3 px-1">${window.escapeHtml ? window.escapeHtml(cat.title) : cat.title}</h4>
-              <div class="flex flex-col gap-2">
-                ${itemsHtml}
-              </div>
-            </div>
-            `;
-        }).join('');
-        
-        resourcesHtml = `
-        <div class="flex flex-col mt-6" id="qbank-resources-widget">
-          <div class="flex items-center justify-between mb-4">
-            <h2 class="font-headline-lg text-[20px] text-on-surface flex items-center gap-2">
-                <span class="material-symbols-outlined text-primary">auto_stories</span> Study Resources
-            </h2>
-          </div>
-          <div class="bg-surface-container-lowest rounded-2xl p-6 shadow-sm border border-outline-variant/30">
-            ${catsHtml}
-          </div>
-        </div>
-        `;
-      }
-
-      let safeBankName = activeQBankName.replace(/'/g, "\\'");
-      
-      const flagMap = { usa: "us", uk: "gb", australia: "au", canada: "ca", india: "in", europe: "eu", tunisia: "tn", algeria: "dz", egypt: "eg", morocco: "ma" };
-      let flagHtml = '';
-      let smallFlagHtml = '';
-      if (activeQBankMeta && activeQBankMeta.country && activeQBankMeta.country !== "global") {
-          const countryCode = flagMap[activeQBankMeta.country];
-          if (countryCode) {
-              flagHtml = `<img src="https://flagcdn.com/${countryCode}.svg" alt="${countryCode}" style="height:32px; width:auto; border-radius:4px; box-shadow:0 2px 6px rgba(0,0,0,0.15);" class="inline-block mr-3 align-text-bottom">`;
-              smallFlagHtml = `<img src="https://flagcdn.com/${countryCode}.svg" alt="${countryCode}" style="height:13px; width:auto; border-radius:2px;" class="inline-block mr-1.5 align-middle">`;
-          }
-      }
-      
       const hour = new Date().getHours();
       let greeting = "Good morning";
       if (hour >= 12 && hour < 17) greeting = "Good afternoon";
@@ -1252,608 +2380,450 @@
       let firstName = "Doctor";
       const headerNameEl = document.getElementById("header-user-name");
       if (headerNameEl && headerNameEl.innerText) {
-          let full = headerNameEl.innerText.replace(/Dr\.?\s+/i, "").trim();
-          firstName = full.split(" ")[0] || "Doctor";
+        const full = headerNameEl.innerText.replace(/Dr\.?\s+/i, "").trim();
+        firstName = full.split(" ")[0] || "Doctor";
       }
 
-      // CLINICAL DASHBOARD REDESIGN
-      let isSessionCompleted = false;
-      let lastSubject = "All Subjects";
-      let progPct = 0;
-      let answeredStr = "Q0 / 0";
-      let subStat = null;
+      const streakVal = window.studyGoals && window.studyGoals.computeStreak ? window.studyGoals.computeStreak() : 0;
+      const savedCollege = window.cqGetSavedCollege ? window.cqGetSavedCollege() : null;
+      const prepBanks = cqPrepBanks();
+      const savedCollegeBanks = savedCollege
+        ? prepBanks.filter(q => (q.country || "global") === savedCollege.country && (q.college || "General") === savedCollege.college)
+        : [];
+      const savedCollegeValid = !!(savedCollege && savedCollegeBanks.length > 0);
+      const prepCountryCount = new Set(prepBanks.map(q => q.country || "global")).size;
+      const countryName = savedCollege ? (CQ_COUNTRY_LABELS[savedCollege.country] || savedCollege.country) : "";
+      let prepFlag = "";
+      if (savedCollegeValid) {
+        const code = CQ_FLAG_CODES[savedCollege.country] || "un";
+        prepFlag = `<img src="https://flagcdn.com/${code}.svg" alt="" class="cq-flag">`;
+      }
 
+      const subjectCount = Object.keys(subjectStats).filter(s => s !== "Uncategorized").length;
+      const progressPct = totalQuestions > 0 ? Math.round((totalAnswered / totalQuestions) * 100) : 0;
+      const totalIncorrect = Math.max(0, totalAnswered - totalCorrect);
+
+      let bankFlag = "";
+      const activeCountry = activeQBankMeta && activeQBankMeta.country;
+      if (activeCountry && activeCountry !== "global" && CQ_FLAG_CODES[activeCountry]) {
+        bankFlag = `<img src="https://flagcdn.com/${CQ_FLAG_CODES[activeCountry]}.svg" alt="" class="cq-flag">`;
+      } else {
+        bankFlag = `<span class="cq-flag cq-flag-fallback"><i data-lucide="book-open"></i></span>`;
+      }
+
+      let continueBanner = "";
       if (lastSession && lastSession.qbankId) {
-          lastSubject = lastSession.subject && lastSession.subject !== "All Subjects" ? lastSession.subject : "All Subjects";
-          subStat = subjectStats[lastSubject];
-          if (subStat && subStat.total > 0) {
-              progPct = Math.round((subStat.answered / subStat.total) * 100);
-              answeredStr = `Q${subStat.answered} / ${subStat.total}`;
-          } else {
-              progPct = totalQuestions > 0 ? Math.round((totalAnswered / totalQuestions) * 100) : 0;
-              answeredStr = `Q${totalAnswered} / ${totalQuestions}`;
-          }
-          if (progPct >= 100) isSessionCompleted = true;
-      }
-
-      // Calculate correct/incorrect
-      let totalIncorrect = totalAnswered - totalCorrect;
-      let totalUnused = Math.max(0, totalQuestions - totalAnswered);
-      
-      let pctCorrect = totalQuestions > 0 ? (totalCorrect / totalQuestions) * 100 : 0;
-      let pctIncorrect = totalQuestions > 0 ? (totalIncorrect / totalQuestions) * 100 : 0;
-      let pctUnused = totalQuestions > 0 ? (totalUnused / totalQuestions) * 100 : 100;
-
-      const streakVal = window.studyGoals ? window.studyGoals.computeStreak() : 0;
-
-      // Performance Overview - Donut Chart (new version)
-
-      const dateStr = new Date().toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
-
-      // Header Section (compact clinical)
-      const escName = window.escapeHtml ? window.escapeHtml(firstName) : firstName;
-      let headerHtml = `
-      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; flex-wrap:wrap; gap:10px;">
-          <div>
-              <h1 style="font-size:20px; font-weight:700; color:#0F172A; margin:0 0 2px 0; letter-spacing:-0.01em;">Good ${greeting.toLowerCase().replace('good ', '')}, ${escName}</h1>
-              <p style="color:#64748B; font-size:12.5px; margin:0;">Consistency today builds the doctor you want to be tomorrow.</p>
-          </div>
-          <div style="display:flex; align-items:center; gap:10px;">
-              <div style="display:flex; align-items:center; gap:8px; background:#fff; padding:6px 12px; border-radius:6px; border:1px solid #E2E8F0;">
-                  <span style="background:#e6f2f2; width:26px; height:26px; border-radius:6px; display:inline-flex; align-items:center; justify-content:center;">
-                      <i class="fa-solid fa-fire" style="color:#007a7a; font-size:13px;"></i>
-                  </span>
-                  <span style="font-size:13px; font-weight:700; color:#0F172A;">${streakVal}d</span>
-                  <span style="font-size:11px; color:#64748B; font-weight:600;">STREAK</span>
-              </div>
-              <div style="color:#64748B; font-size:12px;">${dateStr}</div>
-          </div>
-      </div>
-      `;
-
-      // Card 1: Continue Studying (primary call to action, visually dominant)
-      const escLastSubject = window.escapeHtml ? window.escapeHtml(lastSubject) : lastSubject;
-      let continueCardHtml = '';
-      if (lastSession && lastSession.qbankId && !isSessionCompleted) {
-          const subjScore = subStat && subStat.answered > 0 ? Math.round((subStat.correct / subStat.answered) * 100) : 0;
-          const scoreBadge = subjScore >= 70
-              ? `<span class="clin-badge clin-badge-good">${subjScore}%</span>`
-              : (subjScore >= 50
-                  ? `<span class="clin-badge clin-badge-warn">${subjScore}%</span>`
-                  : `<span class="clin-badge clin-badge-bad">${subjScore}%</span>`);
-          continueCardHtml = `
-          <div class="clin-card clin-glass" style="display:flex; flex-direction:column; position:relative; overflow:hidden;">
-              <div style="position:absolute; top:25%; left:-5%; width:110%; height:75%; opacity:0.04; pointer-events:none; z-index:0;">
-                 <svg viewBox="0 0 500 100" preserveAspectRatio="none" style="width:100%; height:100%;">
-                     <path d="M0 50 L100 50 L120 20 L140 80 L160 50 L180 50 L200 50 L210 30 L230 70 L250 50 L500 50" fill="none" stroke="#007a7a" stroke-width="4"/>
-                 </svg>
-              </div>
-              <div style="position:relative; z-index:1; display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-                  <h2 class="clin-card-title"><i class="fa-solid fa-book-open" style="color:#007a7a;"></i>Continue studying <span class="micro-tag live">Live</span></h2>
-                  <a href="#" onclick="window.openExamPrepTab && window.openExamPrepTab(); return false;" style="color:#64748B; font-size:11.5px; text-decoration:none; font-weight:600;">Change</a>
-              </div>
-              <div style="position:relative; z-index:1; font-weight:700; color:#0F172A; font-size:16px; margin-bottom:4px;">${escLastSubject}</div>
-              <div class="clin-muted" style="position:relative; z-index:1; font-size:12px; margin-bottom:2px;">${subStat ? subStat.answered : 0} of ${subStat ? subStat.total : 0} answered &middot; last score ${scoreBadge}</div>
-              <div class="clin-muted" style="position:relative; z-index:1; font-size:12px; margin-bottom:12px;">${lastSubject === "All Subjects" ? "Mixed review block" : "Priority topic review"} &middot; ~15 Qs &middot; ~12 min</div>
-              <div style="margin-top:auto; position:relative; z-index:1;">
-                  <button class="clin-btn-primary" onclick="window.qbankContinueLast()">
-                      Continue session <i class="fa-solid fa-arrow-right" style="font-size:12px;"></i>
-                  </button>
-              </div>
-          </div>
-          `;
-      } else {
-          continueCardHtml = `
-          <div class="clin-card clin-glass" style="display:flex; flex-direction:column;">
-              <h2 class="clin-card-title"><i class="fa-solid fa-book-open" style="color:#007a7a;"></i>Continue studying <span class="micro-tag live">Ready</span></h2>
-              <div class="clin-muted" style="font-size:12.5px; margin:2px 0 12px;">Ready to dive in? Start a block to track progress.</div>
-              <div style="margin-top:auto;">
-                  <button class="clin-btn-primary" onclick="window.openExamPrepTab && window.openExamPrepTab()">
-                      Start new session <i class="fa-solid fa-arrow-right" style="font-size:12px;"></i>
-                  </button>
-              </div>
-          </div>
-          `;
-      }
-
-      // Wide analytics + diagnostics card (donut, badges, sparkline)
-      let strongestAreas = specialtyStats.filter(s => s.answered > 0).sort((a, b) => b.score - a.score);
-      let topStrong = strongestAreas.length > 0 ? strongestAreas[0] : null;
-      let topWeakPerf = weakAreas && weakAreas.length > 0 ? weakAreas[0] : null;
-      const escStrong = topStrong && window.escapeHtml ? window.escapeHtml(topStrong.name) : (topStrong ? topStrong.name : '');
-      const escWeak = topWeakPerf && window.escapeHtml ? window.escapeHtml(topWeakPerf.name) : (topWeakPerf ? topWeakPerf.name : '');
-
-      // Donut geometry (SVG ring)
-      const _C = 2 * Math.PI * 54;
-      const _off = (_C * (1 - globalScore / 100)).toFixed(1);
-      const _donutColor = globalScore >= 70 ? '#007a7a' : (globalScore >= 50 ? '#D97706' : '#DC2626');
-
-      // Sparkline: current score of each recent session's subject, oldest -> newest
-      let _trendPts = [];
-      try {
-        (recentSessions || []).slice(0, 9).forEach(rs => {
-          let sc = null;
-          const st = rs && rs.subject ? subjectStats[rs.subject] : null;
-          if (st && st.answered > 0) sc = Math.round((st.correct / st.answered) * 100);
-          else if (rs && rs.subject === 'All Subjects' && totalAnswered > 0) sc = globalScore;
-          if (sc !== null) _trendPts.push(sc);
-        });
-        _trendPts.reverse();
-        if (totalAnswered > 0) _trendPts.push(globalScore);
-        _trendPts = _trendPts.slice(-10);
-      } catch (_) { _trendPts = totalAnswered > 0 ? [globalScore] : []; }
-      let _sparkHtml = '';
-      if (_trendPts.length >= 2) {
-        const W = 150, H = 36, P = 3;
-        const min = Math.min.apply(null, _trendPts), max = Math.max.apply(null, _trendPts);
-        const span = Math.max(1, max - min);
-        const stepX = (W - P * 2) / (_trendPts.length - 1);
-        const pts = _trendPts.map((v, i) => {
-          const x = (P + i * stepX).toFixed(1);
-          const y = (H - P - ((v - min) / span) * (H - P * 2)).toFixed(1);
-          return x + ',' + y;
-        }).join(' ');
-        const lastX = (P + (_trendPts.length - 1) * stepX).toFixed(1);
-        _sparkHtml = `
-          <svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" style="display:block; overflow:visible;">
-            <defs>
-              <linearGradient id="trendGrad" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stop-color="#007a7a" stop-opacity="0.25"/>
-                <stop offset="100%" stop-color="#007a7a" stop-opacity="0"/>
-              </linearGradient>
-              <filter id="neonGlow">
-                <feGaussianBlur stdDeviation="1.5" result="coloredBlur"/>
-                <feMerge>
-                  <feMergeNode in="coloredBlur"/>
-                  <feMergeNode in="SourceGraphic"/>
-                </feMerge>
-              </filter>
-            </defs>
-            <polygon points="${P},${H} ${pts} ${lastX},${H}" fill="url(#trendGrad)"></polygon>
-            <polyline points="${pts}" fill="none" stroke="#007a7a" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" filter="url(#neonGlow)"></polyline>
-          </svg>
-          <div class="clin-muted" style="font-size:11px; margin-top:4px;">Recent trend &middot; last ${_trendPts.length} blocks</div>`;
-      } else {
-        _sparkHtml = `
-        <div class="clin-empty" style="position:relative; overflow:hidden; padding:12px 10px;">
-            <div style="position:absolute; bottom:-4px; left:0; width:100%; opacity:0.15; pointer-events:none; mask-image: linear-gradient(to bottom, rgba(0,0,0,0.1) 0%, rgba(0,0,0,1) 100%); -webkit-mask-image: linear-gradient(to bottom, rgba(0,0,0,0.1) 0%, rgba(0,0,0,1) 100%);">
-                <svg width="100%" height="40" preserveAspectRatio="none" viewBox="0 0 100 40">
-                    <path d="M0 40 Q25 15 50 30 T100 5" fill="none" stroke="#007a7a" stroke-width="2" stroke-dasharray="4 4"/>
-                </svg>
+        const lsSubject = lastSession.subject && lastSession.subject !== "All Subjects" ? lastSession.subject : null;
+        const st = lsSubject ? subjectStats[lsSubject] : null;
+        const totalForResume = st ? st.total : totalQuestions;
+        const answeredForResume = st ? st.answered : totalAnswered;
+        const resumePct = totalForResume > 0 ? Math.round((answeredForResume / totalForResume) * 100) : 0;
+        const resumeLabel = lsSubject || "Mixed practice";
+        const resumeBank = lastSession.qbankName || activeQBankName;
+        continueBanner = `
+          <section class="cq-resume" aria-label="Continue your last session">
+            <div class="cq-resume-ic"><i data-lucide="history"></i></div>
+            <div class="cq-resume-text">
+              <small>Pick up where you left off</small>
+              <b>${cqEsc(resumeLabel)}</b>
+              <span>${cqEsc(resumeBank)} · ${answeredForResume} of ${totalForResume} answered</span>
             </div>
-            <span style="position:relative; z-index:1;">Trend appears after a few practice blocks.</span>
-        </div>`;
+            <div class="cq-resume-meter" aria-hidden="true"><span style="width:${resumePct}%"></span></div>
+            <button type="button" class="cq-btn cq-btn-ghost" onclick="window.qbankContinueLast()">Resume <i data-lucide="arrow-right"></i></button>
+          </section>`;
       }
 
-      const _scoreBadge = globalScore >= 70
-          ? `<div class="clin-status-bar good"><i class="fa-solid fa-shield-check"></i> High performance</div>`
-          : (globalScore >= 50
-              ? `<div class="clin-status-bar warn"><i class="fa-solid fa-shield-halved"></i> Developing</div>`
-              : `<div class="clin-status-bar bad"><i class="fa-solid fa-shield-cat"></i> Remediation needed</div>`);
-      const _weakRow = topWeakPerf
-          ? `<div style="display:flex; justify-content:space-between; align-items:center; padding:6px 0;">
-                 <span style="font-size:12.5px; color:#334155; font-weight:600;">${escWeak}</span>
-                 <span class="clin-badge clin-badge-bad">${topWeakPerf.score}%</span>
-             </div>`
-          : '';
-      const _strongRow = topStrong
-          ? `<div style="display:flex; justify-content:space-between; align-items:center; padding:6px 0;">
-                 <span style="font-size:12.5px; color:#334155; font-weight:600;">${escStrong}</span>
-                 <span class="clin-badge clin-badge-good">${topStrong.score}%</span>
-             </div>`
-          : '';
-      // Never show the same topic as both weakest AND strongest (single-topic
-      // progress) — that looks broken. Require two distinct scored areas.
-      const _sameTopic = topWeakPerf && topStrong && topWeakPerf.name === topStrong.name;
-      const _diagBody = totalAnswered <= 0
-          ? `<div class="clin-empty"><div style="margin-bottom:6px; opacity:0.4;"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#A0AEC0" stroke-width="1.5"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></div>Diagnostics populate after you answer questions.</div>`
-          : (_sameTopic || !topWeakPerf || !topStrong
-              ? `<div class="clin-empty"><div style="margin-bottom:6px; opacity:0.4;"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#A0AEC0" stroke-width="1.5"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg></div>More data needed to calculate strengths.</div>`
-              : `${_weakRow}${_strongRow}`);
+      const examEmpty = prepBanks.length === 0;
+      const examSchoolBox = savedCollegeValid
+        ? `<div class="cq-school-box">
+             ${prepFlag}
+             <div class="cq-school-text">
+               <small>Your college</small>
+               <b>${cqEsc(savedCollege.college)}</b>
+               <span>${cqEsc(countryName)} · ${savedCollegeBanks.length} past ${savedCollegeBanks.length === 1 ? "exam" : "exams"}</span>
+             </div>
+             <button type="button" class="cq-mini" onclick="window.cqOpenCollegePicker('${cqJsArg(savedCollege.country)}')">Change</button>
+           </div>`
+        : examEmpty
+          ? `<div class="cq-inline-empty">Past papers will appear here as soon as your college adds them.</div>`
+          : `<button type="button" id="cq-college-trigger" class="cq-setup" onclick="window.cqOpenCollegePicker()">
+               <span class="cq-setup-ic"><i data-lucide="map-pin"></i></span>
+               <span class="cq-school-text"><b>Choose your college</b><small>One-time setup · change anytime</small></span>
+               <i data-lucide="arrow-right" class="cq-setup-arrow"></i>
+             </button>`;
 
-      let performanceCardHtml = `
-      <div class="clin-card clin-glass">
-          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
-              <h2 class="clin-card-title" style="margin:0;"><i class="fa-solid fa-chart-column" style="color:#007a7a;"></i>Performance &amp; diagnostics <span class="micro-tag global">Global</span></h2>
-              <a href="#" onclick="window.openPerformance && window.openPerformance(); return false;" style="color:#007a7a; font-size:11.5px; text-decoration:none; font-weight:600;">Full analytics</a>
-          </div>
-          <div class="clin-analytics">
-              <div style="display:flex; align-items:center; gap:16px;">
-                  <div style="position:relative; width:104px; height:104px; flex-shrink:0;">
-                      <svg width="104" height="104" viewBox="0 0 120 120" style="display:block;">
-                          <defs>
-                              <filter id="ringInnerShadow">
-                                  <feOffset dx="0" dy="3"/>
-                                  <feGaussianBlur stdDeviation="3" result="offset-blur"/>
-                                  <feComposite operator="out" in="SourceGraphic" in2="offset-blur" result="inverse"/>
-                                  <feFlood flood-color="black" flood-opacity="0.08" result="color"/>
-                                  <feComposite operator="in" in="color" in2="inverse" result="shadow"/>
-                                  <feComposite operator="over" in="shadow" in2="SourceGraphic"/>
-                              </filter>
-                          </defs>
-                          <circle cx="60" cy="60" r="54" fill="none" stroke="#E2E8F0" stroke-width="12" filter="url(#ringInnerShadow)"></circle>
-                          <circle cx="60" cy="60" r="42" fill="none" stroke="#F1F5F9" stroke-width="4"></circle>
-                          <circle cx="60" cy="60" r="54" fill="none" stroke="${_donutColor}" stroke-width="12" stroke-linecap="round"
-                              stroke-dasharray="${_C.toFixed(1)}" stroke-dashoffset="${_off}" transform="rotate(-90 60 60)" style="filter: drop-shadow(0 2px 4px ${_donutColor}40)"></circle>
-                          <text x="60" y="80" text-anchor="middle" font-size="9" font-weight="700" letter-spacing="1.5" fill="#64748B" font-family="Inter,-apple-system,'Segoe UI',Roboto,sans-serif">AVG SCORE</text>
-                      </svg>
-                      <div class="donut-text-overlay" style="position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); display:flex; flex-direction:column; align-items:center; justify-content:center; pointer-events:none; text-align:center;">
-                          <div style="font-size:21px; font-weight:700; color:#0F172A; line-height:1; font-family:Inter,-apple-system,'Segoe UI',Roboto,sans-serif;">${globalScore}%</div>
-                      </div>
-                  </div>
-                  <div>
-                      <div style="margin-bottom:6px;">${_scoreBadge}</div>
-                      <div style="font-size:12.5px; color:#334155; font-weight:600;">${totalAnswered} <span style="font-weight:400;" class="clin-muted">attempted</span> &middot; ${totalCorrect} <span style="font-weight:400;" class="clin-muted">correct</span> &middot; ${totalIncorrect} <span style="font-weight:400;" class="clin-muted">incorrect</span></div>
-                      <div class="clin-muted" style="font-size:11.5px; font-weight:400; margin-top:2px;">${totalQuestions} questions in bank</div>
-                  </div>
-              </div>
-              <div>
-                  <div class="clin-muted" style="font-size:11px; font-weight:700; letter-spacing:.05em; margin-bottom:2px;">WEAKEST / STRONGEST</div>
-                  ${_diagBody}
-              </div>
-              <div>
-                  <div class="clin-muted" style="font-size:11px; font-weight:700; letter-spacing:.05em; margin-bottom:6px;">TREND</div>
-                  ${_sparkHtml}
-              </div>
-          </div>
-      </div>
-      `;
+      const examCta = examEmpty
+        ? `<button type="button" class="cq-btn cq-btn-exam" onclick="window.openExamPrepTab()">Open exam prep <i data-lucide="arrow-right"></i></button>`
+        : savedCollegeValid
+          ? `<button type="button" class="cq-btn cq-btn-exam" onclick="window.cqOpenSavedCollege()">Open my college exams <i data-lucide="arrow-right"></i></button>`
+          : `<button type="button" class="cq-btn cq-btn-exam" onclick="window.cqOpenCollegePicker()">Choose my college <i data-lucide="arrow-right"></i></button>`;
 
-      // Card 2: Question Pool metrics (stacked horizontal bars)
-      const _poolRows = totalQuestions > 0 ? [
-          { label: 'Used', val: totalAnswered, pct: Math.round((totalAnswered / totalQuestions) * 100), color: '#334155' },
-          { label: 'Unused', val: totalUnused, pct: Math.round((totalUnused / totalQuestions) * 100), color: '#94A3B8' },
-          { label: 'Incorrect pool', val: totalIncorrect, pct: Math.round((totalIncorrect / totalQuestions) * 100), color: '#EF4444' }
-      ] : [];
-      let focusCardHtml = `
-      <div class="clin-card clin-glass" style="display:flex; flex-direction:column;">
-          <h2 class="clin-card-title"><i class="fa-solid fa-layer-group" style="color:#007a7a;"></i>Question pool <span class="micro-tag data">Data</span></h2>
-          ${totalQuestions > 0 ? `
-          <div style="display:block; width:100%; margin-top:2px;">
-              ${_poolRows.map((r, i) => `
-              <div class="metric-row" style="display:block; width:100%;${i < _poolRows.length - 1 ? ' margin-bottom:12px;' : ''}">
-                  <div style="display:flex; justify-content:space-between; align-items:center; width:100%; font-size:13px; margin:0 0 4px 0; padding:0;">
-                      <span style="font-weight:500; color:#475569; margin:0; padding:0;">${r.label}</span>
-                      <span style="font-weight:600; color:#0F172A; margin:0; padding:0;">${r.val.toLocaleString()} (${r.pct}%)</span>
-                  </div>
-                  <div class="clin-pool-track" style="display:block; width:100%; height:6px; background-color:#E2E8F0; border-radius:999px; overflow:hidden; margin:0; padding:0;"><div class="clin-pool-fill" style="display:block; height:100%; width:${r.pct}%; background-color:${r.color}; border-radius:999px; margin:0; padding:0; box-shadow:0 0 6px ${r.color}66;"></div></div>
-              </div>`).join('')}
-          </div>
-          <div class="clin-muted" style="font-size:11.5px; margin-top:16px;">${totalQuestions.toLocaleString()} questions in bank</div>
-          ` : `<div class="clin-empty">No questions in this bank yet.</div>`}
-      </div>
-      `;
-
-      // Quick Actions (compact clinical)
-      const _qa = (fn, icon, title, sub, colorClass) => `
-          <div onclick="${fn}" class="qa-tile-3d ${colorClass}" onmouseover="this.classList.add('hover')" onmouseout="this.classList.remove('hover')">
-              <div class="qa-icon-container">
-                  <i class="${icon}"></i>
-              </div>
-              <div class="qa-content">
-                  <div class="qa-title">${title}</div>
-                  <div class="qa-sub">${sub}</div>
-              </div>
-          </div>`;
-      let quickActionsHtml = `
-      <div class="clin-card clin-glass" style="background:transparent; border:none; box-shadow:none; padding:0;">
-          <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:16px;">
-              ${_qa('window.openExamPrepTab && window.openExamPrepTab()', 'fa-solid fa-stethoscope', 'New session', 'Customize practice', 'qa-cyan')}
-              ${_qa('window.openFlashcardsExplorer && window.openFlashcardsExplorer()', 'fa-solid fa-layer-group', 'Flashcards', 'Reinforce learning', 'qa-purple')}
-              ${_qa('window.openPlanner && window.openPlanner()', 'fa-solid fa-calendar-check', 'Study plan', 'Stay on track', 'qa-blue')}
-          </div>
-      </div>
-      `;
-
-      // Card 3: Priority Review / Daily Targets (compact data list)
-      let weakestAreasHtml = '';
-      if (weakAreas && weakAreas.length > 0) {
-          let listHtml = '';
-          weakAreas.slice(0, 5).forEach((w) => {
-              const safeName = window.escapeHtml ? window.escapeHtml(w.name) : w.name;
-              const safeNameClick = safeName.replace(/'/g, "\\'");
-              const wBadge = w.score >= 50
-                  ? `<span class="clin-badge clin-badge-warn">${w.score}%</span>`
-                  : `<span class="clin-badge clin-badge-bad">${w.score}%</span>`;
-              listHtml += `
-              <div class="clin-row clin-row-hover" onclick="window.startQBankSession('${activeQBankId}', '${safeBankName}', '${safeNameClick}')">
-                  <div style="flex:1; min-width:0;">
-                      <div style="font-size:12.5px; font-weight:600; color:#0F172A; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${safeName}</div>
-                      <div class="clin-bar-track" style="margin-top:5px;"><div style="height:100%; width:${Math.max(0, Math.min(100, w.score))}%; background: linear-gradient(90deg, #f87171, #ef4444); border-radius:3px; box-shadow: 0 0 6px rgba(239,68,68,0.5);"></div></div>
-                  </div>
-                  ${wBadge}
-                  <i class="fa-solid fa-chevron-right" style="font-size:11px; color:#94A3B8;"></i>
-              </div>
-              `;
-          });
-
-          weakestAreasHtml = `
-          <div class="clin-card clin-glass" style="display:flex; flex-direction:column;">
-              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
-                  <h2 class="clin-card-title" style="margin:0;"><i class="fa-solid fa-bullseye" style="color:#007a7a;"></i>Priority review <span class="micro-tag focus">Focus</span></h2>
-                  <a href="#" onclick="window.openPerformance && window.openPerformance(); return false;" style="color:#007a7a; font-size:11.5px; text-decoration:none; font-weight:600;">View all</a>
-              </div>
-              <div style="flex:1; display:flex; flex-direction:column; justify-content:center;">
-                  ${listHtml}
-              </div>
-          </div>
-          `;
-      } else {
-          weakestAreasHtml = `
-          <div class="clin-card clin-glass" style="display:flex; flex-direction:column;">
-              <h2 class="clin-card-title"><i class="fa-solid fa-bullseye" style="color:#007a7a;"></i>Priority review <span class="micro-tag focus">Focus</span></h2>
-              <div class="clin-empty">No weak areas yet — answer more questions to reveal priority targets.</div>
-          </div>
-          `;
-      }
-
-      let plannerInlineHtml = `
-        <div id="dashboard-planner-inline" style="margin-bottom: 24px;"></div>
-      `;
+      const quickSearchTerms = Object.keys(subjectStats)
+        .filter(s => s !== "Uncategorized")
+        .sort((a, b) => (subjectStats[b].total || 0) - (subjectStats[a].total || 0))
+        .slice(0, 4);
+      const quickSearchChips = quickSearchTerms
+        .map(term => `<button type="button" class="cq-search-chip" data-term="${cqEsc(term)}" onclick="window.cqHomeSearchTerm(this.dataset.term)">${cqEsc(term)}</button>`)
+        .join("");
+      const reviewAction = totalIncorrect > 0
+        ? `<button type="button" class="cq-quick-card" onclick="window.startQBankSession('${cqJsArg(activeQBankId)}', '${cqJsArg(activeQBankName)}', null, true)">
+             <span class="cq-quick-icon is-rose"><i data-lucide="rotate-ccw"></i></span>
+             <span class="cq-quick-copy"><b>Review incorrects</b><small>${totalIncorrect.toLocaleString()} to revisit</small></span>
+             <i data-lucide="arrow-right" class="cq-quick-arrow"></i>
+           </button>`
+        : `<button type="button" class="cq-quick-card" disabled aria-disabled="true">
+             <span class="cq-quick-icon is-rose"><i data-lucide="rotate-ccw"></i></span>
+             <span class="cq-quick-copy"><b>Review incorrects</b><small>No incorrect answers yet</small></span>
+             <i data-lucide="lock" class="cq-quick-arrow"></i>
+           </button>`;
 
       let html = `
-        <div class="clin-wrap w-full max-w-[1200px] mx-auto" style="padding:20px 20px 96px;">
-            ${plannerInlineHtml}
-            ${headerHtml}
-            <div class="clin-rowblock clin-grid-top">
-                ${continueCardHtml}
-                ${focusCardHtml}
-                ${weakestAreasHtml}
+        <div class="cq-home">
+          <style>
+            .cq-home {
+              --cq-bg: #F5FAFA;
+              --cq-surface: #FFFFFF;
+              --cq-ink: #0B2B2B;
+              --cq-ink-2: #425C5C;
+              --cq-muted: #64748B;
+              --cq-line: #DCE7E7;
+              --cq-teal: #007A7A;
+              --cq-teal-dark: #005F5F;
+              --cq-teal-soft: #E6F2F2;
+              --cq-blue: #1B5E86;
+              --cq-blue-dark: #144866;
+              --cq-blue-soft: #EAF3F9;
+              --cq-shadow: 0 1px 2px rgba(16, 24, 40, 0.04);
+              min-height: calc(100vh - 60px);
+              background: var(--cq-bg);
+              background-image: radial-gradient(rgba(0, 122, 122, 0.07) 1px, transparent 1px);
+              background-size: 26px 26px;
+              color: var(--cq-ink);
+              font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+              padding: 30px 24px 88px;
+              box-sizing: border-box;
+            }
+            .cq-home, .cq-home *, .cq-home *::before, .cq-home *::after { box-sizing: border-box; }
+            html.dark .cq-home {
+              --cq-bg: #0B1416;
+              --cq-surface: #10191C;
+              --cq-ink: #EAF2F4;
+              --cq-ink-2: #C1D1D6;
+              --cq-muted: #8BA0A7;
+              --cq-line: #1F2E33;
+              --cq-teal: #45C9D2;
+              --cq-teal-dark: #7ADDE4;
+              --cq-teal-soft: #123A3F;
+              --cq-blue: #7CC4E8;
+              --cq-blue-dark: #A6D9F2;
+              --cq-blue-soft: #102A3A;
+              --cq-shadow: none;
+              background-image: radial-gradient(rgba(69, 201, 210, 0.09) 1px, transparent 1px);
+            }
+            .cq-shell { max-width: 1040px; margin: 0 auto; display: flex; flex-direction: column; gap: 18px; }
+            .cq-hero { display: flex; align-items: flex-end; justify-content: space-between; gap: 18px; flex-wrap: wrap; margin-bottom: 2px; }
+            .cq-kicker { margin: 0 0 8px; font-size: 11px; line-height: 1; letter-spacing: 0.14em; text-transform: uppercase; font-weight: 800; color: var(--cq-teal); }
+            .cq-title { margin: 0 0 7px; font-size: clamp(26px, 3.6vw, 34px); line-height: 1.08; letter-spacing: -0.025em; font-weight: 800; color: var(--cq-ink); }
+            .cq-sub { margin: 0; font-size: 14.5px; line-height: 1.55; color: var(--cq-ink-2); max-width: 54ch; }
+            .cq-streak { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 8px 14px; border: 1px solid var(--cq-line); background: var(--cq-surface); border-radius: 999px; box-shadow: var(--cq-shadow); color: var(--cq-ink-2); font-size: 13px; font-weight: 700; white-space: nowrap; }
+            .cq-streak svg { width: 17px; height: 17px; color: #C2410C; }
+            html.dark .cq-streak svg { color: #F0B429; }
+            .cq-streak b { color: var(--cq-ink); }
+            .cq-search-stage { display: flex; flex-direction: column; align-items: center; gap: 9px; padding: clamp(22px, 4vw, 34px) clamp(16px, 3vw, 30px); background: linear-gradient(180deg, var(--cq-surface) 0%, var(--cq-teal-soft) 100%); border: 1px solid var(--cq-line); border-radius: 22px; box-shadow: var(--cq-shadow); text-align: center; animation: cq-rise 0.45s ease both; }
+            html.dark .cq-search-stage { background: linear-gradient(180deg, var(--cq-surface) 0%, #0E2528 100%); }
+            .cq-search-title { margin: 0; font-size: clamp(22px, 3vw, 28px); line-height: 1.15; letter-spacing: -0.02em; font-weight: 800; color: var(--cq-ink); }
+            .cq-search-sub { margin: 0 0 6px; max-width: 56ch; font-size: 13.5px; line-height: 1.5; color: var(--cq-ink-2); }
+            .cq-search { position: relative; width: min(100%, 760px); text-align: left; }
+            .cq-search-field { display: flex; align-items: center; gap: 12px; min-height: 64px; padding: 0 14px 0 20px; background: var(--cq-surface); border: 1.5px solid #B9D8D8; border-radius: 16px; box-shadow: 0 12px 30px -22px rgba(16, 24, 40, 0.5); transition: border-color 0.18s ease, box-shadow 0.18s ease; }
+            html.dark .cq-search-field { border-color: #2E6478; box-shadow: none; }
+            .cq-search-field:focus-within { border-color: var(--cq-teal); box-shadow: 0 0 0 4px rgba(0, 122, 122, 0.14), 0 18px 38px -26px rgba(16, 24, 40, 0.55); }
+            .cq-search-icon { width: 24px; height: 24px; color: var(--cq-teal); flex-shrink: 0; }
+            .cq-search input { flex: 1; min-width: 0; height: 62px; border: none; outline: none; background: transparent; color: var(--cq-ink); font: inherit; font-size: 17px; font-weight: 600; }
+            .cq-search input::placeholder { color: var(--cq-muted); font-weight: 500; }
+            .cq-search-kbd { flex-shrink: 0; padding: 5px 8px; border: 1px solid var(--cq-line); border-radius: 7px; background: var(--cq-teal-soft); color: var(--cq-teal); font-size: 10.5px; font-weight: 800; white-space: nowrap; }
+            .cq-search-dropdown { position: absolute; top: calc(100% + 8px); left: 0; right: 0; z-index: 40; max-height: min(420px, 55vh); overflow-y: auto; background: var(--cq-surface); color: var(--cq-ink); border-radius: 14px; border: 1px solid var(--cq-line); box-shadow: 0 24px 60px -28px rgba(16, 24, 40, 0.55); }
+            .cq-search-dropdown.hidden { display: none; }
+            .cq-search-chips { display: flex; align-items: center; justify-content: center; gap: 8px; flex-wrap: wrap; margin-top: 2px; }
+            .cq-search-chips > span { font-size: 10px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: var(--cq-muted); }
+            .cq-search-chip { min-height: 36px; padding: 0 12px; border: 1px solid var(--cq-line); border-radius: 999px; background: var(--cq-surface); color: var(--cq-ink-2); font: inherit; font-size: 12px; font-weight: 700; cursor: pointer; }
+            .cq-quick { display: flex; flex-direction: column; gap: 10px; }
+            .cq-quick-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+            .cq-quick-head h2 { margin: 0; font-size: 13px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: var(--cq-ink-2); }
+            .cq-quick-head p { margin: 0; font-size: 11.5px; color: var(--cq-muted); }
+            .cq-quick-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+            .cq-quick-card { display: flex; align-items: center; gap: 12px; min-height: 76px; padding: 12px 14px; background: var(--cq-surface); border: 1px solid var(--cq-line); border-radius: 14px; box-shadow: var(--cq-shadow); font: inherit; color: var(--cq-ink); text-align: left; cursor: pointer; transition: transform 0.18s ease, border-color 0.18s ease, background 0.18s ease; }
+            .cq-quick-card:disabled { cursor: not-allowed; opacity: 0.55; }
+            .cq-quick-icon { width: 42px; height: 42px; border-radius: 11px; display: inline-flex; align-items: center; justify-content: center; background: var(--cq-teal-soft); color: var(--cq-teal); flex-shrink: 0; }
+            .cq-quick-icon svg { width: 20px; height: 20px; }
+            .cq-quick-icon.is-blue { background: var(--cq-blue-soft); color: var(--cq-blue); }
+            .cq-quick-icon.is-rose { background: #FFF1F2; color: #BE123C; }
+            html.dark .cq-quick-icon.is-rose { background: #3B121A; color: #FDA4AF; }
+            .cq-quick-copy { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 2px; }
+            .cq-quick-copy b { font-size: 13.5px; line-height: 1.25; font-weight: 800; color: var(--cq-ink); }
+            .cq-quick-copy small { font-size: 11.5px; line-height: 1.35; color: var(--cq-ink-2); }
+            .cq-quick-arrow { width: 16px; height: 16px; color: var(--cq-muted); flex-shrink: 0; }
+            .cq-paths { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: stretch; }
+            .cq-path { position: relative; overflow: hidden; display: flex; flex-direction: column; min-height: 318px; padding: 22px; background: var(--cq-surface); border: 1px solid var(--cq-line); border-radius: 16px; box-shadow: var(--cq-shadow); animation: cq-rise 0.45s ease both; }
+            .cq-path:nth-child(2) { animation-delay: 0.06s; }
+            .cq-path::before { content: ""; position: absolute; top: 0; left: 0; right: 0; height: 4px; background: var(--cq-teal); }
+            .cq-path-exam::before { background: var(--cq-blue); }
+            .cq-path-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
+            .cq-icon { width: 52px; height: 52px; border-radius: 14px; background: var(--cq-teal-soft); color: var(--cq-teal); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+            .cq-icon svg { width: 25px; height: 25px; stroke-width: 2; }
+            .cq-icon-exam { background: var(--cq-blue-soft); color: var(--cq-blue); }
+            .cq-pill { display: inline-flex; align-items: center; padding: 6px 10px; border-radius: 999px; background: var(--cq-teal-soft); color: var(--cq-teal); font-size: 10.5px; line-height: 1; letter-spacing: 0.08em; text-transform: uppercase; font-weight: 800; white-space: nowrap; }
+            .cq-pill-exam { background: var(--cq-blue-soft); color: var(--cq-blue); }
+            .cq-path h2 { margin: 0 0 6px; font-size: 22px; line-height: 1.2; letter-spacing: -0.015em; font-weight: 800; color: var(--cq-ink); }
+            .cq-path > p { margin: 0 0 16px; font-size: 13.5px; line-height: 1.55; color: var(--cq-ink-2); }
+            .cq-bank-line { display: flex; align-items: center; gap: 10px; min-height: 56px; padding: 9px 11px; margin: auto 0 14px; border-radius: 10px; background: var(--cq-teal-soft); }
+            .cq-bank-line > div { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+            .cq-bank-line b { font-size: 13.5px; line-height: 1.3; color: var(--cq-ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+            .cq-bank-line span { font-size: 11.5px; color: var(--cq-ink-2); }
+            .cq-flag { width: 32px; height: 23px; border-radius: 4px; object-fit: cover; flex-shrink: 0; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.14); background: #fff; }
+            .cq-flag-fallback { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: 8px; background: var(--cq-surface); color: var(--cq-teal); }
+            .cq-flag-fallback svg { width: 16px; height: 16px; }
+            .cq-meter { margin: 0 0 16px; }
+            .cq-meter-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 7px; font-size: 11.5px; font-weight: 700; color: var(--cq-ink-2); }
+            .cq-track { height: 7px; border-radius: 999px; background: var(--cq-line); overflow: hidden; }
+            .cq-fill { height: 100%; border-radius: 999px; background: var(--cq-teal); transition: width 0.4s ease; }
+            .cq-school-box { display: flex; align-items: center; gap: 11px; min-height: 64px; padding: 10px 11px; margin: auto 0 14px; border-radius: 10px; background: var(--cq-blue-soft); }
+            .cq-school-text { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 2px; }
+            .cq-school-text small { font-size: 10px; line-height: 1; letter-spacing: 0.09em; text-transform: uppercase; font-weight: 800; color: var(--cq-blue); }
+            .cq-school-text b { font-size: 14px; line-height: 1.3; color: var(--cq-ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+            .cq-school-text span { font-size: 11.5px; line-height: 1.3; color: var(--cq-ink-2); }
+            .cq-mini { min-height: 38px; padding: 0 12px; border: 1px solid var(--cq-line); border-radius: 8px; background: var(--cq-surface); color: var(--cq-ink-2); font: inherit; font-size: 12px; font-weight: 800; cursor: pointer; flex-shrink: 0; }
+            .cq-setup { display: flex; align-items: center; gap: 11px; width: 100%; min-height: 64px; padding: 10px 11px; margin: auto 0 14px; border: 1px dashed #9CC7D8; border-radius: 10px; background: var(--cq-blue-soft); color: var(--cq-ink); font: inherit; text-align: left; cursor: pointer; }
+            html.dark .cq-setup { border-color: #2E6478; }
+            .cq-setup-ic { width: 38px; height: 38px; border-radius: 9px; background: var(--cq-surface); color: var(--cq-blue); display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
+            .cq-setup-ic svg { width: 19px; height: 19px; }
+            .cq-setup .cq-school-text b { font-size: 13.5px; }
+            .cq-setup .cq-school-text small { color: var(--cq-ink-2); letter-spacing: 0; text-transform: none; font-size: 11.5px; font-weight: 500; }
+            .cq-setup-arrow { width: 17px; height: 17px; color: var(--cq-blue); flex-shrink: 0; }
+            .cq-inline-empty { display: flex; align-items: center; min-height: 64px; padding: 12px; margin: auto 0 14px; border-radius: 10px; background: var(--cq-blue-soft); color: var(--cq-ink-2); font-size: 12.5px; line-height: 1.5; }
+            .cq-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: auto; }
+            .cq-btn { min-height: 48px; padding: 0 17px; border: 1px solid transparent; border-radius: 10px; font: inherit; font-size: 14px; font-weight: 800; display: inline-flex; align-items: center; justify-content: center; gap: 8px; cursor: pointer; transition: background 0.18s ease, border-color 0.18s ease, transform 0.18s ease; }
+            .cq-btn svg { width: 16px; height: 16px; flex-shrink: 0; }
+            .cq-btn-primary { background: var(--cq-teal); color: #FFFFFF; }
+            .cq-btn-exam { background: var(--cq-blue); color: #FFFFFF; }
+            html.dark .cq-btn-primary, html.dark .cq-btn-exam { color: #071A1D; }
+            .cq-btn-ghost { background: var(--cq-surface); border-color: var(--cq-line); color: var(--cq-ink); }
+            .cq-link { min-height: 44px; padding: 0 5px; border: none; background: transparent; color: var(--cq-ink-2); font: inherit; font-size: 12.5px; font-weight: 700; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+            .cq-resume { display: flex; align-items: center; gap: 13px; padding: 13px 15px; background: var(--cq-surface); border: 1px solid var(--cq-line); border-radius: 14px; box-shadow: var(--cq-shadow); }
+            .cq-resume-ic { width: 42px; height: 42px; border-radius: 11px; background: var(--cq-teal-soft); color: var(--cq-teal); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+            .cq-resume-ic svg { width: 20px; height: 20px; }
+            .cq-resume-text { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 1px; }
+            .cq-resume-text small { font-size: 10.5px; letter-spacing: 0.07em; text-transform: uppercase; font-weight: 800; color: var(--cq-teal); }
+            .cq-resume-text b { font-size: 14px; color: var(--cq-ink); line-height: 1.3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+            .cq-resume-text span { font-size: 11.5px; color: var(--cq-ink-2); }
+            .cq-resume-meter { width: 120px; height: 7px; border-radius: 999px; background: var(--cq-line); overflow: hidden; flex-shrink: 0; }
+            .cq-resume-meter span { display: block; height: 100%; border-radius: 999px; background: var(--cq-teal); }
+            .cq-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+            .cq-stat { display: flex; align-items: center; gap: 11px; min-height: 68px; padding: 12px 15px; background: var(--cq-surface); border: 1px solid var(--cq-line); border-radius: 12px; box-shadow: var(--cq-shadow); }
+            .cq-stat svg { width: 20px; height: 20px; color: var(--cq-teal); flex-shrink: 0; }
+            .cq-stat div { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+            .cq-stat span { font-size: 20px; line-height: 1.1; font-weight: 800; color: var(--cq-ink); }
+            .cq-stat small { font-size: 11.5px; color: var(--cq-ink-2); }
+            .cq-block { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; padding: 14px 16px; background: linear-gradient(135deg, #EAF3F9 0%, #F4FAFA 100%); border: 1px solid #CFE4E4; border-radius: 14px; box-shadow: var(--cq-shadow); }
+            html.dark .cq-block { background: linear-gradient(135deg, #102A3A 0%, #102024 100%); border-color: #2E6478; }
+            .cq-block-ic { width: 44px; height: 44px; border-radius: 11px; background: var(--cq-surface); color: var(--cq-blue); display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
+            .cq-block-ic svg { width: 21px; height: 21px; }
+            .cq-block-text { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 2px; }
+            .cq-block-text b { font-size: 14px; color: var(--cq-ink); }
+            .cq-block-text small { font-size: 11.5px; line-height: 1.4; color: var(--cq-ink-2); }
+            .cq-block-actions { margin-left: auto; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+            .cq-block .cq-btn { flex-shrink: 0; }
+            .cq-foot { margin: 0; text-align: center; font-size: 11.5px; color: var(--cq-muted); }
+            .cq-home button:focus-visible, .cq-home a:focus-visible { outline: 3px solid var(--cq-teal); outline-offset: 2px; }
+            .cq-modal[hidden] { display: none !important; }
+            .cq-modal { position: fixed; inset: 0; z-index: 9999; display: flex; align-items: center; justify-content: center; padding: 20px; background: rgba(6, 28, 30, 0.58); backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); }
+            .cq-modal-card { display: flex; flex-direction: column; width: 100%; max-width: 620px; max-height: min(760px, 90vh); overflow: hidden; background: var(--cq-surface); border: 1px solid var(--cq-line); border-radius: 18px; box-shadow: 0 28px 70px rgba(0, 0, 0, 0.3); animation: cq-pop 0.2s ease both; }
+            .cq-modal-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 20px 22px 16px; border-bottom: 1px solid var(--cq-line); }
+            .cq-modal-head h3 { margin: 0; font-size: 19px; line-height: 1.25; font-weight: 800; color: var(--cq-ink); }
+            .cq-modal-head p { margin: 4px 0 0; font-size: 12.5px; line-height: 1.45; color: var(--cq-ink-2); }
+            .cq-modal-close { width: 42px; height: 42px; border: 1px solid var(--cq-line); border-radius: 10px; background: var(--cq-surface); color: var(--cq-ink-2); display: inline-flex; align-items: center; justify-content: center; cursor: pointer; flex-shrink: 0; }
+            .cq-modal-close svg { width: 20px; height: 20px; }
+            .cq-modal-body { padding: 18px 22px 24px; overflow-y: auto; }
+            .cq-country-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 10px; }
+            .cq-pick-country, .cq-pick-college { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 64px; padding: 11px 12px; border: 1px solid var(--cq-line); border-radius: 12px; background: var(--cq-surface); color: var(--cq-ink); font: inherit; text-align: left; cursor: pointer; transition: background 0.18s ease, border-color 0.18s ease; }
+            .cq-pick-flag { width: 34px; height: 24px; object-fit: cover; border-radius: 4px; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.14); background: #fff; flex-shrink: 0; }
+            .cq-pick-text { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 2px; }
+            .cq-pick-text b { font-size: 14px; line-height: 1.3; font-weight: 800; color: var(--cq-ink); }
+            .cq-pick-text small { font-size: 11.5px; line-height: 1.35; color: var(--cq-ink-2); }
+            .cq-pick-chev { width: 18px; height: 18px; color: var(--cq-muted); flex-shrink: 0; margin-left: auto; }
+            .cq-back-link { display: inline-flex; align-items: center; gap: 7px; min-height: 40px; margin: 0 0 10px; padding: 0 4px; border: none; background: transparent; color: var(--cq-ink-2); font: inherit; font-size: 12.5px; font-weight: 800; cursor: pointer; }
+            .cq-back-link svg { width: 15px; height: 15px; }
+            .cq-current-country { display: flex; align-items: center; gap: 9px; margin: 0 0 12px; padding: 9px 11px; border-radius: 10px; background: var(--cq-teal-soft); }
+            .cq-current-country b { font-size: 13.5px; color: var(--cq-ink); }
+            .cq-current-country span { font-size: 11.5px; color: var(--cq-ink-2); }
+            .cq-college-list { display: flex; flex-direction: column; gap: 8px; }
+            .cq-college-ic { width: 40px; height: 40px; border-radius: 10px; background: var(--cq-teal-soft); color: var(--cq-teal); display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
+            .cq-college-ic svg { width: 19px; height: 19px; }
+            @keyframes cq-rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+            @keyframes cq-pop { from { opacity: 0; transform: translateY(8px) scale(0.985); } to { opacity: 1; transform: translateY(0) scale(1); } }
+            @media (hover: hover) {
+              .cq-btn-primary:hover { background: var(--cq-teal-dark); }
+              .cq-btn-exam:hover { background: var(--cq-blue-dark); }
+              .cq-btn-ghost:hover { border-color: var(--cq-teal); color: var(--cq-teal); }
+              .cq-mini:hover, .cq-modal-close:hover, .cq-back-link:hover { background: var(--cq-teal-soft); color: var(--cq-teal); }
+              .cq-pick-country:hover, .cq-pick-college:hover { border-color: var(--cq-teal); background: var(--cq-teal-soft); }
+              .cq-setup:hover { border-color: var(--cq-blue); }
+              .cq-search-chip:hover { border-color: var(--cq-teal); color: var(--cq-teal); background: var(--cq-teal-soft); }
+              .cq-quick-card:hover:not(:disabled) { transform: translateY(-2px); border-color: #9CC7D8; }
+            }
+            @media (max-width: 860px) {
+              .cq-home { padding: 22px 16px 72px; }
+              .cq-paths { grid-template-columns: 1fr; }
+              .cq-path { min-height: 0; }
+              .cq-hero { align-items: flex-start; flex-direction: column; gap: 12px; }
+              .cq-stats { grid-template-columns: 1fr 1fr; }
+              .cq-stat:last-child { grid-column: 1 / -1; }
+              .cq-resume { flex-wrap: wrap; }
+              .cq-resume-meter { order: 4; width: 100%; flex-basis: 100%; }
+              .cq-resume .cq-btn { width: 100%; margin-top: 2px; }
+              .cq-quick-grid { grid-template-columns: 1fr 1fr; }
+              .cq-search-stage { padding: 22px 16px; }
+            }
+            @media (max-width: 440px) {
+              .cq-stats { grid-template-columns: 1fr; }
+              .cq-stat:last-child { grid-column: auto; }
+              .cq-quick-grid { grid-template-columns: 1fr; }
+              .cq-search-stage { padding: 18px 14px; border-radius: 16px; }
+              .cq-search-field { min-height: 58px; padding-left: 16px; }
+              .cq-search input { height: 56px; font-size: 16px; }
+              .cq-search-kbd { display: none; }
+              .cq-search-chips { justify-content: flex-start; }
+              .cq-actions { flex-direction: column; align-items: stretch; }
+              .cq-actions .cq-btn { width: 100%; }
+              .cq-actions .cq-link { width: 100%; }
+              .cq-block { align-items: flex-start; }
+              .cq-block-actions { width: 100%; flex-direction: column; align-items: stretch; }
+              .cq-block .cq-btn { width: 100%; margin-left: 0; }
+            }
+            @media (max-width: 600px) {
+              .cq-modal { padding: 0; align-items: flex-end; }
+              .cq-modal-card { max-height: 92vh; border-radius: 18px 18px 0 0; }
+              .cq-country-grid { grid-template-columns: 1fr; }
+            }
+            @media (prefers-reduced-motion: reduce) {
+              .cq-home *, .cq-home *::before, .cq-home *::after { animation: none !important; transition: none !important; }
+            }
+          </style>
+
+          <div class="cq-shell">
+            <header class="cq-hero">
+              <div>
+                <p class="cq-kicker">Your study desk</p>
+                <h1 class="cq-title">${greeting}, ${cqEsc(firstName)}</h1>
+                <p class="cq-sub">Search a topic, jump into a block, or continue where you left off.</p>
+              </div>
+              <div class="cq-streak" title="Study streak"><i data-lucide="flame"></i><b>${streakVal}</b> day${streakVal === 1 ? "" : "s"} streak</div>
+            </header>
+
+            <section class="cq-search-stage" aria-labelledby="cq-search-title">
+              <p class="cq-kicker">Search your banks</p>
+              <h2 class="cq-search-title" id="cq-search-title">Find what you need, fast</h2>
+              <p class="cq-search-sub">Search subjects, chapters, parts and tags across your accessible banks.</p>
+              <div class="cq-search" role="search">
+                <label class="cq-sr-only" for="cq-home-search-input">Search subjects, chapters, parts and tags</label>
+                <div class="cq-search-field">
+                  <i data-lucide="search" class="cq-search-icon" aria-hidden="true"></i>
+                  <input id="cq-home-search-input" data-home-search-input type="search" autocomplete="off" spellcheck="false" placeholder="Search subjects, chapters, parts, tags..." aria-controls="cq-home-search-dropdown" aria-expanded="false" aria-autocomplete="list" onkeydown="window.handleHomeSearch && window.handleHomeSearch(event)" oninput="window.handleHomeSearchInput && window.handleHomeSearchInput(event)" onfocus="window.handleHomeSearchFocus && window.handleHomeSearchFocus(event)"/>
+                  <kbd class="cq-search-kbd">Ctrl K</kbd>
+                </div>
+                <div id="cq-home-search-dropdown" class="home-search-dropdown cq-search-dropdown hidden" role="listbox" aria-label="Search suggestions"></div>
+              </div>
+              ${quickSearchChips ? `<div class="cq-search-chips" aria-label="Quick searches"><span>Quick search</span>${quickSearchChips}</div>` : ""}
+            </section>
+
+            <section class="cq-quick" aria-labelledby="cq-quick-title">
+              <div class="cq-quick-head">
+                <h2 id="cq-quick-title">Quick actions</h2>
+                <p>Start answering or build a timed block.</p>
+              </div>
+              <div class="cq-quick-grid">
+                <button type="button" class="cq-quick-card" onclick="window.showQBankSubjects()">
+                  <span class="cq-quick-icon"><i data-lucide="book-open"></i></span>
+                  <span class="cq-quick-copy"><b>Practice questions</b><small>Browse subjects and chapters</small></span>
+                  <i data-lucide="arrow-right" class="cq-quick-arrow"></i>
+                </button>
+                <button type="button" class="cq-quick-card" onclick="window.qbankOpenBlockBuilder()">
+                  <span class="cq-quick-icon is-blue"><i data-lucide="timer"></i></span>
+                  <span class="cq-quick-copy"><b>Build a block</b><small>40 questions · 60 minutes</small></span>
+                  <i data-lucide="arrow-right" class="cq-quick-arrow"></i>
+                </button>
+                ${reviewAction}
+                <button type="button" class="cq-quick-card" onclick="window.openExamPrepTab()">
+                  <span class="cq-quick-icon is-blue"><i data-lucide="graduation-cap"></i></span>
+                  <span class="cq-quick-copy"><b>Past papers</b><small>${examEmpty ? "No past papers yet" : `${prepBanks.length} ${prepBanks.length === 1 ? "exam" : "exams"} available`}</small></span>
+                  <i data-lucide="arrow-right" class="cq-quick-arrow"></i>
+                </button>
+              </div>
+            </section>
+
+            ${continueBanner}
+
+            <section class="cq-paths" aria-label="Choose how you want to study">
+              <article class="cq-path cq-path-qbank">
+                <div class="cq-path-head">
+                  <span class="cq-icon"><i data-lucide="book-open"></i></span>
+                  <span class="cq-pill">Regular QBank</span>
+                </div>
+                <h2>Practice by subject</h2>
+                <p>Choose a subject or mix everything. Best for daily studying and building your base.</p>
+                <div class="cq-bank-line">
+                  ${bankFlag}
+                  <div>
+                    <b>${cqEsc(activeQBankName)}</b>
+                    <span>${subjectCount} ${subjectCount === 1 ? "subject" : "subjects"} · ${totalQuestions.toLocaleString()} questions</span>
+                  </div>
+                </div>
+                <div class="cq-meter">
+                  <div class="cq-meter-head"><span>${totalAnswered.toLocaleString()} answered</span><span>${globalScore}% average</span></div>
+                  <div class="cq-track" role="img" aria-label="${progressPct}% of this bank answered"><div class="cq-fill" style="width:${progressPct}%"></div></div>
+                </div>
+                <div class="cq-actions">
+                  <button type="button" class="cq-btn cq-btn-primary" onclick="window.showQBankSubjects()">Start practicing <i data-lucide="arrow-right"></i></button>
+                  <button type="button" class="cq-link" onclick="window.openQBankSelection()">Change bank</button>
+                </div>
+              </article>
+
+              <article class="cq-path cq-path-exam">
+                <div class="cq-path-head">
+                  <span class="cq-icon cq-icon-exam"><i data-lucide="graduation-cap"></i></span>
+                  <span class="cq-pill cq-pill-exam">Exam prep</span>
+                </div>
+                <h2>Past exams by college</h2>
+                <p>${examEmpty ? "Past papers will appear here as soon as your college adds them." : savedCollegeValid ? "Your college is saved. Open your past papers in one tap." : "Practise the exact style of exam your college sets. Choose your college once."}</p>
+                ${examSchoolBox}
+                <div class="cq-actions">
+                  ${examCta}
+                  ${prepBanks.length > 0 ? `<button type="button" class="cq-link" onclick="window.openExamPrepTab()">See all colleges</button>` : ""}
+                </div>
+              </article>
+            </section>
+
+            <section class="cq-stats" aria-label="Your overall progress">
+              <div class="cq-stat"><i data-lucide="check-circle"></i><div><span>${totalAnswered.toLocaleString()}</span><small>questions answered</small></div></div>
+              <div class="cq-stat"><i data-lucide="target"></i><div><span>${globalScore}%</span><small>average score</small></div></div>
+              <div class="cq-stat"><i data-lucide="rotate-ccw"></i><div><span>${totalIncorrect.toLocaleString()}</span><small>questions to review</small></div></div>
+            </section>
+
+            <p class="cq-foot">${prepBanks.length > 0 ? `${prepCountryCount} ${prepCountryCount === 1 ? "country" : "countries"} of past exams available` : "Past exams will appear when your college adds them"} · You can change your college anytime.</p>
+          </div>
+          <div id="cq-college-modal" class="cq-modal" hidden onclick="if (event.target === this) window.cqCloseCollegePicker()">
+            <div class="cq-modal-card" role="dialog" aria-modal="true" aria-labelledby="cq-college-title">
+              <div class="cq-modal-head">
+                <div>
+                  <h3 id="cq-college-title">Choose your country</h3>
+                  <p id="cq-college-sub">Then pick your college. We will remember it for next time.</p>
+                </div>
+                <button type="button" class="cq-modal-close" aria-label="Close college picker" onclick="window.cqCloseCollegePicker()"><i data-lucide="x"></i></button>
+              </div>
+              <div class="cq-modal-body" id="cq-college-body"></div>
             </div>
-            <div class="clin-rowblock" style="margin-top:12px;">
-                ${performanceCardHtml}
-            </div>
-            <div class="clin-rowblock" style="margin-top:12px;">
-                ${quickActionsHtml}
-            </div>
-        </div>
-        <style>
-        .clin-wrap {
-            font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: #F8FAFC;
-            background-image: radial-gradient(rgba(0,122,122, 0.08) 1px, transparent 1px);
-            background-size: 24px 24px;
-            animation: clin-fade-in 0.4s ease-out;
-            width: 100%;
-            box-sizing: border-box;
-        }
-        /* One box model for every row so all right edges share a pixel */
-        .clin-wrap, .clin-wrap *, .clin-wrap *::before, .clin-wrap *::after {
-            box-sizing: border-box;
-        }
-        .clin-rowblock { width: 100%; }
-        .clin-grid-top {
-            display: flex;
-            align-items: stretch;
-            gap: 12px;
-            width: 100%;
-        }
-        .clin-grid-top > .clin-card {
-            min-height: 212px;
-            min-width: 0;
-        }
-        .clin-grid-top > .clin-card:nth-child(1) { flex: 1.25; }
-        .clin-grid-top > .clin-card:nth-child(2) { flex: 1; }
-        .clin-grid-top > .clin-card:nth-child(3) { flex: 1; }
-        .clin-card {
-            background: #fff;
-            border: 1px solid #E2E8F0;
-            border-radius: 6px;
-            padding: 14px 16px;
-            box-shadow: none;
-            width: 100%;
-        }
-        .clin-card-title {
-            font-size: 12px;
-            font-weight: 700;
-            letter-spacing: 0.06em;
-            text-transform: uppercase;
-            color: #64748B;
-            margin: 0 0 10px 0;
-            display: flex;
-            align-items: center;
-            gap: 12px;
-        }
-        .clin-card-title i {
-            font-size: 12px;
-            color: #007a7a;
-        }
-        .clin-btn-primary {
-            background: #007a7a;
-            color: #fff;
-            border: none;
-            border-radius: 6px;
-            padding: 9px 18px;
-            font-weight: 700;
-            font-size: 13px;
-            cursor: pointer;
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-        }
-        .clin-btn-primary:hover { background: #006666; }
-        .clin-bar-track {
-            height: 5px;
-            background: #EDF2F7;
-            border-radius: 3px;
-            overflow: hidden;
-            width: 100%;
-        }
-        /* NOTE: pool bars intentionally use clin-pool-* names — the generic
-           .progress-bar-fill class is hijacked by global stylesheets
-           (teal !important override + shimmer animation). */
-        .clin-pool-track {
-            display: block;
-            width: 100%;
-            height: 6px;
-            background-color: #E2E8F0;
-            border-radius: 999px;
-            overflow: hidden;
-        }
-        .clin-pool-fill {
-            display: block;
-            height: 100%;
-            border-radius: 999px;
-        }
-        .clin-badge {
-            font-size: 11px;
-            font-weight: 700;
-            padding: 2px 9px;
-            border-radius: 999px;
-            white-space: nowrap;
-        }
-        .clin-badge-good { color: #15803D; background: #DCFCE7; }
-        .clin-badge-bad { color: #C62828; background: #FBEAEA; }
-        .clin-badge-warn { color: #92400E; background: #FEF3C7; }
-        .clin-badge-mut { color: #475569; background: #F1F5F9; }
-        .clin-muted { color: #64748B; }
-        .clin-empty {
-            border: 1px solid #F1F5F9;
-            border-radius: 6px;
-            background: #FAFAFA;
-            color: #64748B;
-            text-align: center;
-            padding: 16px 12px;
-            font-size: 12px;
-            line-height: 1.5;
-        }
-        .clin-row {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            padding: 8px 6px;
-            margin: 0 -6px;
-            border-bottom: 1px solid #F1F5F9;
-            border-radius: 4px;
-            cursor: pointer;
-        }
-        .clin-glass {
-            background: rgba(255, 255, 255, 0.9) !important;
-            backdrop-filter: blur(16px);
-            -webkit-backdrop-filter: blur(16px);
-            border: 1px solid rgba(255, 255, 255, 0.8) !important;
-            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.02), inset 0 0 0 1px rgba(255, 255, 255, 0.5) !important;
-            border-radius: 12px !important;
-        }
-        .micro-tag {
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 9px;
-            font-weight: 800;
-            text-transform: uppercase;
-            padding: 4px 8px;
-            border-radius: 999px;
-            letter-spacing: 0.05em;
-            line-height: 1;
-            transform: translateY(-1px);
-        }
-        .micro-tag.live { background: #DCFCE7; color: #14532D; }
-        .micro-tag.data { background: #E0F2FE; color: #0C4A6E; }
-        .micro-tag.global { background: #F3E8FF; color: #4C1D95; }
-        .micro-tag.focus { background: #FFEDD5; color: #7C2D12; }
-        
-        .clin-status-bar {
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-            padding: 5px 12px;
-            border-radius: 999px;
-            font-size: 11px;
-            font-weight: 800;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.03);
-        }
-        .clin-status-bar.bad { background: linear-gradient(135deg, #FEE2E2, #FCA5A5); border: 1px solid rgba(255,255,255,0.5); color: #B91C1C; }
-        .clin-status-bar.warn { background: linear-gradient(135deg, #FEF3C7, #FCD34D); border: 1px solid rgba(255,255,255,0.5); color: #B45309; }
-        .clin-status-bar.good { background: linear-gradient(135deg, #DCFCE7, #86EFAC); border: 1px solid rgba(255,255,255,0.5); color: #15803D; }
-        
-        .qa-tile-3d {
-            display: flex;
-            align-items: center;
-            gap: 14px;
-            padding: 16px;
-            border-radius: 12px;
-            background: rgba(255,255,255,0.85);
-            backdrop-filter: blur(12px);
-            border: 1px solid rgba(255,255,255,0.8);
-            box-shadow: 0 4px 15px rgba(0,0,0,0.03), inset 0 2px 4px rgba(255,255,255,0.8);
-            cursor: pointer;
-            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-        }
-        .qa-tile-3d.hover {
-            transform: translateY(-2px);
-            box-shadow: 0 8px 25px rgba(0,0,0,0.06), inset 0 2px 4px rgba(255,255,255,0.8);
-        }
-        .qa-icon-container {
-            width: 48px;
-            height: 48px;
-            border-radius: 12px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            box-shadow: inset 0 2px 4px rgba(255,255,255,0.9), inset 0 -2px 6px rgba(0,0,0,0.05), 0 4px 10px rgba(0,0,0,0.05);
-        }
-        .qa-icon-container i {
-            font-size: 20px;
-            filter: drop-shadow(0 2px 2px rgba(0,0,0,0.15));
-        }
-        .qa-cyan .qa-icon-container { background: linear-gradient(135deg, #ccfbf1 0%, #5eead4 100%); box-shadow: inset 0 2px 4px rgba(255,255,255,0.6), inset 0 -4px 10px rgba(13,148,136,0.3), 0 4px 10px rgba(0,0,0,0.05); }
-        .qa-cyan .qa-icon-container i { color: #0f766e; }
-        .qa-cyan:hover { border-color: #5eead4; }
-        
-        .qa-purple .qa-icon-container { background: linear-gradient(135deg, #f3e8ff 0%, #d8b4fe 100%); box-shadow: inset 0 2px 4px rgba(255,255,255,0.6), inset 0 -4px 10px rgba(147,51,234,0.3), 0 4px 10px rgba(0,0,0,0.05); }
-        .qa-purple .qa-icon-container i { color: #7e22ce; }
-        .qa-purple:hover { border-color: #d8b4fe; }
-        
-        .qa-blue .qa-icon-container { background: linear-gradient(135deg, #e0f2fe 0%, #7dd3fc 100%); box-shadow: inset 0 2px 4px rgba(255,255,255,0.6), inset 0 -4px 10px rgba(2,132,199,0.3), 0 4px 10px rgba(0,0,0,0.05); }
-        .qa-blue .qa-icon-container i { color: #0369a1; }
-        .qa-blue:hover { border-color: #7dd3fc; }
-        
-        .qa-content { flex: 1; min-width: 0; }
-        .qa-title { font-weight: 700; color: #0F172A; font-size: 14px; margin-bottom: 2px; }
-        .qa-sub { font-size: 11px; color: #64748B; }
-        .clin-row-hover:hover { background: rgba(248, 250, 252, 0.6) !important; }
-        .clin-row:last-child { border-bottom: none; }
-        .clin-analytics {
-            display: grid;
-            grid-template-columns: 1.25fr 1fr 1fr;
-            gap: 12px;
-            align-items: start;
-        }
-        @media (max-width: 1024px) {
-            .clin-grid-top { flex-direction: column; }
-            .clin-grid-top > .clin-card { min-height: 0; }
-            .clin-analytics { grid-template-columns: 1fr; }
-        }
-        @keyframes clin-fade-in {
-            from { opacity: 0; transform: translateY(8px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-        /* Legacy fallback (dashboard-ux home-view widgets still use these) */
-        .dash-card {
-            background: #fff;
-            border-radius: 6px;
-            padding: 14px 16px;
-            border: 1px solid #E2E8F0;
-        }
-        .dash-card-title {
-            font-size: 11.5px;
-            font-weight: 700;
-            letter-spacing: 0.06em;
-            text-transform: uppercase;
-            color: #64748B;
-            margin: 0;
-            display: flex;
-            align-items: center;
-            gap: 6px;
-        }
-        </style>
-      `;
+          </div>
+        </div>`;
       area.innerHTML = html;
-      // Attach renderDashboardPlannerWidget
-      if (window.renderDashboardPlannerWidget) window.renderDashboardPlannerWidget();
 
       if (window.lucide && window.lucide.createIcons) window.lucide.createIcons();
       if (window.hideGlobalLoader) window.hideGlobalLoader();
@@ -1922,19 +2892,25 @@
   window.qbankContinueLast = function () {
     const last = getLastSession();
     if (!last || !last.qbankId) { window.openQBankCategories(); return; }
-    window.qbankResumeSession(last.qbankId, last.qbankName, last.subject);
+    window.qbankResumeSession(last.qbankId, last.qbankName, last.subject, last.topicPath, last.tag);
   };
 
   // --- Resume a specific session ---
-  window.qbankResumeSession = async function (qbankId, qbankName, subject) {
+  window.qbankResumeSession = async function (qbankId, qbankName, subject, topicPath = null, tag = null) {
     if (!qbankId) { window.openQBankCategories(); return; }
+    const topicMode = Array.isArray(topicPath) && topicPath.length > 0;
+    let resumeSubject = tag ? null : (subject && subject !== "All Subjects" ? subject : null);
+    if (topicMode && resumeSubject && resumeSubject.includes(" - ")) {
+      resumeSubject = resumeSubject.split(" - ")[0] || null;
+    }
+    const hasFilter = !!resumeSubject || topicMode || !!tag;
     
     // Ensure data is loaded
     if (!cachedQBanks[qbankId]) {
       await window.startQBankSession(qbankId, qbankName || "QBank");
       // After session loads, filter to subject if needed
-      if (subject && subject !== "All Subjects") {
-        window.startQBankFiltered(subject);
+      if (hasFilter) {
+        window.startQBankFiltered(resumeSubject, null, false, topicPath, tag);
       }
     } else {
       currentQBankId = qbankId;
@@ -1944,8 +2920,8 @@
       window.qbankProgress = qData.progress;
       document.getElementById("qbank-active-name").textContent = qbankName || "QBank";
       
-      if (subject && subject !== "All Subjects") {
-        window.startQBankFiltered(subject);
+      if (hasFilter) {
+        window.startQBankFiltered(resumeSubject, null, false, topicPath, tag);
       } else {
         window.startQBankFiltered(null);
       }
@@ -2071,11 +3047,12 @@
             </div>
             <div class="text-on-surface-variant text-sm">Updating Questions</div>
           </div>`;
-         const qCat = (cachedCategories || []).find(c => c.id === qbankId);
-         const catUpdated = qCat ? qCat.updatedAt : 0;
+         const qCat = (cachedCategories || []).find(c => c.id === qbankId)
+           || (Array.isArray(window.__epBanks) ? window.__epBanks.find(c => c && c.id === qbankId) : null);
+         const catUpdated = Number(qCat && qCat.updatedAt) || 0;
          
          const idbData = await getCachedQBank(qbankId);
-         if (idbData && idbData.updatedAt === catUpdated && idbData.questions && idbData.questions.length > 0) {
+         if (idbData && (!catUpdated || Number(idbData.updatedAt) === catUpdated) && idbData.questions && idbData.questions.length > 0) {
             const res = await apiGet("get_questions", { qbankId, onlyProgress: true });
             cachedQBanks[qbankId] = { questions: idbData.questions, progress: applyLocalQueueProgress(qbankId, res.progress || {}) };
          } else {
@@ -2200,6 +3177,201 @@
     if (s.includes("cas clinique") || s.includes("clinical")) return { icon: "clipboard-list", color, bg };
     return { icon: "book-open", color, bg };
   };
+  function qbankChapterParts(subject, chapter) {
+    const subjectKey = String(subject || "").trim().toLowerCase();
+    const chapterKey = String(chapter || "").trim().toLowerCase();
+    if (!subjectKey || !chapterKey) return [];
+    const parts = new Map();
+    (allQuestions || []).forEach(q => {
+      const data = (q && q.data) || {};
+      const taxPath = qblockTaxonomyPath(q);
+      const taxSubject = taxPath.length ? String(taxPath[0] || "").trim().toLowerCase() : "";
+      const taxChapter = taxPath.length > 1 ? String(taxPath[1] || "").trim().toLowerCase() : "";
+      const qSubject = String(data.subject || "").trim().toLowerCase();
+      const qChapter = String(data.chapter || (taxSubject === subjectKey ? taxChapter : "")).trim().toLowerCase();
+      if (qSubject !== subjectKey || qChapter !== chapterKey) return;
+
+      let name = String(data.part || "").trim();
+      let path = null;
+      if (taxPath.length >= 3 && taxSubject === subjectKey && taxChapter === chapterKey) {
+        const taxPart = String(taxPath[2] || "").trim();
+        if (taxPart) {
+          name = taxPart;
+          path = taxPath.slice(0, 3);
+        }
+      }
+      if (!name) return;
+      const key = name.toLowerCase();
+      let part = parts.get(key);
+      if (!part) {
+        part = { name, path: path || [subject, chapter, name], total: 0, answered: 0, correct: 0 };
+        parts.set(key, part);
+      } else if (!part.path && path) {
+        part.path = path;
+      }
+      part.total++;
+      const p = (window.qbankProgress || {})[q.id];
+      if (p && p.correct !== undefined) {
+        part.answered++;
+        if (p.correct) part.correct++;
+      }
+    });
+    return [...parts.values()].sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  window.qbankStartPartRoute = function(id) {
+    const route = (window.__qbankPartRoutes || {})[id];
+    if (route) window.startQBankFiltered(route.subject, route.chapter, false, route.path);
+  };
+
+  function cqBrowserScore(correct, answered) {
+    if (!answered) return { text: "—", tone: "empty" };
+    const score = Math.round((correct / answered) * 100);
+    return { text: `${score}%`, tone: score >= 80 ? "good" : (score >= 50 ? "mid" : "low") };
+  }
+
+  function cqBrowserAdmin(buttons) {
+    if (!buttons || !buttons.length) return "";
+    return `<div class="cq-list-admin">${buttons.map(b => `
+      <button type="button" class="cq-list-admin-btn is-${b.tone || "neutral"}" onclick="${b.onclick}" aria-label="${cqEsc(b.label)}">
+        <i data-lucide="${b.icon}" aria-hidden="true"></i><span>${cqEsc(b.text)}</span>
+      </button>`).join("")}</div>`;
+  }
+
+  function cqBrowserRow(opts) {
+    const title = cqEsc(opts.title);
+    const meta = opts.meta ? cqEsc(opts.meta) : "";
+    const searchText = cqEsc(opts.searchText || opts.title);
+    const total = Number(opts.total) || 0;
+    const answered = Number(opts.answered) || 0;
+    const correct = Number(opts.correct) || 0;
+    const pct = total ? Math.max(0, Math.min(100, Math.round((answered / total) * 100))) : 0;
+    const score = cqBrowserScore(correct, answered);
+    const color = opts.color || "#007A7A";
+    const icon = opts.icon || "book-open";
+    const chevron = opts.chevron || "chevron-right";
+    const ariaLabel = cqEsc(opts.ariaLabel || `${opts.title}. ${answered} of ${total} answered.`);
+    return `<div class="cq-list-row${opts.featured ? " is-featured" : ""}">
+      <button type="button" class="cq-list-main qbank-subject-btn" data-subject="${searchText}" aria-label="${ariaLabel}" onclick="${opts.onclick || ""}">
+        <span class="cq-list-icon" style="--row-accent:${color};" aria-hidden="true"><i data-lucide="${icon}"></i></span>
+        <span class="cq-list-copy">
+          <span class="cq-list-title">${title}</span>
+          ${meta ? `<span class="cq-list-meta">${meta}</span>` : ""}
+          <span class="cq-list-track" aria-hidden="true"><span style="width:${pct}%"></span></span>
+        </span>
+        <span class="cq-list-stats">
+          <span class="cq-list-stat"><small>Answered</small><b>${answered} / ${total}</b></span>
+          <span class="cq-list-stat"><small>Score</small><b class="cq-list-score is-${score.tone}">${score.text}</b></span>
+        </span>
+        <i data-lucide="${chevron}" class="cq-list-chev" aria-hidden="true"></i>
+      </button>
+      ${opts.admin || ""}
+    </div>`;
+  }
+
+  function cqBrowserPage(opts) {
+    const backLabel = cqEsc(opts.backLabel || "Back");
+    const kicker = opts.kicker ? cqEsc(opts.kicker) : "";
+    const title = cqEsc(opts.title || "");
+    const subtitle = opts.subtitle ? cqEsc(opts.subtitle) : "";
+    const searchPlaceholder = cqEsc(opts.searchPlaceholder || "Search...");
+    const searchLabel = cqEsc(opts.searchLabel || opts.searchPlaceholder || "Search");
+    const status = cqEsc(opts.status || "");
+    const noun = cqEsc(opts.noun || "items");
+    const total = Number(opts.total) || 0;
+    const layoutClass = opts.layout === "grid" ? " is-grid" : "";
+    return `<div class="cq-browser">
+      <div class="cq-browser-shell">
+        <div class="cq-browser-top">
+          <button type="button" class="cq-browser-back" onclick="${opts.backAction || "window.openQBank()"}">
+            <i data-lucide="arrow-left" aria-hidden="true"></i><span>${backLabel}</span>
+          </button>
+          <span class="cq-browser-crumb">${opts.crumb || ""}</span>
+        </div>
+        <div class="cq-browser-head">
+          <div class="cq-browser-heading">
+            ${kicker ? `<p class="cq-browser-kicker">${kicker}</p>` : ""}
+            <h1 class="cq-browser-title">${title}</h1>
+            <p class="cq-browser-sub">${subtitle}</p>
+          </div>
+          ${opts.actions ? `<div class="cq-browser-actions">${opts.actions}</div>` : ""}
+        </div>
+        <div class="cq-browser-search" role="search">
+          <label class="cq-sr-only" for="qbank-browser-search">${searchLabel}</label>
+          <div class="cq-browser-search-field">
+            <i data-lucide="search" class="cq-browser-search-icon" aria-hidden="true"></i>
+            <input id="qbank-browser-search" type="search" autocomplete="off" spellcheck="false" placeholder="${searchPlaceholder}" aria-controls="qbank-subject-list-container" oninput="window.filterQBankSubjects(this.value)" onkeydown="if(event.key==='Escape'){this.value='';window.filterQBankSubjects('');this.blur();}">
+            <span class="cq-browser-search-hint" aria-hidden="true">Type to filter</span>
+          </div>
+          <p class="cq-browser-status" id="qbank-search-status" aria-live="polite">${status}</p>
+        </div>
+        <div id="qbank-subject-list-container" class="cq-browser-list${layoutClass}" data-search-noun="${noun}" data-search-total="${total}">
+          ${opts.rows || ""}
+        </div>
+      </div>
+    </div>`;
+  }
+
+  window.showQBankParts = function(subject, chapter) {
+    const area = document.getElementById("qbank-home-content");
+    if (!area) return;
+    const stats = window.qbankCurrentSubjectStats || {};
+    const subjectStats = stats[subject] || { total: 0, answered: 0, correct: 0, chapters: {} };
+    const chapterStats = (subjectStats.chapters && subjectStats.chapters[chapter]) || { total: 0, answered: 0, correct: 0 };
+    const parts = qbankChapterParts(subject, chapter);
+    const activeQBankName = document.getElementById("qbank-active-name")?.textContent || "QBank";
+    const subArg = cqJsArg(subject);
+    const chArg = cqJsArg(chapter);
+
+    let rows = cqBrowserRow({
+      title: "All Parts (Mix)",
+      searchText: `${chapter} all parts mix`,
+      meta: "Practice every question in this chapter",
+      total: chapterStats.total,
+      answered: chapterStats.answered,
+      correct: chapterStats.correct,
+      icon: "shuffle",
+      featured: true,
+      onclick: `window.startQBankFiltered('${subArg}', '${chArg}')`,
+      ariaLabel: `Practice all parts in ${chapter}. ${chapterStats.answered} of ${chapterStats.total} answered.`
+    });
+
+    parts.forEach(part => {
+      const design = window.getSubjectDesign(part.name);
+      window.__qbankPartRoutes = window.__qbankPartRoutes || {};
+      const routeId = "part_" + Math.random().toString(36).slice(2, 10);
+      window.__qbankPartRoutes[routeId] = { subject, chapter, path: part.path };
+      rows += cqBrowserRow({
+        title: part.name,
+        searchText: part.name,
+        meta: `Start part · ${part.total} question${part.total === 1 ? "" : "s"}`,
+        total: part.total,
+        answered: part.answered,
+        correct: part.correct,
+        color: design.color,
+        icon: design.icon,
+        onclick: `window.qbankStartPartRoute('${routeId}')`,
+        ariaLabel: `Open ${part.name}. ${part.answered} of ${part.total} answered.`
+      });
+    });
+
+    area.innerHTML = cqBrowserPage({
+      backLabel: "Back to Chapters",
+      backAction: `window.showQBankChapters('${subArg}')`,
+      crumb: `${cqEsc(activeQBankName)} &gt; ${cqEsc(subject)} &gt; ${cqEsc(chapter)}`,
+      kicker: activeQBankName,
+      title: chapter,
+      subtitle: `Parts · ${parts.length} ${parts.length === 1 ? "part" : "parts"} · ${chapterStats.total} questions`,
+      searchPlaceholder: "Search parts...",
+      searchLabel: `Search parts in ${chapter}`,
+      status: `Showing all ${parts.length} ${parts.length === 1 ? "part" : "parts"}`,
+      noun: "parts",
+      total: parts.length,
+      layout: "grid",
+      rows
+    });
+    if (window.lucide && window.lucide.createIcons) window.lucide.createIcons();
+  };
   window.showQBankSubjects = async function(requestedQBankId = null) {
       nextNavToken();
       // 1. Switch active view to qbank-home-view
@@ -2283,83 +3455,61 @@
 
       const globalScoreUI = getScoreDisplay(totalCorrect, totalAns);
 
-      let html = `<div style="width:100%; max-width:1200px; margin:0 auto; padding:20px;">
-          <div style="display:flex; align-items:center; margin-bottom:25px;">
-             <button style="background:#f8fafc; border:1px solid #e2e8f0; color:#111827; border-radius:999px; padding:8px 16px; margin-right:15px; display:flex; align-items:center; gap:8px; cursor:pointer; transition:all 0.2s;" onmouseover="this.style.background='#e2e8f0'" onmouseout="this.style.background='#f8fafc'" onclick="window.openQBank()">
-               <i data-lucide="arrow-left" style="width:16px;height:16px;"></i> Back
-             </button>
-             <h2 style="margin:0; font-size:1.5rem; font-weight:700; color:#111827;">Select Sub-Category</h2>
-          </div>
-          <input type="text" placeholder="Search sub-categories..." style="width:100%; margin-bottom:15px; padding:12px 16px; font-size:1rem; border-radius:12px; border:1px solid #e2e8f0; background:#fff; color:#111827; outline:none;" onfocus="this.style.borderColor='#007a7a'; this.style.boxShadow='0 0 0 3px rgba(0,122,122,0.1)'" onblur="this.style.borderColor='#e2e8f0'; this.style.boxShadow='none'" oninput="window.filterQBankSubjects(this.value)">
-          <div id="qbank-subject-list-container" style="display:flex; flex-direction:column; gap:16px;">
-            <div style="position:relative; width:100%;">
-            <button style="background:#fff; border:1px solid #e2e8f0; border-radius:12px; padding:20px 24px; text-align:left; justify-content:space-between; align-items:center; display:flex; width:100%; box-shadow:0 1px 3px rgba(0,0,0,0.05); cursor:pointer; transition:all 0.2s;" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 4px 6px -1px rgba(0,0,0,0.1)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 1px 3px rgba(0,0,0,0.05)';" onclick="window.startQBankFiltered(null)">
-              <div style="display:flex; align-items:center; gap:20px;">
-                <div style="width:48px; height:48px; border-radius:12px; background:#f8fafc; border:1px solid #e2e8f0; display:flex; align-items:center; justify-content:center;">
-                  <i data-lucide="shuffle" style="width:24px; height:24px; color:#6b7280;"></i>
-                </div>
-                <div>
-                  <div style="font-size:1.2rem; font-weight:600; color:#111827;">All Subjects (Mix)</div>
-                  <div style="font-size:0.9rem; color:#6b7280; margin-top:4px;">Practice questions from all available subjects</div>
-                </div>
-              </div>
-              <div style="display:flex; gap:24px; align-items:center;">
-                <div style="text-align:right;">
-                  <div style="font-size:0.8rem; color:#6b7280; text-transform:uppercase; letter-spacing:0.05em; font-weight:600;">Answered</div>
-                  <div style="font-size:1rem; font-weight:500; color:#111827; margin-top:4px;">${totalAns} / ${questionsToUse.length}</div>
-                </div>
-                <div style="text-align:right;">
-                  <div style="font-size:0.8rem; color:#6b7280; text-transform:uppercase; letter-spacing:0.05em; font-weight:600;">Score</div>
-                  <div style="font-size:1rem; font-weight:700; color:${globalScoreUI.color}; margin-top:4px; display:inline-block; background:${globalScoreUI.bg}; padding:2px 10px; border-radius:12px;">${globalScoreUI.text}</div>
-                </div>
-                <i data-lucide="chevron-right" style="width:20px;height:20px;color:#9ca3af;margin-left:10px;"></i>
-              </div>
-            </button>
-            </div>` +
-        subjectList.map(sub => {
-            const st = stats[sub];
-            const scoreUI = getScoreDisplay(st.correct, st.answered);
-            const hasChapters = Object.keys(st.chapters || {}).length > 0;
-            const subSafe = window.escapeHtml ? window.escapeHtml(sub).replace(/'/g, "\\'") : sub;
-            let adminBtn = "";
-            if (window.isQBankAdmin) {
-               adminBtn = `<div style="position:absolute; top:-12px; left:80px; z-index:2; display:flex; gap:8px;">
-                 <button style="padding:4px 10px; font-size:0.75rem; font-weight:600; color:#e11d48; border:1px solid #ffe4e6; background:#fff1f2; border-radius:999px; cursor:pointer; display:flex; align-items:center;" onclick="event.stopPropagation(); window.qbankAdminDeleteSubject('${subSafe}')"><i data-lucide="trash-2" style="width:12px;height:12px;margin-right:4px;"></i>Delete</button>
-                 <button style="padding:4px 10px; font-size:0.75rem; font-weight:600; color:#8b5cf6; border:1px solid #ede9fe; background:#f5f3ff; border-radius:999px; cursor:pointer; display:flex; align-items:center;" onclick="event.stopPropagation(); window.qbankAdminMoveSubject('${subSafe}')"><i data-lucide="folder-input" style="width:12px;height:12px;margin-right:4px;"></i>Merge</button>
-                 <button style="padding:4px 10px; font-size:0.75rem; font-weight:600; color:#0ea5e9; border:1px solid #e0f2fe; background:#f0f9ff; border-radius:999px; cursor:pointer; display:flex; align-items:center;" onclick="event.stopPropagation(); window.qbankAdminRenameSubject('${subSafe}')"><i data-lucide="edit-3" style="width:12px;height:12px;margin-right:4px;"></i>Rename</button>
-               </div>`;
-            }
-            const design = window.getSubjectDesign(sub);
-            return `
-            <div style="position:relative; width:100%;">
-            ${adminBtn}
-            <button class="qbank-subject-btn" data-subject="${subSafe}" style="background:#fff; border:1px solid #e2e8f0; border-radius:12px; padding:20px 24px; text-align:left; justify-content:space-between; align-items:center; display:flex; width:100%; box-shadow:0 1px 3px rgba(0,0,0,0.05); cursor:pointer; transition:all 0.2s; position:relative; overflow:hidden;" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 4px 6px -1px rgba(0,0,0,0.1)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 1px 3px rgba(0,0,0,0.05)';" onclick="${hasChapters ? `window.showQBankChapters('${subSafe}')` : `window.startQBankFiltered('${subSafe}', null)`}">
-              <div style="display:flex; align-items:center; gap:20px; z-index:1;">
-                <div style="width:48px; height:48px; border-radius:12px; background:${design.color}15; border:1px solid ${design.color}30; display:flex; align-items:center; justify-content:center;">
-                  <i data-lucide="${design.icon}" style="width:24px; height:24px; color:${design.color};"></i>
-                </div>
-                <div>
-                  <div style="font-size:1.2rem; font-weight:600; color:#111827;">${window.escapeHtml ? window.escapeHtml(sub) : sub}</div>
-                  <div style="font-size:0.9rem; color:#6b7280; margin-top:4px;">${hasChapters ? 'View Chapters' : 'Start Subject'}</div>
-                </div>
-              </div>
-              <div style="display:flex; gap:24px; align-items:center; z-index:1;">
-                <div style="text-align:right;">
-                  <div style="font-size:0.8rem; color:#6b7280; text-transform:uppercase; letter-spacing:0.05em; font-weight:600;">Answered</div>
-                  <div style="font-size:1rem; font-weight:500; color:#111827; margin-top:4px;">${st.answered} / ${st.total}</div>
-                </div>
-                <div style="text-align:right;">
-                  <div style="font-size:0.8rem; color:#6b7280; text-transform:uppercase; letter-spacing:0.05em; font-weight:600;">Score</div>
-                  <div style="font-size:1rem; font-weight:700; color:${scoreUI.color}; margin-top:4px; display:inline-block; background:${scoreUI.bg}; padding:2px 10px; border-radius:12px;">${scoreUI.text}</div>
-                </div>
-                <i data-lucide="${hasChapters ? 'folder' : 'chevron-right'}" style="width:20px;height:20px;color:#9ca3af;margin-left:10px;"></i>
-              </div>
-              <i data-lucide="${design.icon}" style="position:absolute; right:15%; top:-20px; width:120px; height:120px; opacity:0.03; color:${design.color}; pointer-events:none; transform:rotate(-15deg);"></i>
-            </button>
-            </div>`;
-        }).join("") +
-        `</div></div>`;
-      area.innerHTML = html;
+      let rows = cqBrowserRow({
+        title: "All Subjects (Mix)",
+        searchText: "all subjects mix",
+        meta: "Practice questions from all available subjects",
+        total: questionsToUse.length,
+        answered: totalAns,
+        correct: totalCorrect,
+        icon: "shuffle",
+        featured: true,
+        onclick: "window.startQBankFiltered(null)",
+        ariaLabel: `Practice all subjects. ${totalAns} of ${questionsToUse.length} answered.`
+      });
+
+      subjectList.forEach(sub => {
+        const st = stats[sub];
+        const chapterCount = Object.keys(st.chapters || {}).length;
+        const hasChapters = chapterCount > 0;
+        const design = window.getSubjectDesign(sub);
+        const admin = window.isQBankAdmin ? cqBrowserAdmin([
+          { label: `Delete subject ${sub}`, text: "Delete", icon: "trash-2", tone: "danger", onclick: `window.qbankAdminDeleteSubject('${cqJsArg(sub)}')` },
+          { label: `Merge subject ${sub}`, text: "Merge", icon: "folder-input", tone: "merge", onclick: `window.qbankAdminMoveSubject('${cqJsArg(sub)}')` },
+          { label: `Rename subject ${sub}`, text: "Rename", icon: "edit-3", tone: "rename", onclick: `window.qbankAdminRenameSubject('${cqJsArg(sub)}')` }
+        ]) : "";
+        rows += cqBrowserRow({
+          title: sub,
+          searchText: sub,
+          meta: hasChapters ? `${chapterCount} ${chapterCount === 1 ? "chapter" : "chapters"} · View chapters` : "Start subject",
+          total: st.total,
+          answered: st.answered,
+          correct: st.correct,
+          color: design.color,
+          icon: design.icon,
+          chevron: hasChapters ? "folder" : "chevron-right",
+          onclick: hasChapters ? `window.showQBankChapters('${cqJsArg(sub)}')` : `window.startQBankFiltered('${cqJsArg(sub)}', null)`,
+          ariaLabel: `${sub}. ${hasChapters ? `${chapterCount} ${chapterCount === 1 ? "chapter" : "chapters"}. ` : ""}${st.answered} of ${st.total} answered.`,
+          admin
+        });
+      });
+
+      area.innerHTML = cqBrowserPage({
+        backLabel: "Back to home",
+        backAction: "window.openQBank()",
+        crumb: `${cqEsc(activeQBankName)} · ${subjectList.length} subjects`,
+        kicker: activeQBankName,
+        title: "Subjects",
+        subtitle: `${subjectList.length} subjects · ${questionsToUse.length} questions · ${totalAns} answered`,
+        actions: `<button type="button" class="cq-browser-action" onclick="window.qbankOpenBlockBuilder()"><i data-lucide="timer" aria-hidden="true"></i><span>Build a block</span></button>`,
+        searchPlaceholder: "Search subjects...",
+        searchLabel: "Search subjects",
+        status: `Showing all ${subjectList.length} subjects`,
+        noun: "subjects",
+        total: subjectList.length,
+        layout: "grid",
+        rows
+      });
       document.getElementById("qbank-active-name") && (document.getElementById("qbank-active-name").textContent = document.getElementById("qbank-active-name").textContent || "QBank");
       if (window.lucide && window.lucide.createIcons) window.lucide.createIcons();
       window.showQBankChaptersView = false;
@@ -2372,127 +3522,119 @@
       const stats = window.qbankCurrentSubjectStats[subject];
       if (!stats) return;
       
-      const getScoreDisplay = (correct, answered) => {
-          if (answered === 0) return { text: '0%', color: 'var(--text-muted)', bg: 'rgba(255,255,255,0.05)' };
-          const score = Math.round((correct / answered) * 100);
-          const color = score >= 80 ? '#22c55e' : (score >= 50 ? '#eab308' : '#f43f5e');
-          const bg = score >= 80 ? 'rgba(34,197,94,0.1)' : (score >= 50 ? 'rgba(234,179,8,0.1)' : 'rgba(244,63,94,0.1)');
-          return { text: `${score}%`, color, bg };
-      };
-      
-      const subSafe = window.escapeHtml ? window.escapeHtml(subject).replace(/'/g, "\\'") : subject;
-      const globalScoreUI = getScoreDisplay(stats.correct, stats.answered);
-      
-      let html = `<div style="width:100%; max-width:1200px; margin:0 auto; padding:20px;">
-          <div style="display:flex; align-items:center; margin-bottom:25px;">
-             <button style="background:#f8fafc; border:1px solid #e2e8f0; color:#111827; border-radius:999px; padding:8px 16px; margin-right:15px; display:flex; align-items:center; gap:8px; cursor:pointer; transition:all 0.2s;" onmouseover="this.style.background='#e2e8f0'" onmouseout="this.style.background='#f8fafc'" onclick="window.showQBankSubjects()">
-               <i data-lucide="arrow-left" style="width:16px;height:16px;"></i> Back to Subjects
-             </button>
-             <h2 style="margin:0; font-size:1.5rem; font-weight:700; color:#111827;">Chapters: ${window.escapeHtml ? window.escapeHtml(subject) : subject}</h2>
-          </div>
-          
-          <input type="text" placeholder="Search chapters..." style="width:100%; margin-bottom:15px; padding:12px 16px; font-size:1rem; border-radius:12px; border:1px solid #e2e8f0; background:#fff; color:#111827; outline:none;" onfocus="this.style.borderColor='#007a7a'; this.style.boxShadow='0 0 0 3px rgba(0,122,122,0.1)'" onblur="this.style.borderColor='#e2e8f0'; this.style.boxShadow='none'" oninput="window.filterQBankSubjects(this.value)">
-          <div id="qbank-subject-list-container" style="display:flex; flex-direction:column; gap:16px;">
-            <div style="position:relative; width:100%;">
-            <button style="background:#fff; border:1px solid #e2e8f0; border-radius:12px; padding:20px 24px; text-align:left; justify-content:space-between; align-items:center; display:flex; width:100%; box-shadow:0 1px 3px rgba(0,0,0,0.05); cursor:pointer; transition:all 0.2s;" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 4px 6px -1px rgba(0,0,0,0.1)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 1px 3px rgba(0,0,0,0.05)';" onclick="window.startQBankFiltered('${subSafe}', null)">
-              <div style="display:flex; align-items:center; gap:20px;">
-                <div style="width:48px; height:48px; border-radius:12px; background:#f8fafc; border:1px solid #e2e8f0; display:flex; align-items:center; justify-content:center;">
-                  <i data-lucide="shuffle" style="width:24px; height:24px; color:#6b7280;"></i>
-                </div>
-                <div>
-                  <div style="font-size:1.2rem; font-weight:600; color:#111827;">All Chapters (Mix)</div>
-                  <div style="font-size:0.9rem; color:#6b7280; margin-top:4px;">Practice questions from all chapters in this subject</div>
-                </div>
-              </div>
-              <div style="display:flex; gap:24px; align-items:center;">
-                <div style="text-align:right;">
-                  <div style="font-size:0.8rem; color:#6b7280; text-transform:uppercase; letter-spacing:0.05em; font-weight:600;">Answered</div>
-                  <div style="font-size:1rem; font-weight:500; color:#111827; margin-top:4px;">${stats.answered} / ${stats.total}</div>
-                </div>
-                <div style="text-align:right;">
-                  <div style="font-size:0.8rem; color:#6b7280; text-transform:uppercase; letter-spacing:0.05em; font-weight:600;">Score</div>
-                  <div style="font-size:1rem; font-weight:700; color:${globalScoreUI.color}; margin-top:4px; display:inline-block; background:${globalScoreUI.bg}; padding:2px 10px; border-radius:12px;">${globalScoreUI.text}</div>
-                </div>
-                <i data-lucide="chevron-right" style="width:20px;height:20px;color:#9ca3af;margin-left:10px;"></i>
-              </div>
-            </button>
-            </div>`;
-            
-      const chaptersList = Object.keys(stats.chapters).sort((a,b) => a.localeCompare(b));
-      
-      chaptersList.forEach(ch => {
-          const chStats = stats.chapters[ch];
-          const chSafe = window.escapeHtml ? window.escapeHtml(ch).replace(/'/g, "\\'") : ch;
-          const scoreUI = getScoreDisplay(chStats.correct, chStats.answered);
-          
-          let adminBtn = "";
-          if (window.isQBankAdmin) {
-             adminBtn = `<div style="position:absolute; top:-12px; left:80px; z-index:2; display:flex; gap:8px;">
-               <button style="padding:4px 10px; font-size:0.75rem; font-weight:600; color:#8b5cf6; border:1px solid #ede9fe; background:#f5f3ff; border-radius:999px; cursor:pointer; display:flex; align-items:center;" onclick="event.stopPropagation(); window.qbankAdminMoveChapter('${subSafe}', '${chSafe}')"><i data-lucide="folder-input" style="width:12px;height:12px;margin-right:4px;"></i>Merge</button>
-               <button style="padding:4px 10px; font-size:0.75rem; font-weight:600; color:#0ea5e9; border:1px solid #e0f2fe; background:#f0f9ff; border-radius:999px; cursor:pointer; display:flex; align-items:center;" onclick="event.stopPropagation(); window.qbankAdminRenameChapter('${subSafe}', '${chSafe}')"><i data-lucide="edit-3" style="width:12px;height:12px;margin-right:4px;"></i>Rename</button>
-             </div>`;
-          }
-          const design = window.getSubjectDesign(ch);
-          html += `
-            <div style="position:relative; width:100%;">
-            ${adminBtn}
-            <button class="qbank-subject-btn" data-subject="${chSafe}" style="background:#fff; border:1px solid #e2e8f0; border-radius:12px; padding:20px 24px; text-align:left; justify-content:space-between; align-items:center; display:flex; width:100%; box-shadow:0 1px 3px rgba(0,0,0,0.05); cursor:pointer; transition:all 0.2s; position:relative; overflow:hidden;" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 4px 6px -1px rgba(0,0,0,0.1)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 1px 3px rgba(0,0,0,0.05)';" onclick="window.startQBankFiltered('${subSafe}', '${chSafe}')">
-              <div style="display:flex; align-items:center; gap:20px; z-index:1;">
-                <div style="width:48px; height:48px; border-radius:12px; background:${design.color}15; border:1px solid ${design.color}30; display:flex; align-items:center; justify-content:center;">
-                  <i data-lucide="${design.icon}" style="width:24px; height:24px; color:${design.color};"></i>
-                </div>
-                <div>
-                  <div style="font-size:1.1rem; font-weight:600; color:#111827;">${window.escapeHtml ? window.escapeHtml(ch) : ch}</div>
-                  <div style="font-size:0.9rem; color:#6b7280; margin-top:4px;">Start Chapter</div>
-                </div>
-              </div>
-              <div style="display:flex; gap:24px; align-items:center; z-index:1;">
-                <div style="text-align:right;">
-                  <div style="font-size:0.8rem; color:#6b7280; text-transform:uppercase; letter-spacing:0.05em; font-weight:600;">Answered</div>
-                  <div style="font-size:1rem; font-weight:500; color:#111827; margin-top:4px;">${chStats.answered} / ${chStats.total}</div>
-                </div>
-                <div style="text-align:right;">
-                  <div style="font-size:0.8rem; color:#6b7280; text-transform:uppercase; letter-spacing:0.05em; font-weight:600;">Score</div>
-                  <div style="font-size:1rem; font-weight:700; color:${scoreUI.color}; margin-top:4px; display:inline-block; background:${scoreUI.bg}; padding:2px 10px; border-radius:12px;">${scoreUI.text}</div>
-                </div>
-                <i data-lucide="chevron-right" style="width:20px;height:20px;color:#9ca3af;margin-left:10px;"></i>
-              </div>
-              <i data-lucide="${design.icon}" style="position:absolute; right:15%; top:-20px; width:120px; height:120px; opacity:0.03; color:${design.color}; pointer-events:none; transform:rotate(-15deg);"></i>
-            </button>
-            </div>`;
+      const subArg = cqJsArg(subject);
+      const activeQBankName = document.getElementById("qbank-active-name")?.textContent || "QBank";
+      const chaptersList = Object.keys(stats.chapters || {}).sort((a, b) => a.localeCompare(b));
+
+      let rows = cqBrowserRow({
+        title: "All Chapters (Mix)",
+        searchText: `${subject} all chapters mix`,
+        meta: "Practice questions from all chapters in this subject",
+        total: stats.total,
+        answered: stats.answered,
+        correct: stats.correct,
+        icon: "shuffle",
+        featured: true,
+        onclick: `window.startQBankFiltered('${subArg}', null)`,
+        ariaLabel: `Practice all chapters in ${subject}. ${stats.answered} of ${stats.total} answered.`
       });
-      
-      html += `</div></div>`;
-      area.innerHTML = html;
+
+      chaptersList.forEach(ch => {
+        const chStats = stats.chapters[ch];
+        const parts = qbankChapterParts(subject, ch);
+        const hasParts = parts.length > 0;
+        const design = window.getSubjectDesign(ch);
+        const admin = window.isQBankAdmin ? cqBrowserAdmin([
+          { label: `Merge chapter ${ch}`, text: "Merge", icon: "folder-input", tone: "merge", onclick: `window.qbankAdminMoveChapter('${subArg}', '${cqJsArg(ch)}')` },
+          { label: `Rename chapter ${ch}`, text: "Rename", icon: "edit-3", tone: "rename", onclick: `window.qbankAdminRenameChapter('${subArg}', '${cqJsArg(ch)}')` }
+        ]) : "";
+        rows += cqBrowserRow({
+          title: ch,
+          searchText: ch,
+          meta: hasParts ? `${parts.length} ${parts.length === 1 ? "part" : "parts"} · View parts` : "Start chapter",
+          total: chStats.total,
+          answered: chStats.answered,
+          correct: chStats.correct,
+          color: design.color,
+          icon: design.icon,
+          chevron: hasParts ? "git-branch" : "chevron-right",
+          onclick: hasParts ? `window.showQBankParts('${subArg}', '${cqJsArg(ch)}')` : `window.startQBankFiltered('${subArg}', '${cqJsArg(ch)}')`,
+          ariaLabel: `${ch}. ${hasParts ? `${parts.length} ${parts.length === 1 ? "part" : "parts"}. ` : ""}${chStats.answered} of ${chStats.total} answered.`,
+          admin
+        });
+      });
+
+      area.innerHTML = cqBrowserPage({
+        backLabel: "Back to Subjects",
+        backAction: "window.showQBankSubjects()",
+        crumb: `${cqEsc(activeQBankName)} &gt; ${cqEsc(subject)}`,
+        kicker: activeQBankName,
+        title: "Chapters",
+        subtitle: `${subject} · ${chaptersList.length} chapters · ${stats.total} questions · ${stats.answered} answered`,
+        actions: `<button type="button" class="cq-browser-action" onclick="window.qbankOpenBlockBuilder()"><i data-lucide="timer" aria-hidden="true"></i><span>Build a block</span></button>`,
+        searchPlaceholder: "Search chapters...",
+        searchLabel: `Search chapters in ${subject}`,
+        status: `Showing all ${chaptersList.length} chapters`,
+        noun: "chapters",
+        total: chaptersList.length,
+        layout: "grid",
+        rows
+      });
       if (window.lucide && window.lucide.createIcons) window.lucide.createIcons();
   };
 
   window.filterQBankSubjects = function(query) {
-    const q = (query || "").toLowerCase();
+    const raw = String(query == null ? "" : query).trim();
+    const q = raw.toLowerCase();
     const container = document.getElementById("qbank-subject-list-container");
     if (!container) return;
-    const btns = container.querySelectorAll(".qbank-subject-btn");
-    btns.forEach(btn => {
+    let visible = 0;
+    container.querySelectorAll(".qbank-subject-btn").forEach(btn => {
+      const row = btn.closest(".cq-list-row") || btn;
       const text = (btn.getAttribute("data-subject") || "").toLowerCase();
-      if (text.includes(q)) {
-        btn.style.display = "flex";
-      } else {
-        btn.style.display = "none";
-      }
+      const match = !q || text.includes(q);
+      row.style.display = match ? "" : "none";
+      if (match) visible++;
     });
+    container.querySelectorAll(".qbank-topic-group").forEach(group => {
+      const text = (group.getAttribute("data-subject") || "").toLowerCase();
+      group.style.display = !q || text.includes(q) ? "block" : "none";
+    });
+    const status = document.getElementById("qbank-search-status");
+    if (!status) return;
+    const noun = container.getAttribute("data-search-noun") || "items";
+    const total = Number(container.getAttribute("data-search-total")) || visible;
+    if (!q) status.textContent = `Showing all ${total} ${noun}`;
+    else if (visible) status.textContent = `${visible} of ${total} ${noun} match “${raw}”`;
+    else status.textContent = `No ${noun} match “${raw}”. Try a shorter term.`;
   };
 
-  window.startQBankFiltered = async function(subject, chapter = null, reviewIncorrectsOnly = false) {
+  window.startQBankFiltered = async function(subject, chapter = null, reviewIncorrectsOnly = false, topicPath = null, tag = null) {
     // If subject contains a hyphen and chapter is not provided, try to parse them from the combined string (e.g. from last session)
-    if (subject && !chapter && subject.includes(" - ")) {
+    if (subject && !chapter && !topicPath && subject.includes(" - ")) {
         const parts = subject.split(" - ");
         const potentialSubject = parts[0];
+        const remainder = parts.slice(1).join(" - ");
+        const potentialTopic = remainder.split(/\s*>\s*/).map(s => s.trim()).filter(Boolean);
+        const topicCandidates = potentialTopic.length ? [potentialTopic] : [];
+        if (potentialTopic.length && String(potentialTopic[0]).toLowerCase() !== String(potentialSubject).toLowerCase()) {
+            topicCandidates.push([potentialSubject, ...potentialTopic]);
+        }
+        const matchedTopic = topicCandidates.find(candidate => allQuestions.some(q => qblockTopicMatches(qblockTaxonomyPath(q), candidate)));
         const isValid = window.qbankCurrentSubjectStats 
             ? !!window.qbankCurrentSubjectStats[potentialSubject]
             : allQuestions.some(q => q.data && q.data.subject === potentialSubject);
-        if (isValid) {
+        const chapterExists = isValid && (window.qbankCurrentSubjectStats?.[potentialSubject]?.chapters?.[remainder]
+            || allQuestions.some(q => q.data && q.data.subject === potentialSubject && q.data.chapter === remainder));
+        if (matchedTopic && !chapterExists) {
             subject = potentialSubject;
-            chapter = parts.slice(1).join(" - ");
+            topicPath = matchedTopic;
+        } else if (isValid) {
+            subject = potentialSubject;
+            chapter = remainder;
+        } else if (matchedTopic) {
+            subject = potentialSubject;
+            topicPath = matchedTopic;
         }
     }
 
@@ -2516,7 +3658,14 @@
     }
     // Save session for Continue feature
     const qbName = document.getElementById("qbank-active-name")?.textContent || "QBank";
-    saveQBankSession(currentQBankId, qbName, chapter ? `${subject} - ${chapter}` : (subject || "All Subjects"));
+    let topicLabel = Array.isArray(topicPath) && topicPath.length ? topicPath.join(" > ") : "";
+    if (topicLabel && subject && topicPath.length > 1 && String(topicPath[0]).toLowerCase() === String(subject).toLowerCase()) {
+      topicLabel = topicPath.slice(1).join(" > ");
+    }
+    const sessionLabel = tag
+      ? `Tag: ${tag}`
+      : (topicLabel ? `${subject || "All Subjects"} - ${topicLabel}` : (chapter ? `${subject} - ${chapter}` : (subject || "All Subjects")));
+    saveQBankSession(currentQBankId, qbName, sessionLabel, topicPath, tag);
     
     if (subject) {
       currentQuestions = allQuestions.filter(q => q.data && q.data.subject === subject);
@@ -2525,6 +3674,25 @@
       }
     } else {
       currentQuestions = [...allQuestions];
+    }
+    if (Array.isArray(topicPath) && topicPath.length) {
+      currentQuestions = currentQuestions.filter(q => {
+        if (qblockTopicMatches(qblockTaxonomyPath(q), topicPath)) return true;
+        if (topicPath.length === 3 && qblockTaxonomyPath(q).length === 0) {
+          const data = (q && q.data) || {};
+          return String(data.subject || "").toLowerCase() === String(topicPath[0] || "").toLowerCase()
+            && String(data.chapter || "").toLowerCase() === String(topicPath[1] || "").toLowerCase()
+            && String(data.part || "").toLowerCase() === String(topicPath[2] || "").toLowerCase();
+        }
+        return false;
+      });
+    }
+
+    if (tag) {
+      const wantedTag = String(tag).trim().toLowerCase();
+      currentQuestions = currentQuestions.filter(q => {
+        return qblockTagNames(q).some(name => String(name).trim().toLowerCase() === wantedTag);
+      });
     }
 
     if (reviewIncorrectsOnly) {
@@ -2646,6 +3814,7 @@
         return;
     }
     
+    if (window.__qbankBlock && window.__qbankBlock.active) qblockTrackTime();
     currentIndex = idx;
     window.currentIndex = currentIndex;
     window.qbankRenderSidebar();
@@ -2657,10 +3826,19 @@
     if (!container) return;
     
     let html = "";
+    const block = window.__qbankBlock;
     currentQuestions.forEach((q, idx) => {
       const p = window.qbankProgress[q.id] || {};
       const isMarked = p.marked;
-      const isAnswered = p.correct !== undefined;
+      const blockPick = block && block.active && Array.isArray(block.answers[q.id]) && block.answers[q.id].length > 0;
+      let isAnswered = blockPick || p.correct !== undefined;
+      if (block && block.active) {
+        if (!block.submitted) isAnswered = !!blockPick;
+        else {
+          const rr = block.results && block.results.byId && block.results.byId[q.id];
+          isAnswered = rr ? !rr.unanswered : !!blockPick;
+        }
+      }
       const isActive = idx === currentIndex;
       
       let cls = "usmle-sidebar-item";
@@ -2839,16 +4017,27 @@
 
   window.qbankRenderCurrent = function () {
     const area = document.getElementById("qbank-question-area");
+    const block = window.__qbankBlock;
+    const blockActive = !!(block && block.active);
+    const blockSubmitted = !!(blockActive && block.submitted);
+    const blockExam = !!(blockActive && !blockSubmitted && block.mode === "exam");
     if (currentIndex >= currentQuestions.length) {
       stopTimer();
-      area.innerHTML = `<div style="padding:60px; text-align:center;">
-        <i data-lucide="check-circle" style="width:64px; height:64px; color:var(--accent-cyan); margin-bottom:20px;"></i>
-        <h2>You have completed all questions in this session!</h2>
-        <button class="btn-action primary" style="margin-top:20px; padding:12px 24px;" onclick="window.openQBank()">Return to QBank Home</button>
-      </div>`;
-      if (window.lucide && window.lucide.createIcons) window.lucide.createIcons();
-      window.qbankEnhanceImages && window.qbankEnhanceImages(document.getElementById("qbank-modal"));
-      return;
+      if (blockActive && block.results) {
+        window.qbankBlockShowResults();
+        return;
+      }
+      if (blockActive) currentIndex = Math.max(0, currentQuestions.length - 1);
+      else {
+        area.innerHTML = `<div style="padding:60px; text-align:center;">
+          <i data-lucide="check-circle" style="width:64px; height:64px; color:var(--accent-cyan); margin-bottom:20px;"></i>
+          <h2>You have completed all questions in this session!</h2>
+          <button class="btn-action primary" style="margin-top:20px; padding:12px 24px;" onclick="window.openQBank()">Return to QBank Home</button>
+        </div>`;
+        if (window.lucide && window.lucide.createIcons) window.lucide.createIcons();
+        window.qbankEnhanceImages && window.qbankEnhanceImages(document.getElementById("qbank-modal"));
+        return;
+      }
     }
     
     const q = currentQuestions[currentIndex];
@@ -2858,12 +4047,15 @@
     // Answer split: while the slice is in flight, fall back to the
     // non-sensitive `multi` stem flag so QCM still renders as checkboxes.
     const isMultiple = correctIndices.length > 1 || (correctIndices.length === 0 && data.multi === true);
+    const blockPick = blockActive && Array.isArray(block.answers[q.id]) ? block.answers[q.id] : [];
+    const blockResult = blockSubmitted && block.results && block.results.byId ? block.results.byId[q.id] : null;
+    const reviewState = blockSubmitted ? (blockResult || { correct: false, partial: false, unanswered: true, selected: [] }) : null;
     
     const inPartyMode = window.QBankParty && window.QBankParty.state.party;
     let optionsHtml = '';
     if (data.options) {
-      // Get peer stats for this question
-      const peerStats = window.qbankPeerStats && window.qbankPeerStats[q.id] || null;
+      // Get peer stats for this question (hidden during a timed block)
+      const peerStats = !blockExam && window.qbankPeerStats && window.qbankPeerStats[q.id] || null;
       const peerThreshold = window.qbankPeerThreshold || 50;
       const isAdmin = window.isAdminCache || false;
       const showPeerStats = peerStats && peerStats.total >= peerThreshold;
@@ -2886,11 +4078,37 @@
           peerPercent = `<span style="font-size:11px; color:#6b7280; margin-left:8px; font-weight:600;">${pct}%</span>`;
         }
         // Otherwise show nothing (no "Pending", no "No data")
-        
+
+        const selectedHere = (blockExam || blockSubmitted) && blockPick.includes(i);
+        const isCorrectPick = blockSubmitted && correctIndices.includes(i);
+        const isPartialPick = blockSubmitted && reviewState && reviewState.partial && selectedHere && isCorrectPick;
+        let optionStyle = "display:flex; align-items:flex-start; width:100%; box-sizing:border-box;";
+        let optionClass = "usmle-option qbank-option-btn uiverse-label";
+        if (blockExam && selectedHere) optionClass += " selected";
+        if (blockSubmitted) {
+          if (isPartialPick) {
+            optionClass += " partial";
+            optionStyle += " background:rgba(234,179,8,0.12); border:2px solid #eab308; border-radius:12px; padding:16px 20px;";
+          } else if (isCorrectPick) {
+            optionClass += " correct";
+            optionStyle += " background:rgba(34,197,94,0.1); border:2px solid #22c55e; border-radius:12px; padding:16px 20px;";
+          } else if (selectedHere) {
+            optionClass += " incorrect";
+            optionStyle += " background:rgba(244,63,94,0.1); border:2px solid #f43f5e; border-radius:12px; padding:16px 20px;";
+          }
+        }
+        const inputDisabled = blockSubmitted ? "disabled" : "";
+        const inputPrevent = (!isMultiple && !inPartyMode) || blockExam || blockSubmitted ? 'onclick="event.preventDefault()"' : "";
+        const labelClick = blockExam
+          ? `onclick="window.qbankBlockPick(${i}); event.preventDefault();"`
+          : blockSubmitted
+            ? ""
+            : (!isMultiple && !inPartyMode ? `onclick="window.qbankSelectOption(${i}); event.preventDefault();"` : "");
+
         return `
         <div class="qbank-radio-input" style="position:relative; width:100%;">
-          <input type="${isMultiple ? 'checkbox' : 'radio'}" id="qbank-radio-input-${i}" name="qbank-radio" value="${i}" style="position:absolute; opacity:0; pointer-events:none; width:1px; height:1px; margin:0;" ${!isMultiple && !inPartyMode ? 'onclick="event.preventDefault()"' : ''} aria-label="Option ${String.fromCharCode(65 + i)}">
-          <label class="usmle-option qbank-option-btn uiverse-label" id="qbank-opt-${i}" for="qbank-radio-input-${i}" ${!isMultiple && !inPartyMode ? `onclick="window.qbankSelectOption(${i}); event.preventDefault();"` : ""} style="display:flex; align-items:flex-start; width:100%; box-sizing:border-box;">
+          <input type="${isMultiple ? 'checkbox' : 'radio'}" id="qbank-radio-input-${i}" name="qbank-radio" value="${i}" ${blockExam && selectedHere ? "checked" : ""} ${inputDisabled} style="position:absolute; opacity:0; pointer-events:none; width:1px; height:1px; margin:0;" ${inputPrevent} aria-label="Option ${String.fromCharCode(65 + i)}">
+          <label class="${optionClass}" id="qbank-opt-${i}" for="qbank-radio-input-${i}" ${labelClick} style="${optionStyle}">
             <span class="usmle-option-letter" style="margin-right:12px; font-weight:800; opacity:0.8;">${String.fromCharCode(65 + i)}</span>
             <span class="usmle-option-text" style="flex:1;">${window.renderRichText ? window.renderRichText(opt) : (window.escapeHtml ? window.escapeHtml(opt) : opt)}</span>
             ${peerPercent}
@@ -2902,7 +4120,7 @@
     // Fetch peer stats for this question (cached: 0 reads on revisit).
     // loadPeerStats() dedupes in-flight requests and serves fresh cache,
     // so rapid Next/Prev navigation never fires duplicate Firestore gets.
-    if (q.id && window.loadPeerStats) {
+    if (!blockExam && q.id && window.loadPeerStats) {
       window.loadPeerStats(q.id).then((stats) => {
         // Only paint if the user hasn't navigated away mid-fetch.
         if (!currentQuestions[currentIndex] || currentQuestions[currentIndex].id !== q.id) return;
@@ -2929,7 +4147,7 @@
           // Stale-cache repair: stems saved before the `multi` flag existed
           // may have rendered QCM as QCS. Re-render once if unanswered and
           // the arrived slice flips the input type.
-          if (qbankTimer && currentQuestions[currentIndex] && currentQuestions[currentIndex].id === q.id
+          if ((qbankTimer || blockExam) && currentQuestions[currentIndex] && currentQuestions[currentIndex].id === q.id
               && window.__qbankRenderedQid === q.id) {
             const dd = currentQuestions[currentIndex].data || {};
             const ci = Array.isArray(dd.correctIndices) ? dd.correctIndices : [];
@@ -2942,13 +4160,38 @@
     }
 
     let submitHtml = '';
-    if (inPartyMode) {
+    if (blockSubmitted) {
+      submitHtml = '';
+    } else if (blockExam) {
+      const examHint = blockPick.length
+        ? "Answer saved. Correct answers and explanations unlock after you submit."
+        : (isMultiple ? "Select all that apply. Answers unlock after you submit." : "Select one answer. Answers unlock after you submit.");
+      submitHtml = `<div style="margin-top:10px; text-align:center; font-size:12px; color:var(--text-muted); display:flex; align-items:center; justify-content:center; gap:7px;"><i data-lucide="lock" style="width:14px;height:14px;"></i><span id="qb-block-hint-text">${examHint}</span></div>`;
+    } else if (inPartyMode) {
       submitHtml = `<button id="qbank-submit-btn" class="btn-action primary" style="margin-top:10px; width:100%; padding:12px;" onclick="window.qbankPartyLockAnswer()">Lock Answer</button>`;
     } else if (isMultiple) {
       submitHtml = `<button id="qbank-submit-btn" class="btn-action primary" style="margin-top:10px; width:100%; padding:12px;" onclick="window.qbankSelectOption()">Submit Answer</button>`;
     }
 
+    let reviewHeader = "";
+    if (blockSubmitted) {
+      if (reviewState.unanswered) reviewHeader = '<span style="color:#eab308;"><i data-lucide="minus-circle" style="width:18px;height:18px;vertical-align:-3px;"></i> Not answered</span>';
+      else if (reviewState.correct) reviewHeader = '<span style="color:#22c55e;"><i data-lucide="check-circle" style="width:18px;height:18px;vertical-align:-3px;"></i> Correct</span>';
+      else if (reviewState.partial) reviewHeader = '<span style="color:#eab308;"><i data-lucide="check-circle" style="width:18px;height:18px;vertical-align:-3px;"></i> Partially correct</span>';
+      else reviewHeader = '<span style="color:#f43f5e;"><i data-lucide="x-circle" style="width:18px;height:18px;vertical-align:-3px;"></i> Incorrect</span>';
+    }
+    const reviewTimeText = blockSubmitted ? formatTime(reviewState.timeMs || 0) : "";
+    const isLastQuestion = currentIndex >= currentQuestions.length - 1;
+    const nextButtonLabel = blockSubmitted
+      ? (isLastQuestion ? "Back to block results" : "Next review question")
+      : (blockActive && block.mode === "tutor" && isLastQuestion ? "Finish block" : "Next Question");
+    const nextButtonAction = blockSubmitted ? "window.qbankBlockNextReview()" : "window.qbankNext()";
+    const leaveAction = blockSubmitted ? "window.qbankBlockShowResults()" : (blockActive ? "window.qbankEndSession()" : "window.openQBank()");
+    const leaveLabel = blockSubmitted ? "Results" : "Leave";
+    const leaveTitle = blockSubmitted ? "Back to block results" : "Return to QBank Home";
+
     area.innerHTML = `
+      ${blockActive ? qblockBarHtml() : ""}
       <div id="qbank-split-container" style="display:flex; max-width:1400px; margin:0 auto; padding:20px; gap:24px; text-align:left; align-items:flex-start;">
         
         <!-- MAIN QUESTION COLUMN -->
@@ -2956,8 +4199,8 @@
           <div class="usmle-question-card">
           <div class="usmle-question-num" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
             <div style="display:flex; align-items:center; gap:12px;">
-              <button class="btn-dark-pill" style="padding:4px 8px; font-size:0.8rem; display:flex; align-items:center; gap:4px; height:27px; color:var(--text-secondary); border: 1px solid #d1d5db;" onclick="window.openQBank()" title="Return to QBank Home">
-                <i class="fa-solid fa-arrow-left" style="font-size:12px;"></i> Leave
+              <button class="btn-dark-pill" style="padding:4px 8px; font-size:0.8rem; display:flex; align-items:center; gap:4px; height:27px; color:var(--text-secondary); border: 1px solid #d1d5db;" onclick="${leaveAction}" title="${leaveTitle}">
+                <i class="fa-solid fa-arrow-left" style="font-size:12px;"></i> ${leaveLabel}
               </button>
               <span>Question ${currentIndex + 1} of ${currentQuestions.length}</span>
             </div>
@@ -3029,10 +4272,10 @@
           </div>
           ${submitHtml}
           
-          <div id="qbank-explanation-container" class="usmle-explanation" style="display:none; margin-top:30px;">
-             <div id="qbank-result-header" style="font-weight:bold; margin-bottom:12px; font-size:1.1rem;"></div>
+          <div id="qbank-explanation-container" class="usmle-explanation" style="display:${blockSubmitted ? "block" : "none"}; margin-top:30px;">
+             <div id="qbank-result-header" style="font-weight:bold; margin-bottom:12px; font-size:1.1rem;">${reviewHeader}</div>
              <div style="margin-bottom:16px; font-size:0.9rem; color:var(--text-muted); display:flex; align-items:center;">
-               <i class="fa-regular fa-clock" style="font-size:14px; margin-right:4px;"></i> Time Taken: <span id="qbank-time-taken-text" style="margin-left:4px; font-weight:600; color:var(--text-primary);"></span>
+               <i class="fa-regular fa-clock" style="font-size:14px; margin-right:4px;"></i> Time Taken: <span id="qbank-time-taken-text" style="margin-left:4px; font-weight:600; color:var(--text-primary);">${reviewTimeText}</span>
              </div>
              <div style="display:flex; align-items:center; gap:10px; margin-bottom:14px;">
                <div style="width:36px; height:36px; border-radius:10px; background:linear-gradient(135deg, rgba(14,124,134,0.2), rgba(45,212,191,0.15)); display:flex; align-items:center; justify-content:center; flex-shrink:0;">
@@ -3073,7 +4316,7 @@
                </div>
              </div>
 
-             <button class="usmle-proceed-btn" style="margin-top:20px; width:100%;" onclick="window.qbankNext()">Next Question</button>
+             <button class="usmle-proceed-btn" style="margin-top:20px; width:100%;" onclick="${nextButtonAction}">${nextButtonLabel}</button>
           </div> <!-- closes qbank-explanation-container -->
         </div> <!-- closes usmle-question-card -->
       </div> <!-- closes qbank-left-col -->
@@ -3104,6 +4347,8 @@
   };
 
   window.qbankSelectOption = async function (selectedIndex) {
+    const activeBlock = window.__qbankBlock;
+    if (activeBlock && activeBlock.active && (activeBlock.submitted || activeBlock.mode === "exam")) return;
     if (!qbankTimer) return; // already answered
     stopTimer();
     
@@ -3136,6 +4381,11 @@
     }
     
     currentSelectedIndices = selectedIndices;
+    if (activeBlock && activeBlock.active && !activeBlock.submitted && activeBlock.mode === "tutor") {
+      activeBlock.answers[q.id] = [...selectedIndices];
+      const answeredEl = document.getElementById("qb-block-answered");
+      if (answeredEl) answeredEl.textContent = `${qblockAnsweredCount()}/${currentQuestions.length}`;
+    }
 
     let isCorrect = false;
     // Partially correct: QCM subset with no wrong picks (e.g. correct=A,B,C and picked=A,B)
@@ -3664,6 +4914,23 @@
         return;
     }
     
+    const block = window.__qbankBlock;
+    if (block && block.active) {
+      if (block.submitted) {
+        window.qbankBlockNextReview();
+        return;
+      }
+      if (currentIndex >= currentQuestions.length - 1) {
+        window.qbankSubmitBlock(false);
+        return;
+      }
+      qblockTrackTime();
+      currentIndex++;
+      window.currentIndex = currentIndex;
+      window.qbankRenderSidebar();
+      window.qbankRenderCurrent();
+      return;
+    }
     if (qbankTimer) {
       // User is skipping
     }
@@ -5796,56 +7063,289 @@
       if (window.lucide && window.lucide.createIcons) window.lucide.createIcons();
   };
 
-  // ---------- EXAM PREP STANDALONE SIDEBAR TAB (countries -> colleges -> banks) ----------
-  const EP_FLAG_CODES = { global: "un", usa: "us", uk: "gb", australia: "au", canada: "ca", india: "in", europe: "eu", tunisia: "tn", algeria: "dz", egypt: "eg", morocco: "ma" };
-  const EP_COUNTRY_LABELS = { global: "Global", usa: "USA", uk: "UK", australia: "Australia", canada: "Canada", india: "India", europe: "Europe", tunisia: "Tunisia", algeria: "Algeria", egypt: "Egypt", morocco: "Morocco" };
+  // ---------- EXAM PREP (academic profile -> associated banks) ----------
+  const EP_FLAG_CODES = { global: "un", usa: "us", uk: "gb", australia: "au", canada: "ca", india: "in", europe: "eu", tunisia: "tn", algeria: "dz", egypt: "eg", morocco: "ma", saudi: "sa" };
+  const EP_COUNTRY_LABELS = { global: "International", usa: "USA", uk: "UK", australia: "Australia", canada: "Canada", india: "India", europe: "Europe", tunisia: "Tunisia", algeria: "Algeria", egypt: "Egypt", morocco: "Morocco", saudi: "Saudi Arabia" };
 
-  const getEpFlagImg = (c, size = 40) => {
+  const epEsc = (s) => window.escapeHtml
+      ? window.escapeHtml(s == null ? "" : s)
+      : String(s == null ? "" : s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const epJs = (s) => String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/\\/g, "\\\\").replace(/'/g, "\\'").replace(/"/g, "\\x22").replace(/\r?\n/g, " ");
+  const epCountryLabel = (c) => EP_COUNTRY_LABELS[c] || c || "International";
+
+  const getEpFlagImg = (c, cls = "ep-flag") => {
       const code = EP_FLAG_CODES[c] || "un";
-      return `<img src="https://flagcdn.com/${code}.svg" style="width:${size}px; border-radius:4px; vertical-align:middle; display:inline-block;" alt=""/>`;
+      return `<img src="https://flagcdn.com/${code}.svg" alt="" class="${cls}" loading="lazy"/>`;
   };
 
-  window.__epState = { country: null };
+  window.__epState = { view: "home", country: null, college: null, focusCountry: null, focusCollege: null };
 
-  // Shared clinical row polish: no trailing divider on the last row.
-  // Injected once (guarded by id) — matches the dashboard .clin-row look.
-  window.__epEnsureRowStyle = function() {
-      if (document.getElementById("ep-clin-style")) return;
-      const st = document.createElement("style");
-      st.id = "ep-clin-style";
-      st.textContent = ".ep-card-rows > div:last-child { border-bottom: none !important; }";
-      document.head.appendChild(st);
+  window.__epProfile = function() {
+      const acc = (window.db && window.db.access) || {};
+      const ap = window.__academicProfile || {};
+      const saved = window.cqGetSavedCollege ? window.cqGetSavedCollege() : null;
+      const academicCountry = acc.country || ap.country || "";
+      const academicCollege = acc.college || ap.college || "";
+      const country = academicCountry || (saved && saved.country) || "";
+      return {
+          country,
+          countryName: ap.countryName || epCountryLabel(country),
+          college: academicCollege || (saved && saved.college) || "",
+          academicCountry,
+          academicCollege,
+          major: acc.major || ap.major || "",
+          collegeId: acc.collegeId || ap.collegeId || "",
+          legacy: !!acc.legacy,
+      };
+  };
+
+  function epQuestionsKnown(q) {
+      const cached = cachedQBanks[q.id];
+      return cached && Array.isArray(cached.questions) ? cached.questions.length : 0;
+  }
+
+  window.__epBankCard = function(q) {
+      const locked = !!q.locked;
+      const pending = window.__pendingAccess instanceof Set && window.__pendingAccess.has(q.id);
+      const safeId = epJs(q.id);
+      const safeName = epJs(q.name || "");
+      const qCount = epQuestionsKnown(q);
+      const college = q.college || "General";
+      const country = q.country || "global";
+      const meta = [];
+      if (q.year) meta.push(`<span class="ep-bank-chip"><i data-lucide="calendar-days"></i>${epEsc(q.year)}</span>`);
+      meta.push(`<span class="ep-bank-chip"><i data-lucide="globe-2"></i>${epEsc(epCountryLabel(country))}</span>`);
+      if (qCount > 0) meta.push(`<span class="ep-bank-chip"><i data-lucide="list-checks"></i>${qCount.toLocaleString()} questions</span>`);
+      const status = locked
+          ? (pending
+              ? `<span class="ep-status is-pending"><i data-lucide="clock-3"></i>Pending</span>`
+              : `<span class="ep-status is-locked"><i data-lucide="lock"></i>Locked</span>`)
+          : `<span class="ep-status is-open"><i data-lucide="check-circle"></i>Ready</span>`;
+      const cta = locked
+          ? (pending
+              ? `<button type="button" class="ep-btn ep-btn-ghost" disabled><i data-lucide="clock-3"></i>Pending</button>`
+              : `<button type="button" class="ep-btn ep-btn-locked" onclick="event.stopPropagation(); window.qbankRequestAccess('${safeId}', '${safeName}')"><i data-lucide="lock"></i>Request access</button>`)
+          : `<button type="button" class="ep-btn ep-btn-primary" onclick="event.stopPropagation(); window.startQBankSession('${safeId}', '${safeName}')">Practice <i data-lucide="arrow-right"></i></button>`;
+      const click = locked
+          ? (pending ? "" : `onclick="window.qbankRequestAccess('${safeId}', '${safeName}')"`)
+          : `onclick="window.startQBankSession('${safeId}', '${safeName}')"`;
+      return `
+      <article class="ep-bank-card${locked ? " is-locked" : ""}${pending ? " is-pending" : ""}" ${click}>
+          <div class="ep-bank-head">
+              <span class="ep-bank-icon"><i data-lucide="${locked ? "lock" : "graduation-cap"}"></i></span>
+              ${status}
+          </div>
+          <h3 class="ep-bank-name">${epEsc(q.name || "Exam prep bank")}</h3>
+          <div class="ep-bank-college"><i data-lucide="school"></i><span>${epEsc(college)}</span></div>
+          <div class="ep-bank-meta">${meta.join("")}</div>
+          <div class="ep-bank-foot">${cta}</div>
+      </article>`;
+  };
+
+  window.epRenderHome = function(focusCountry = null, focusCollege = null) {
+      const listEl = document.getElementById("exam-prep-content");
+      if (!listEl) return;
+      const profile = window.__epProfile();
+      const acc = (window.db && window.db.access) || null;
+      const all = (window.__epBanks && window.__epBanks.length)
+          ? window.__epBanks
+          : cqPrepBanks().map(q => ({ ...q, locked: false }));
+      const fCountry = focusCountry || profile.country;
+      const fCollege = focusCollege || profile.college;
+      window.__epState = { ...window.__epState, view: "home", focusCountry: fCountry, focusCollege: fCollege };
+      const linkedToProfile = !!profile.academicCollege && fCollege === profile.academicCollege &&
+          (!profile.academicCountry || !fCountry || fCountry === profile.academicCountry);
+      const accessFallback = !fCollege && !!(acc && !acc.legacy && acc.collegeId && (acc.prepIds || []).length);
+      const useAccessIds = (linkedToProfile || accessFallback) && acc && !acc.legacy;
+      let banks = [];
+      if (useAccessIds) {
+          const allowed = new Set(acc.prepIds || []);
+          banks = all.filter(q => allowed.has(q.id));
+      } else if (fCollege) {
+          banks = all.filter(q => (q.country || "global") === fCountry && (q.college || "General") === fCollege);
+      } else if (acc && acc.legacy) {
+          banks = all.slice();
+      }
+      banks.sort((a, b) => String(b.year || "").localeCompare(String(a.year || "")) || String(a.name || "").localeCompare(String(b.name || "")));
+
+      const years = new Set(banks.map(b => b.year).filter(Boolean));
+      const hasProfile = !!(profile.country || profile.college || profile.collegeId);
+      const hasFocus = !!(fCountry && fCollege);
+      const matchedToProfile = linkedToProfile || accessFallback;
+      const label = !hasFocus ? "Academic profile" : (linkedToProfile ? "Your academic profile" : "Selected college");
+      const title = hasFocus
+          ? fCollege
+          : accessFallback
+              ? "Your college"
+              : hasProfile
+                  ? "Add your college"
+                  : "Set up your academic profile";
+      const showStats = hasFocus || hasProfile || banks.length > 0;
+      const subParts = [];
+      if (hasFocus) {
+          subParts.push(profile.countryName || epCountryLabel(fCountry));
+          if (linkedToProfile && profile.major) subParts.push(profile.major);
+      } else if (accessFallback) {
+          if (profile.countryName || profile.country) subParts.push(profile.countryName || epCountryLabel(profile.country));
+          if (profile.major) subParts.push(profile.major);
+          if (!subParts.length) subParts.push("Matched from your saved academic profile.");
+      } else {
+          subParts.push("Choose your country and college so we can show your past papers.");
+      }
+
+      let actions = "";
+      if (!hasFocus) {
+          const setupLabel = accessFallback ? "Choose college" : (hasProfile ? (profile.collegeId ? "Update profile" : "Add your college") : "Set up academic profile");
+          const setupAction = accessFallback ? "window.cqOpenCollegePicker()" : "window.epSetupProfile()";
+          actions = `<button type="button" class="ep-btn ep-btn-primary" onclick="${setupAction}">${setupLabel} <i data-lucide="arrow-right"></i></button>`;
+      } else {
+          if (!linkedToProfile && profile.college) {
+              actions += `<button type="button" class="ep-btn ep-btn-ghost" onclick="window.epRenderHome()"><i data-lucide="arrow-left"></i>My profile</button>`;
+          }
+          actions += `<button type="button" class="ep-btn ep-btn-ghost" onclick="window.cqOpenCollegePicker('${epJs(fCountry)}')">Change college</button>`;
+      }
+
+      const flag = fCountry
+          ? getEpFlagImg(fCountry, "ep-profile-flag-img")
+          : `<i data-lucide="graduation-cap"></i>`;
+      const sectionTitle = matchedToProfile ? "Your exam prep banks" : "Exam prep banks";
+      const sectionSub = matchedToProfile
+          ? "Every bank attached to your college and academic profile — no searching needed."
+          : hasFocus
+              ? `Past papers linked to ${epEsc(fCollege)}.`
+              : banks.length
+                  ? "All available exam-prep banks. Set up your academic profile to see only your college's past papers."
+                  : hasProfile
+                      ? "Add your college to your academic profile to see its past papers here."
+                      : "Set up your academic profile to see your college's past papers here.";
+
+      let empty = "";
+      if (!banks.length) {
+          const emptyTitle = matchedToProfile ? "No exam prep banks found" : hasFocus ? "No exam prep banks yet" : (hasProfile ? "Finish your academic profile" : "No academic profile yet");
+          const emptyText = matchedToProfile
+              ? "We couldn't find banks attached to your saved college. Try updating your academic profile or browse all colleges."
+              : hasFocus
+                  ? `There are no past papers linked to ${epEsc(fCollege)} yet. Check back soon or browse other colleges.`
+                  : hasProfile
+                      ? "Add your college to your academic profile and its past papers will appear here automatically."
+                      : "Add your country, major and college from your academic profile and your college's past papers will appear here automatically.";
+          const emptyCta = hasFocus ? "Browse colleges" : matchedToProfile ? "Update profile" : hasProfile ? "Complete profile" : "Set up profile";
+          const emptyAction = hasFocus ? "window.epShowCountries()" : "window.epSetupProfile()";
+          empty = `<div class="ep-empty">
+              <span class="ep-empty-icon"><i data-lucide="${hasFocus ? "folder-open" : "graduation-cap"}"></i></span>
+              <h3>${emptyTitle}</h3>
+              <p>${emptyText}</p>
+              <button type="button" class="ep-btn ep-btn-primary" onclick="${emptyAction}">${emptyCta} <i data-lucide="arrow-right"></i></button>
+          </div>`;
+      }
+
+      const yearStat = years.size > 0
+          ? `<div class="ep-profile-stat"><b>${years.size}</b><small>${years.size === 1 ? "exam year" : "exam years"}</small></div>`
+          : "";
+      const statsHtml = showStats
+          ? `<div class="ep-profile-stats">
+                  <div class="ep-profile-stat"><b>${banks.length}</b><small>${banks.length === 1 ? "bank" : "banks"}</small></div>
+                  ${yearStat}
+              </div>`
+          : "";
+      let noteTitle, noteText;
+      if (matchedToProfile) {
+          noteTitle = "Matched to your academic profile";
+          noteText = "Your profile controls which exam-prep banks appear here. Use Browse all colleges to explore any bank outside your profile.";
+      } else if (hasFocus) {
+          noteTitle = hasProfile ? "Browsing another college" : "Set up your academic profile";
+          noteText = hasProfile
+              ? `You are viewing ${epEsc(fCollege)} instead of your saved profile. Open My exam prep to return to your matched banks.`
+              : `You are browsing ${epEsc(fCollege)}. Add your country, major and college to your profile to get your matched banks on this page automatically.`;
+      } else {
+          noteTitle = hasProfile ? "Your profile is incomplete" : "Set up your academic profile";
+          noteText = hasProfile
+              ? "Your profile doesn't have a college attached yet, so all exam-prep banks are shown. Add your college to see only your past papers."
+              : "Add your country, major and college from your profile and your college's past papers will appear here automatically.";
+      }
+
+      listEl.innerHTML = `
+      <div class="ep-home">
+          <section class="ep-profile">
+              <span class="ep-profile-flag">${flag}</span>
+              <div class="ep-profile-main">
+                  <span class="ep-profile-kicker">${label}</span>
+                  <h2>${epEsc(title)}</h2>
+                  <p>${subParts.filter(Boolean).map(epEsc).join(" · ")}</p>
+              </div>
+              ${statsHtml}
+              <div class="ep-profile-actions">${actions}</div>
+          </section>
+
+          <section class="ep-section">
+              <div class="ep-section-head">
+                  <div>
+                      <h2>${sectionTitle}</h2>
+                      <p>${sectionSub}</p>
+                  </div>
+                  <button type="button" class="ep-link" onclick="window.epShowCountries()">Browse all colleges <i data-lucide="arrow-up-right"></i></button>
+              </div>
+              ${banks.length
+                  ? `<div class="ep-bank-grid">${banks.map(q => window.__epBankCard(q)).join("")}</div>`
+                  : empty}
+          </section>
+
+          <section class="ep-note">
+              <span class="ep-note-icon"><i data-lucide="info"></i></span>
+              <div>
+                  <b>${noteTitle}</b>
+                  <span>${noteText}</span>
+              </div>
+          </section>
+      </div>`;
+      if (window.lucide && window.lucide.createIcons) window.lucide.createIcons();
   };
 
   window.epShowCountries = function() {
       const listEl = document.getElementById("exam-prep-content");
       if (!listEl || !window.__epBanks) return;
-      window.__epEnsureRowStyle();
-      window.__epState.country = null;
+      window.__epState = { ...window.__epState, view: "countries", country: null, college: null };
 
-      // group counts by country
       const counts = {};
+      const collegesByCountry = {};
       window.__epBanks.forEach(q => {
           const c = q.country || "global";
           counts[c] = (counts[c] || 0) + 1;
+          if (!collegesByCountry[c]) collegesByCountry[c] = new Set();
+          collegesByCountry[c].add(q.college || "General");
       });
 
+      let out = `<div class="ep-subpage">
+          <div class="ep-subhead">
+              <div>
+                  <button type="button" class="ep-back" onclick="window.epRenderHome()"><i data-lucide="arrow-left"></i> My exam prep</button>
+                  <h2>Browse exam prep</h2>
+                  <p>Choose a country, then a college, to open its past papers.</p>
+              </div>
+          </div>`;
+
       if (Object.keys(counts).length === 0) {
-          listEl.innerHTML = '<div style="border:1px solid #F1F5F9; border-radius:6px; background:#FAFAFA; color:#64748B; text-align:center; padding:16px 12px; font-size:12px;">No exam-prep banks available yet.</div>';
-          return;
+          out += `<div class="ep-empty">
+              <span class="ep-empty-icon"><i data-lucide="graduation-cap"></i></span>
+              <h3>No exam prep banks yet</h3>
+              <p>Past papers will appear here as soon as colleges add their exam-prep banks.</p>
+          </div>`;
+      } else {
+          out += `<div class="ep-country-grid">`;
+          Object.keys(counts).sort((a, b) => counts[b] - counts[a] || a.localeCompare(b)).forEach(c => {
+              const collegeCount = collegesByCountry[c].size;
+              out += `<button type="button" class="ep-country-card" onclick="window.epShowColleges('${epJs(c)}')">
+                  <span class="ep-country-flag">${getEpFlagImg(c, "ep-flag-img")}</span>
+                  <span class="ep-country-text">
+                      <b>${epEsc(epCountryLabel(c))}</b>
+                      <small>${collegeCount} ${collegeCount === 1 ? "college" : "colleges"} · ${counts[c]} ${counts[c] === 1 ? "bank" : "banks"}</small>
+                  </span>
+                  <i data-lucide="chevron-right" class="ep-country-chev"></i>
+              </button>`;
+          });
+          out += `</div>`;
       }
-      let out = '<div class="ep-countries" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(240px, 1fr)); gap:12px; font-family:Inter,-apple-system,BlinkMacSystemFont,\'Segoe UI\',Roboto,sans-serif;">';
-      Object.keys(counts).sort((a, b) => counts[b] - counts[a]).forEach(c => {
-          out += `<button onclick="window.epShowColleges('${c}')" style="background:#fff; border:1px solid #E2E8F0; border-radius:6px; padding:14px 16px; cursor:pointer; display:flex; align-items:center; gap:12px; text-align:left; transition:all 0.2s;" onmouseover="this.style.borderColor='#007a7a'; this.style.background='#F8FAFC';" onmouseout="this.style.borderColor='#E2E8F0'; this.style.background='#fff';">
-              <span style="flex-shrink:0; display:flex; align-items:center;">${getEpFlagImg(c, 40)}</span>
-              <span style="flex:1; min-width:0; display:flex; flex-direction:column; gap:4px;">
-                  <span style="font-weight:700; font-size:15px; color:#0F172A; line-height:1.2;">${window.escapeHtml ? window.escapeHtml(EP_COUNTRY_LABELS[c] || c) : (EP_COUNTRY_LABELS[c] || c)}</span>
-                  <span><span style="font-size:11px; font-weight:700; color:#007a7a; background:#e6f2f2; padding:2px 9px; border-radius:999px; white-space:nowrap;">${counts[c]} bank${counts[c] > 1 ? 's' : ''}</span></span>
-              </span>
-              <i data-lucide="chevron-right" style="width:16px;height:16px;color:#94A3B8;flex-shrink:0;"></i>
-          </button>`;
-      });
-      out += '</div>';
+      out += `</div>`;
       listEl.innerHTML = out;
       if (window.lucide && window.lucide.createIcons) window.lucide.createIcons();
   };
@@ -5853,8 +7353,7 @@
   window.epShowColleges = function(country) {
       const listEl = document.getElementById("exam-prep-content");
       if (!listEl || !window.__epBanks) return;
-      window.__epEnsureRowStyle();
-      window.__epState.country = country;
+      window.__epState = { ...window.__epState, view: "colleges", country, college: null };
 
       const banks = window.__epBanks.filter(q => (q.country || "global") === country);
       const byCollege = {};
@@ -5863,138 +7362,127 @@
           if (!byCollege[col]) byCollege[col] = [];
           byCollege[col].push(q);
       });
-
-      const escCol = (s) => window.escapeHtml ? window.escapeHtml(s) : s;
-      const jsEsc = (s) => String(s).replace(/\\/g, "\\\\").replace(/'/g, "\\'");
-      let out = `<div style="max-width:1000px; margin:0 auto; font-family:Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
-          <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:16px;">
-              <div style="display:flex; align-items:center; gap:8px; min-width:0;">
-                  <a href="#" onclick="window.openExamPrepTab(); return false;" style="color:#64748B; font-size:12.5px; text-decoration:none; font-weight:600;" onmouseover="this.style.color='#007a7a'" onmouseout="this.style.color='#64748B'">Exam Prep</a>
-                  <i data-lucide="chevron-right" style="width:14px;height:14px;color:#94A3B8;flex-shrink:0;"></i>
-                  <h3 style="display:flex; align-items:center; gap:8px; margin:0; font-size:14px; font-weight:700; color:#0F172A;">${getEpFlagImg(country, 20)} ${escCol(EP_COUNTRY_LABELS[country] || country)}</h3>
-              </div>
-              <button onclick="window.epShowCountries()" style="display:flex; align-items:center; gap:8px; padding:8px 16px; background:#F8FAFC; border:1px solid #E2E8F0; color:#0F172A; border-radius:999px; font-size:12.5px; font-weight:600; cursor:pointer; transition:all 0.2s; flex-shrink:0;" onmouseover="this.style.background='#E2E8F0'" onmouseout="this.style.background='#F8FAFC'">
-                  <i data-lucide="arrow-left" style="width:14px;height:14px;"></i> All countries
-              </button>
-          </div>
-          <div style="font-size:12px; font-weight:700; letter-spacing:0.06em; text-transform:uppercase; color:#64748B; margin:0 0 10px 0;">Colleges &middot; ${escCol(EP_COUNTRY_LABELS[country] || country)}</div>
-          <div class="ep-card-rows" style="background:#fff; border:1px solid #E2E8F0; border-radius:6px; padding:6px 16px;">`;
-
-      if (Object.keys(byCollege).length === 1 && byCollege["General"]) {
-          banks.forEach(q => {
-              out += window.__epBankRow(q);
-          });
-      } else {
-          Object.keys(byCollege).sort().forEach(col => {
-              const collegeBanks = byCollege[col];
-              const firstBank = collegeBanks[0];
-              // Raw values for JS args (display strings are HTML-escaped
-              // separately) so names with & / quotes still match filters.
-              const safeName = jsEsc(firstBank.name);
-              const safeCol = jsEsc(col);
-              const multi = collegeBanks.length > 1;
-              // Bank name leads, university sits underneath.
-              const subLabel = `${escCol(col)} &middot; ${collegeBanks.length} bank${collegeBanks.length > 1 ? 's' : ''}`;
-
-              const rowAction = firstBank.locked
-                  ? `window.qbankRequestAccess('${firstBank.id}', '${safeName}')`
-                  : (multi
-                      ? `window.epShowBanks('${country}', '${safeCol}')`
-                      : `window.startQBankSession('${firstBank.id}', '${safeName}')`);
-              const actionBtn = firstBank.locked
-                  ? `<button style="background:#FBEAEA; color:#C62828; border:none; padding:9px 18px; border-radius:6px; font-weight:700; font-size:13px; cursor:pointer; flex-shrink:0;" onclick="event.stopPropagation(); window.qbankRequestAccess('${firstBank.id}', '${safeName}')">Request Access</button>`
-                  : (multi
-                      ? `<button style="background:#F8FAFC; color:#0F172A; border:1px solid #E2E8F0; padding:9px 18px; border-radius:6px; font-weight:700; font-size:13px; cursor:pointer; display:inline-flex; align-items:center; gap:8px; flex-shrink:0;" onmouseover="this.style.background='#E2E8F0'" onmouseout="this.style.background='#F8FAFC'" onclick="event.stopPropagation(); window.epShowBanks('${country}', '${safeCol}')">View banks <i data-lucide="arrow-right" style="width:14px;height:14px;"></i></button>`
-                      : `<button style="background:#007a7a; color:#fff; border:none; padding:9px 18px; border-radius:6px; font-weight:700; font-size:13px; cursor:pointer; display:inline-flex; align-items:center; gap:8px; flex-shrink:0;" onmouseover="this.style.background='#006666'" onmouseout="this.style.background='#007a7a'" onclick="event.stopPropagation(); window.startQBankSession('${firstBank.id}', '${safeName}')">Practice <i data-lucide="arrow-right" style="width:14px;height:14px;"></i></button>`);
-
-              out += `
-              <div onclick="${rowAction}" style="display:flex; align-items:center; gap:10px; padding:10px 6px; margin:0 -6px; border-bottom:1px solid #F1F5F9; border-radius:4px; cursor:pointer; opacity:${firstBank.locked ? '0.65' : '1'};" onmouseover="this.style.background='#F8FAFC'" onmouseout="this.style.background='transparent'">
-                  <div style="flex-shrink:0; display:flex; align-items:center; justify-content:center; width:40px; height:40px; background:${firstBank.locked ? '#F1F5F9' : '#e6f2f2'}; border-radius:6px;">
-                      <i data-lucide="${firstBank.locked ? 'lock' : (multi ? 'building-2' : 'graduation-cap')}" style="width:20px;height:20px;color:${firstBank.locked ? '#94A3B8' : '#007a7a'};"></i>
-                  </div>
-                  <div style="flex:1; min-width:0; display:flex; flex-direction:column; justify-content:center; gap:2px;">
-                      <div style="font-size:15px; font-weight:700; color:#0F172A; line-height:1.3;">${escCol(firstBank.name)}</div>
-                      <div style="font-size:12px; color:#64748B;">${subLabel}</div>
-                  </div>
-                  ${actionBtn}
-              </div>`;
-          });
+      const cols = Object.keys(byCollege).sort((a, b) => a.localeCompare(b));
+      if (cols.length === 1) {
+          window.epShowBanks(country, cols[0]);
+          return;
       }
 
-      out += `</div></div>`;
+      let out = `<div class="ep-subpage">
+          <div class="ep-subhead">
+              <div>
+                  <button type="button" class="ep-back" onclick="window.epShowCountries()"><i data-lucide="arrow-left"></i> All countries</button>
+                  <div class="ep-title-row">
+                      <span class="ep-title-flag">${getEpFlagImg(country, "ep-flag-img")}</span>
+                      <div>
+                          <h2>${epEsc(epCountryLabel(country))}</h2>
+                          <p>${cols.length} ${cols.length === 1 ? "college" : "colleges"} with past papers</p>
+                      </div>
+                  </div>
+              </div>
+              <button type="button" class="ep-btn ep-btn-ghost" onclick="window.epRenderHome()"><i data-lucide="home"></i> My exam prep</button>
+          </div>`;
+
+      if (!cols.length) {
+          out += `<div class="ep-empty">
+              <span class="ep-empty-icon"><i data-lucide="school"></i></span>
+              <h3>No colleges yet</h3>
+              <p>No exam-prep colleges have been added for ${epEsc(epCountryLabel(country))} yet.</p>
+          </div>`;
+      } else {
+          out += `<div class="ep-college-list">`;
+          cols.forEach(col => {
+              const n = byCollege[col].length;
+              out += `<button type="button" class="ep-college-card" onclick="window.epShowBanks('${epJs(country)}', '${epJs(col)}')">
+                  <span class="ep-college-icon"><i data-lucide="school"></i></span>
+                  <span class="ep-college-text"><b>${epEsc(col)}</b><small>${n} ${n === 1 ? "bank" : "banks"} · ${epEsc(epCountryLabel(country))}</small></span>
+                  <span class="ep-college-open">View banks <i data-lucide="arrow-right"></i></span>
+              </button>`;
+          });
+          out += `</div>`;
+      }
+      out += `</div>`;
       listEl.innerHTML = out;
       if (window.lucide && window.lucide.createIcons) window.lucide.createIcons();
-  };
-
-  window.__epBankRow = function(q) {
-      const esc = (s) => window.escapeHtml ? window.escapeHtml(s) : s;
-      const cached = cachedQBanks[q.id];
-      const qCount = cached && cached.questions ? cached.questions.length : 0;
-      const countLabel = qCount > 0 ? `${qCount.toLocaleString()} questions` : "No questions yet";
-      const yearBadge = q.year ? ` <span style="font-size:11px; font-weight:700; color:#475569; background:#F1F5F9; padding:2px 9px; border-radius:999px; white-space:nowrap;">${esc(q.year)}</span>` : "";
-      // Raw name for JS args (rendered text is HTML-escaped separately).
-      const safeName = String(q.name || "").replace(/\\/g, "\\\\").replace(/'/g, "\\'");
-      const college = q.college || "General";
-
-      const actionBtn = q.locked
-          ? `<button style="background:#FBEAEA; color:#C62828; border:none; padding:9px 18px; border-radius:6px; font-weight:700; font-size:13px; cursor:pointer; flex-shrink:0;" onclick="event.stopPropagation(); window.qbankRequestAccess('${q.id}', '${safeName}')">Request Access</button>`
-          : `<button style="background:#007a7a; color:#fff; border:none; padding:9px 18px; border-radius:6px; font-weight:700; font-size:13px; cursor:pointer; display:inline-flex; align-items:center; gap:8px; flex-shrink:0;" onmouseover="this.style.background='#006666'" onmouseout="this.style.background='#007a7a'" onclick="event.stopPropagation(); window.startQBankSession('${q.id}', '${safeName}')">Practice <i data-lucide="arrow-right" style="width:14px;height:14px;"></i></button>`;
-
-      return `
-      <div onclick="${q.locked ? `window.qbankRequestAccess('${q.id}', '${safeName}')` : `window.startQBankSession('${q.id}', '${safeName}')`}" style="display:flex; align-items:center; gap:10px; padding:10px 6px; margin:0 -6px; border-bottom:1px solid #F1F5F9; border-radius:4px; cursor:pointer; opacity:${q.locked ? '0.65' : '1'};" onmouseover="this.style.background='#F8FAFC'" onmouseout="this.style.background='transparent'">
-          <div style="flex-shrink:0; display:flex; align-items:center; justify-content:center; width:40px; height:40px; background:${q.locked ? '#F1F5F9' : '#e6f2f2'}; border-radius:6px;">
-              <i data-lucide="${q.locked ? 'lock' : 'graduation-cap'}" style="width:20px;height:20px;color:${q.locked ? '#94A3B8' : '#007a7a'};"></i>
-          </div>
-          <div style="flex:1; min-width:0; display:flex; flex-direction:column; justify-content:center; gap:2px;">
-              <div style="font-size:15px; font-weight:700; color:#0F172A; line-height:1.3;">${esc(q.name)}${yearBadge}</div>
-              <div style="font-size:12px; color:#64748B;">${esc(college)} &middot; ${countLabel}</div>
-          </div>
-          ${actionBtn}
-      </div>`;
   };
 
   window.epShowBanks = function(country, college) {
       const listEl = document.getElementById("exam-prep-content");
       if (!listEl || !window.__epBanks) return;
-      window.__epEnsureRowStyle();
+      window.__epState = { ...window.__epState, view: "banks", country, college };
+      window.cqSetSavedCollege(country, college);
 
-      const esc = (s) => window.escapeHtml ? window.escapeHtml(s) : s;
       const banks = window.__epBanks.filter(q =>
           (q.country || "global") === country &&
           (q.college || "General") === college
       );
+      banks.sort((a, b) => String(b.year || "").localeCompare(String(a.year || "")) || String(a.name || "").localeCompare(String(b.name || "")));
 
-      let out = `<div style="max-width:1000px; margin:0 auto; font-family:Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
-          <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:16px;">
-              <div style="display:flex; align-items:center; gap:8px; min-width:0; flex-wrap:wrap;">
-                  <a href="#" onclick="window.openExamPrepTab(); return false;" style="color:#64748B; font-size:12.5px; text-decoration:none; font-weight:600;" onmouseover="this.style.color='#007a7a'" onmouseout="this.style.color='#64748B'">Exam Prep</a>
-                  <i data-lucide="chevron-right" style="width:14px;height:14px;color:#94A3B8;flex-shrink:0;"></i>
-                  <button onclick="window.epShowColleges('${country}')" style="display:flex; align-items:center; gap:6px; padding:4px 10px; background:#F8FAFC; border:1px solid #E2E8F0; border-radius:999px; color:#0F172A; font-size:12.5px; font-weight:600; cursor:pointer; transition:all 0.2s;" onmouseover="this.style.background='#E2E8F0'" onmouseout="this.style.background='#F8FAFC'">
-                      ${getEpFlagImg(country, 16)} ${esc(EP_COUNTRY_LABELS[country] || country)}
-                  </button>
-                  <i data-lucide="chevron-right" style="width:14px;height:14px;color:#94A3B8;flex-shrink:0;"></i>
-                  <h3 style="margin:0; font-size:14px; font-weight:700; color:#0F172A;">${esc(college)}</h3>
+      const profile = window.__epProfile();
+      const linked = !!profile.academicCollege && profile.academicCollege === college &&
+          (!profile.academicCountry || profile.academicCountry === country);
+      const countryColleges = new Set(window.__epBanks
+          .filter(q => (q.country || "global") === country)
+          .map(q => q.college || "General"));
+      const backToCountries = countryColleges.size <= 1;
+      const backAction = backToCountries ? "window.epShowCountries()" : `window.epShowColleges('${epJs(country)}')`;
+      const backLabel = backToCountries ? "All countries" : `${epEsc(epCountryLabel(country))} colleges`;
+
+      let out = `<div class="ep-subpage">
+          <div class="ep-subhead">
+              <div>
+                  <button type="button" class="ep-back" onclick="${backAction}"><i data-lucide="arrow-left"></i> ${backLabel}</button>
+                  <div class="ep-title-row">
+                      <span class="ep-title-flag">${getEpFlagImg(country, "ep-flag-img")}</span>
+                      <div>
+                          <h2>${epEsc(college)}</h2>
+                          <p>${banks.length} ${banks.length === 1 ? "past paper bank" : "past paper banks"} · ${linked ? "Matched to your academic profile" : "From the exam prep catalogue"}</p>
+                      </div>
+                  </div>
               </div>
-          </div>
-          <div style="font-size:12px; font-weight:700; letter-spacing:0.06em; text-transform:uppercase; color:#64748B; margin:0 0 10px 0;">Banks &middot; ${esc(college)}</div>
-          <div class="ep-card-rows" style="background:#fff; border:1px solid #E2E8F0; border-radius:6px; padding:6px 16px;">`;
+              <button type="button" class="ep-btn ep-btn-ghost" onclick="window.epRenderHome()"><i data-lucide="home"></i> My exam prep</button>
+          </div>`;
 
       if (banks.length === 0) {
-          out += `<div style="border:1px solid #F1F5F9; border-radius:6px; background:#FAFAFA; color:#64748B; text-align:center; padding:16px 12px; font-size:12px; margin:10px 0;">No banks in this college yet.</div>`;
+          out += `<div class="ep-empty">
+              <span class="ep-empty-icon"><i data-lucide="folder-open"></i></span>
+              <h3>No banks in this college yet</h3>
+              <p>Past papers for ${epEsc(college)} will appear here as soon as they are added.</p>
+              <button type="button" class="ep-btn ep-btn-primary" onclick="window.epShowCountries()">Browse colleges <i data-lucide="arrow-right"></i></button>
+          </div>`;
       } else {
-          banks.forEach(q => {
-              out += window.__epBankRow(q);
-          });
+          out += `<div class="ep-bank-grid">${banks.map(q => window.__epBankCard(q)).join("")}</div>`;
       }
-
-      out += `</div></div>`;
+      out += `</div>`;
       listEl.innerHTML = out;
       if (window.lucide && window.lucide.createIcons) window.lucide.createIcons();
   };
 
 
 
-  window.openExamPrepTab = async function() {
+  window.epSetupProfile = function() {
+      try {
+          if (window.firebase && firebase.auth().currentUser && typeof window.showWelcomeOnboarding === "function") {
+              return window.showWelcomeOnboarding();
+          }
+      } catch (_) {}
+      if (typeof window.cqOpenCollegePicker === "function") return window.cqOpenCollegePicker();
+  };
+
+  window.__epRefresh = function() {
+      const s = window.__epState || {};
+      if (s.view === "countries") return window.epShowCountries();
+      if (s.view === "colleges" && s.country) return window.epShowColleges(s.country);
+      if (s.view === "banks" && s.country && s.college) return window.epShowBanks(s.country, s.college);
+      return window.epRenderHome(s.focusCountry || null, s.focusCollege || null);
+  };
+
+  window.openExamPrepForCollege = async function(country, college) {
+      if (!country || !college) return window.openExamPrepTab();
+      return window.openExamPrepTab(country, college);
+  };
+
+  window.openExamPrepTab = async function(country = null, college = null) {
       if (window.hideAllMainViews) window.hideAllMainViews();
       const view = document.getElementById('resources-view');
       if (view) {
@@ -6004,15 +7492,23 @@
 
       if (window.setQBankNav) window.setQBankNav('exam-prep');
 
-      if (view) view.innerHTML = `<div style="max-width:1000px; margin:0 auto; width:100%; padding-bottom:40px; font-family:Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
-          <div style="display:flex; align-items:center; gap:12px; margin-bottom:6px;">
-              <div style="display:flex; align-items:center; justify-content:center; width:40px; height:40px; background:#e6f2f2; border-radius:6px; flex-shrink:0;">
-                  <i data-lucide="graduation-cap" style="width:20px;height:20px;color:#007a7a;"></i>
+      if (view) view.innerHTML = `<div class="ep-page">
+          <div class="ep-shell">
+              <header class="ep-hero">
+                  <div class="ep-hero-main">
+                      <span class="ep-kicker">Academic profile</span>
+                      <h1>Exam Prep</h1>
+                      <p>Past papers matched to your country, major and college.</p>
+                  </div>
+                  <button type="button" class="ep-btn ep-btn-ghost" onclick="window.epShowCountries && window.epShowCountries()"><i data-lucide="compass"></i> Browse all colleges</button>
+              </header>
+              <div id="exam-prep-content">
+                  <div class="ep-loading" aria-label="Loading exam prep">
+                      <div class="ep-skeleton ep-skeleton-profile"></div>
+                      <div class="ep-skeleton-row"><div class="ep-skeleton"></div><div class="ep-skeleton"></div></div>
+                  </div>
               </div>
-              <h2 style="font-size:1.5rem; font-weight:700; margin:0; color:#0F172A;">Exam Prep</h2>
           </div>
-          <p style="margin:0 0 24px 0; font-size:0.9rem; color:#64748B;">Browse past exams by country, then pick your college.</p>
-          <div id="exam-prep-content" style="color:#64748B; font-size:12px;">Loading…</div>
       </div>`;
       if (window.lucide && window.lucide.createIcons) window.lucide.createIcons();
 
@@ -6021,14 +7517,23 @@
           qbanks = cachedCategories || [];
       } catch (e) { console.error("preload failed:", e); }
 
-      await window.bootstrapAccess(); // always fresh
+      try { await window.bootstrapAccess(true); } catch (_) {}
       const acc = window.db.access || null;
-      const prepAllowed = (id) => !acc || acc.legacy || !acc.country || acc.grants.includes(id) || acc.prepIds.includes(id);
+      const accGrants = Array.isArray(acc && acc.grants) ? acc.grants : [];
+      const accPrep = Array.isArray(acc && acc.prepIds) ? acc.prepIds : [];
+      const prepAllowed = (id) => !acc || acc.legacy || !acc.country || accGrants.includes(id) || accPrep.includes(id);
       window.__epBanks = (qbanks || []).filter(q => q.kind === "exam_prep").map(q => ({
         ...q,
         locked: !prepAllowed(q.id),
       }));
-      window.epShowCountries();
+      if (country && college) {
+        window.cqSetSavedCollege(country, college);
+        window.epRenderHome(country, college);
+      } else if (country) {
+        window.epShowColleges(country);
+      } else {
+        window.epRenderHome();
+      }
 
       if (view) view.scrollTop = 0;
   };
@@ -6370,3 +7875,4 @@
   window.__diagPatchFirestore = patchFirestoreSDK;
 
 })();
+

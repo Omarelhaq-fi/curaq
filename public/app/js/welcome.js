@@ -31,7 +31,14 @@
     global: 'en',
   };
 
-  const STEP_LABELS = { 1: "Your name", 2: "Your country", 3: "Your language" };
+  const STEP_LABELS = {
+    1: "Your name",
+    2: "Your country",
+    3: "Your major",
+    4: "Your college",
+    5: "Your language",
+  };
+  const TOTAL_STEPS = 5;
 
   function esc(s) {
     return String(s == null ? "" : s).replace(/[&<>"']/g, c => ({
@@ -39,21 +46,58 @@
     }[c]));
   }
 
-  function countryLabel(v) {
-    const c = COUNTRIES.find(x => x.value === v);
-    return c ? c.label : v;
-  }
-
-  window.showWelcomeOnboarding = function () {
+  window.showWelcomeOnboarding = async function () {
     if (window.hideGlobalLoader) window.hideGlobalLoader();
-    // Already completed? never show again
-    try { if (localStorage.getItem("omnote_onboarded") === "1") return; } catch (_) {}
     if (document.getElementById("welcome-onboarding")) return;
 
     const user = window.firebase && firebase.auth().currentUser;
     if (!user) return;
 
-    const defaultName = user.displayName || "";
+    let existingProfile = {};
+    try {
+      const snap = await firebase.firestore().collection("users_index").doc(user.uid).get();
+      if (snap.exists) existingProfile = snap.data() || {};
+    } catch (_) {}
+
+    let catalogue = { countries: [], majors: [], colleges: [] };
+    try {
+      const token = await user.getIdToken();
+      const res = await fetch("/api/qbank?action=academic_structure", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) catalogue = await res.json();
+    } catch (_) {}
+
+    const academicCountries = Array.isArray(catalogue.countries) && catalogue.countries.length
+      ? catalogue.countries.map(c => ({ value: c.id, label: c.name, flag: c.code || null }))
+      : COUNTRIES.slice();
+    if (existingProfile.country && !academicCountries.some(c => c.value === existingProfile.country)) {
+      academicCountries.push({
+        value: existingProfile.country,
+        label: existingProfile.countryName || existingProfile.country,
+        flag: null,
+      });
+    }
+
+    function countryLabel(v) {
+      const c = academicCountries.find(x => x.value === v);
+      return c ? c.label : v;
+    }
+
+    const majorsForCountry = (country) => (catalogue.majors || [])
+      .filter(m => m.countryId === country)
+      .sort((a, b) => String(a.name).localeCompare(String(b.name)));
+    const collegesFor = (country, majorId, majorName) => {
+      const list = catalogue.colleges || [];
+      if (majorId) return list.filter(c => c.majorId === majorId).sort((a, b) => String(a.name).localeCompare(String(b.name)));
+      if (majorName) {
+        const same = (catalogue.majors || []).find(m => m.countryId === country && String(m.name).toLowerCase() === String(majorName).toLowerCase());
+        if (same) return list.filter(c => c.majorId === same.id).sort((a, b) => String(a.name).localeCompare(String(b.name)));
+      }
+      return [];
+    };
+
+    const defaultName = user.displayName || existingProfile.displayName || "";
     const avatar = user.photoURL || "";
     const firstName = defaultName ? esc(defaultName.split(" ")[0]) : "";
 
@@ -102,7 +146,11 @@
 
     let step = 1;
     let chosenName = (defaultName || "").trim();
-    let chosenCountry = "";
+    let chosenCountry = existingProfile.country || "";
+    let chosenMajorId = existingProfile.majorId || "";
+    let chosenMajorName = existingProfile.major || "";
+    let chosenCollegeId = existingProfile.collegeId || "";
+    let chosenCollegeName = existingProfile.college || "";
     let chosenLang = "";
 
     const stepsEl = overlay.querySelector("#wo-steps");
@@ -116,8 +164,8 @@
 
     function renderStepper() {
       stepsEl.innerHTML = `
-        <div class="wo-stepmeta"><span>Step ${step} of 3</span><span>${STEP_LABELS[step]}</span></div>
-        <div class="wo-track"><div class="wo-fill" style="width:${Math.round((step / 3) * 100)}%;"></div></div>`;
+        <div class="wo-stepmeta"><span>Step ${step} of ${TOTAL_STEPS}</span><span>${STEP_LABELS[step]}</span></div>
+        <div class="wo-track"><div class="wo-fill" style="width:${Math.round((step / TOTAL_STEPS) * 100)}%;"></div></div>`;
     }
 
     function optBtn(kind, value, inner, selected) {
@@ -162,7 +210,7 @@
           <h2 class="wo-title">Where are you studying?</h2>
           <p class="wo-sub">This helps us tailor medical guidelines to your region.</p>
           <div class="wo-grid" id="wo-country-grid">
-            ${COUNTRIES.map(c => optBtn("country", c.value,
+            ${academicCountries.map(c => optBtn("country", c.value,
               `${c.flag ? `<img src="https://flagcdn.com/${c.flag}.svg" alt="" />` : `<span class="wo-globe">🌍</span>`}<span>${esc(c.label)}</span>`,
               chosenCountry === c.value)).join("")}
           </div>`;
@@ -176,9 +224,14 @@
         grid.addEventListener("click", (e) => {
           const btn = e.target.closest(".wo-country");
           if (!btn) return;
+          if (chosenCountry !== btn.dataset.value) {
+            chosenMajorId = "";
+            chosenMajorName = "";
+            chosenCollegeId = "";
+            chosenCollegeName = "";
+          }
           chosenCountry = btn.dataset.value;
           grid.querySelectorAll(".wo-country").forEach(b => b.classList.toggle("selected", b === btn));
-          // Preselect the matching language (confirmable on the next step)
           if (COUNTRY_LANG[chosenCountry] && !chosenLang) chosenLang = COUNTRY_LANG[chosenCountry];
           next.disabled = false;
         });
@@ -187,12 +240,105 @@
       }
 
       if (step === 3) {
+        const majors = majorsForCountry(chosenCountry);
+        if (chosenMajorId && !majors.some(m => m.id === chosenMajorId)) chosenMajorId = "";
+        bodyEl.innerHTML = `
+          <h2 class="wo-title">What is your major?</h2>
+          <p class="wo-sub">Choose your programme, or add it if it is not listed yet.</p>
+          <div class="wo-col" id="wo-major-grid">
+            ${majors.map(m => optBtn("major", m.id, `<span>${esc(m.name)}</span>`, chosenMajorId === m.id)).join("")}
+            ${majors.length ? "" : '<div style="color:#64748B;font-size:13px;padding:10px 0;">No majors are listed for this country yet. Add yours below.</div>'}
+          </div>
+          <label class="wo-label" for="wo-major-custom" style="margin-top:16px;">Or add your major</label>
+          <input id="wo-major-custom" class="wo-input" type="text" maxlength="120"
+                 placeholder="e.g. Medicine, Pharmacy, Dentistry" value="${esc(chosenMajorId ? "" : chosenMajorName)}" />`;
+        navEl.innerHTML = `
+          <button id="wo-back" class="wo-btn-ghost"><i class="fa-solid fa-arrow-left"></i> Back</button>
+          <button id="wo-next" class="wo-btn-primary wo-btn-flex" ${chosenMajorId || chosenMajorName.trim().length >= 2 ? "" : "disabled"}>
+            Continue <i class="fa-solid fa-arrow-right"></i>
+          </button>`;
+        const grid = bodyEl.querySelector("#wo-major-grid");
+        const custom = bodyEl.querySelector("#wo-major-custom");
+        const next = navEl.querySelector("#wo-next");
+        const sync = () => {
+          chosenMajorName = (custom.value || "").trim();
+          if (chosenMajorName) {
+            chosenMajorId = "";
+            chosenCollegeId = "";
+            chosenCollegeName = "";
+          }
+          next.disabled = !(chosenMajorId || chosenMajorName.length >= 2);
+        };
+        grid.addEventListener("click", (e) => {
+          const btn = e.target.closest(".wo-major");
+          if (!btn) return;
+          chosenMajorId = btn.dataset.value;
+          chosenMajorName = btn.textContent.trim();
+          chosenCollegeId = "";
+          chosenCollegeName = "";
+          custom.value = "";
+          grid.querySelectorAll(".wo-major").forEach(b => b.classList.toggle("selected", b === btn));
+          next.disabled = false;
+        });
+        custom.addEventListener("input", () => {
+          grid.querySelectorAll(".wo-major").forEach(b => b.classList.remove("selected"));
+          sync();
+        });
+        navEl.querySelector("#wo-back").addEventListener("click", () => { step = 2; render(); });
+        next.addEventListener("click", () => { if (!next.disabled) { step = 4; render(); } });
+      }
+
+      if (step === 4) {
+        const colleges = collegesFor(chosenCountry, chosenMajorId, chosenMajorName);
+        if (chosenCollegeId && !colleges.some(c => c.id === chosenCollegeId)) chosenCollegeId = "";
+        const majorLabel = chosenMajorName || "your major";
+        bodyEl.innerHTML = `
+          <h2 class="wo-title">Which college do you attend?</h2>
+          <p class="wo-sub">Your QBank access is based on ${esc(majorLabel)} at your college.</p>
+          <div class="wo-col" id="wo-college-grid">
+            ${colleges.map(c => optBtn("college", c.id, `<span>${esc(c.name)}</span>`, chosenCollegeId === c.id)).join("")}
+            ${colleges.length ? "" : '<div style="color:#64748B;font-size:13px;padding:10px 0;">No colleges are listed yet. Add yours below so we can attach the right banks.</div>'}
+          </div>
+          <label class="wo-label" for="wo-college-custom" style="margin-top:16px;">Or add your college</label>
+          <input id="wo-college-custom" class="wo-input" type="text" maxlength="160"
+                 placeholder="e.g. Faculty of Medicine of Tunis" value="${esc(chosenCollegeId ? "" : chosenCollegeName)}" />`;
+        navEl.innerHTML = `
+          <button id="wo-back" class="wo-btn-ghost"><i class="fa-solid fa-arrow-left"></i> Back</button>
+          <button id="wo-next" class="wo-btn-primary wo-btn-flex" ${chosenCollegeId || chosenCollegeName.trim().length >= 2 ? "" : "disabled"}>
+            Continue <i class="fa-solid fa-arrow-right"></i>
+          </button>`;
+        const grid = bodyEl.querySelector("#wo-college-grid");
+        const custom = bodyEl.querySelector("#wo-college-custom");
+        const next = navEl.querySelector("#wo-next");
+        const sync = () => {
+          chosenCollegeName = (custom.value || "").trim();
+          if (chosenCollegeName) chosenCollegeId = "";
+          next.disabled = !(chosenCollegeId || chosenCollegeName.length >= 2);
+        };
+        grid.addEventListener("click", (e) => {
+          const btn = e.target.closest(".wo-college");
+          if (!btn) return;
+          chosenCollegeId = btn.dataset.value;
+          chosenCollegeName = btn.textContent.trim();
+          custom.value = "";
+          grid.querySelectorAll(".wo-college").forEach(b => b.classList.toggle("selected", b === btn));
+          next.disabled = false;
+        });
+        custom.addEventListener("input", () => {
+          grid.querySelectorAll(".wo-college").forEach(b => b.classList.remove("selected"));
+          sync();
+        });
+        navEl.querySelector("#wo-back").addEventListener("click", () => { step = 3; render(); });
+        next.addEventListener("click", () => { if (!next.disabled) { step = 5; render(); } });
+      }
+
+      if (step === 5) {
         const cLabel = countryLabel(chosenCountry);
         const nameVal = chosenName || defaultName;
         bodyEl.innerHTML = `
           <h2 class="wo-title">Preferred language</h2>
           <p class="wo-sub">Your workspace, questions and AI tutor will use this language.</p>
-          <div class="wo-summary"><i class="fa-solid fa-circle-check"></i><span>${esc((nameVal || "").trim().split(" ")[0] || "You")} &middot; ${esc(cLabel)}</span></div>
+          <div class="wo-summary"><i class="fa-solid fa-circle-check"></i><span>${esc((nameVal || "").trim().split(" ")[0] || "You")} &middot; ${esc(cLabel)} &middot; ${esc(chosenMajorName || "Major")} &middot; ${esc(chosenCollegeName || "College")}</span></div>
           <div class="wo-col" id="wo-lang-grid">
             ${LANGUAGES.map(l => optBtn("lang", l.value, `<span>${esc(l.label)}</span>`, chosenLang === l.value)).join("")}
           </div>`;
@@ -210,7 +356,7 @@
           grid.querySelectorAll(".wo-lang").forEach(b => b.classList.toggle("selected", b === btn));
           go.disabled = false;
         });
-        navEl.querySelector("#wo-back").addEventListener("click", () => { step = 2; render(); });
+        navEl.querySelector("#wo-back").addEventListener("click", () => { step = 4; render(); });
         go.addEventListener("click", save);
       }
     }
@@ -218,6 +364,8 @@
     async function save() {
       const name = (chosenName || defaultName || "").trim();
       if (name.length < 2 || !chosenCountry || !chosenLang) return;
+      if (!chosenMajorId && chosenMajorName.trim().length < 2) return;
+      if (!chosenCollegeId && chosenCollegeName.trim().length < 2) return;
 
       const go = overlay.querySelector("#wo-go");
       if (go) {
@@ -226,23 +374,38 @@
       }
 
       try {
-        try { localStorage.setItem('omnote_lang', chosenLang); } catch (_) {}
+        const token = await user.getIdToken();
+        const res = await fetch("/api/qbank", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          body: JSON.stringify({
+            action: "complete_onboarding",
+            name,
+            language: chosenLang,
+            countryId: chosenCountry,
+            majorId: chosenMajorId || "",
+            majorName: chosenMajorId ? "" : chosenMajorName.trim(),
+            collegeId: chosenCollegeId || "",
+            collegeName: chosenCollegeId ? "" : chosenCollegeName.trim(),
+          }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || "Could not save your profile.");
 
-        // Auth profile
+        try { localStorage.setItem('omnote_lang', chosenLang); } catch (_) {}
+        try { localStorage.setItem("omnote_onboarded", "1"); } catch (_) {}
         try { await user.updateProfile({ displayName: name }); } catch (_) {}
 
-        // Firestore profile (both docs, merge)
-        const fsdb = firebase.firestore();
-        await fsdb.collection("users_index").doc(user.uid).set(
-          { country: chosenCountry, displayName: name, email: user.email || "" },
-          { merge: true }
-        );
-        await fsdb.collection("users").doc(user.uid).set(
-          { country: chosenCountry, language: chosenLang },
-          { merge: true }
-        );
-
-        try { localStorage.setItem("omnote_onboarded", "1"); } catch (_) {}
+        if (window.db) {
+          if (data.access && typeof window.applyAccessBundle === "function") {
+            window.applyAccessBundle(data.access);
+          } else {
+            delete window.db.access;
+            if (typeof window.bootstrapAccess === "function") await window.bootstrapAccess(true);
+          }
+          window.__academicProfile = data.profile || null;
+          if (typeof saveDb === "function") saveDb();
+        }
 
         overlay.style.opacity = '0';
         setTimeout(() => {
@@ -250,16 +413,12 @@
           document.body.style.overflow = "";
         }, 400);
 
-        // Re-run access bootstrap so their banks appear instantly
-        if (window.db) delete window.db.access;
-        if (typeof saveDb === "function") saveDb();
         if (typeof window.openQBank === "function") window.openQBank();
         else if (typeof window.refreshAppUI === "function") window.refreshAppUI();
 
-        // Set local language last (as it triggers a page reload)
         if (window.setSiteLanguage) {
           window.setSiteLanguage(chosenLang);
-        } else if (window.setUserLanguage) {
+        } else if (typeof window.setUserLanguage) {
           window.setUserLanguage(chosenLang);
         }
       } catch (e) {

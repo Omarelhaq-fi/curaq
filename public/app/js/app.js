@@ -63,26 +63,25 @@ async function initApp(user) {
         db.studyStats = {};
     }
 
-    // Welcome onboarding: anyone without a country on their profile
-    // (brand-new signup or legacy account) sets name + country here.
+    // College onboarding: new accounts and legacy accounts that never chose a
+    // college get the profile wizard. Country alone is no longer sufficient
+    // because bank access is attached to the selected college.
     try {
         const u0 = window.firebase && firebase.auth().currentUser;
-        // Authoritative check: does users_index/{uid} have a country?
-        // Legacy accounts (no country) and fresh signups both get the welcome.
         if (u0 && typeof window.showWelcomeOnboarding === "function") {
             (async () => {
                 try {
-                    let hasCountry = false;
+                    let profile = null;
                     try {
                         if (window.getUsersIndexDoc) {
                             const rec = await window.getUsersIndexDoc(u0.uid);
-                            hasCountry = !!(rec.exists && rec.data && rec.data.country);
+                            profile = rec.exists ? (rec.data || {}) : {};
                         } else {
                             const snap = await firebase.firestore().collection("users_index").doc(u0.uid).get();
-                            hasCountry = !!(snap.exists && snap.data() && snap.data().country);
+                            profile = snap.exists ? (snap.data() || {}) : {};
                         }
                     } catch (_) {}
-                    if (!hasCountry) window.showWelcomeOnboarding();
+                    if (!profile || !profile.country || !profile.collegeId) window.showWelcomeOnboarding();
                 } catch (_) {}
             })();
         }
@@ -250,7 +249,7 @@ document.addEventListener("click", function (e) {
     }
 }, true);
 
-// ---- Home search: live suggestions for subjects, chapters, and question IDs ----
+// ---- Home search: live suggestions for subjects, chapters, parts, and tags ----
 // Delegates the lookup to the QBank module which owns the question cache.
 
 // Debounce helper
@@ -259,13 +258,32 @@ let _searchActiveIndex = -1;
 let _searchResults = [];
 let _searchLoading = false;
 let _searchIndexCache = {}; // Separate cache for search to avoid corrupting QBank session
+let _searchIndexMeta = {}; // qbankId -> updatedAt stamp for _searchIndexCache
+let _searchFailedBanks = {}; // qbankId -> true when a search load failed
+let _searchActiveInput = null;
+
+function _searchDropdownForInput(input) {
+    if (!input) return null;
+    const id = input.getAttribute('aria-controls');
+    return id ? document.getElementById(id) : null;
+}
+
+function _setSearchContext(input) {
+    if (!input) return;
+    _searchActiveInput = input;
+    document.querySelectorAll('[data-home-search-input]').forEach(el => {
+        if (el !== input) el.setAttribute('aria-expanded', 'false');
+    });
+}
 
 function _getSearchInput() {
+    if (_searchActiveInput && _searchActiveInput.isConnected) return _searchActiveInput;
     return document.getElementById('home-search-input');
 }
 
 function _getSearchDropdown() {
-    return document.getElementById('home-search-dropdown');
+    const input = _getSearchInput();
+    return _searchDropdownForInput(input) || document.getElementById('home-search-dropdown');
 }
 
 function _escHtml(s) {
@@ -275,17 +293,25 @@ function _escHtml(s) {
 }
 
 function _closeSearchDropdown() {
-    const dd = _getSearchDropdown();
-    if (dd) dd.classList.add('hidden');
+    document.querySelectorAll('.home-search-dropdown').forEach(dd => dd.classList.add('hidden'));
+    document.querySelectorAll('[data-home-search-input]').forEach(input => {
+        input.setAttribute('aria-expanded', 'false');
+        input.removeAttribute('aria-activedescendant');
+    });
     _searchActiveIndex = -1;
     _searchResults = [];
 }
 
 function _showSearchDropdown(html) {
     const dd = _getSearchDropdown();
+    const input = _getSearchInput();
     if (!dd) return;
     dd.innerHTML = html;
     dd.classList.remove('hidden');
+    if (input) {
+        input.setAttribute('aria-controls', dd.id);
+        input.setAttribute('aria-expanded', 'true');
+    }
 }
 
 function _highlightMatch(text, query) {
@@ -298,8 +324,148 @@ function _highlightMatch(text, query) {
     return `${before}<mark style="background:#fef08a;color:#000;padding:0 1px;">${match}</mark>${after}`;
 }
 
-// Main search function that finds subjects and chapters only.
-    // NOTE: Question-ID search is disabled to save Firestore reads.
+function _searchTagName(tag) {
+    if (tag && typeof tag === 'object') {
+        return String(tag.name || tag.tag || tag.value || tag.label || tag.text || tag.title || '').trim();
+    }
+    return String(tag == null ? '' : tag).trim();
+}
+
+function _searchPushTags(out, raw) {
+    if (raw == null) return;
+    if (Array.isArray(raw)) {
+        raw.forEach(value => _searchPushTags(out, value));
+        return;
+    }
+    if (typeof raw === 'object') {
+        const name = _searchTagName(raw);
+        if (name) out.push(name);
+        return;
+    }
+    const text = String(raw).trim();
+    if (!text) return;
+    if (/[,;|]/.test(text)) {
+        text.split(/[,;|]/).forEach(value => _searchPushTags(out, value));
+        return;
+    }
+    out.push(text);
+}
+
+function _searchTagsOf(question) {
+    const data = (question && question.data) || {};
+    const out = [];
+    _searchPushTags(out, data.tags);
+    _searchPushTags(out, data.tag);
+    _searchPushTags(out, question && question.tags);
+    return out;
+}
+
+function _searchBankMeta(qbankId) {
+    try {
+        const list = (window.getQBankList && window.getQBankList()) || window.cachedCategories || [];
+        const found = (Array.isArray(list) ? list : []).find(q => q && q.id === qbankId);
+        if (found) return found;
+        if (Array.isArray(window.__epBanks)) {
+            return window.__epBanks.find(q => q && q.id === qbankId) || null;
+        }
+        return null;
+    } catch (_) {
+        return null;
+    }
+}
+
+function _searchBankLabel(bank) {
+    if (!bank) return 'QBank';
+    const name = bank.name || 'QBank';
+    if (bank.kind !== 'exam_prep') return name;
+    const bits = [];
+    if (bank.college) bits.push(bank.college);
+    if (bank.year) bits.push(bank.year);
+    return bits.length ? `${name} · ${bits.join(' · ')}` : `${name} · Exam prep`;
+}
+
+function _searchBankAllowed(bank) {
+    const acc = window.db && window.db.access;
+    if (!acc || acc.legacy || !acc.country) return true;
+    const id = bank && bank.id;
+    if (!id) return false;
+    const grants = Array.isArray(acc.grants) ? acc.grants : [];
+    if (grants.includes(id)) return true;
+    if (bank.kind === 'exam_prep') {
+        return (Array.isArray(acc.prepIds) ? acc.prepIds : []).includes(id);
+    }
+    return (Array.isArray(acc.mainIds) ? acc.mainIds : []).includes(id);
+}
+
+function _searchBanks() {
+    const list = (window.getQBankList && window.getQBankList()) || window.cachedCategories || [];
+    const byId = new Map();
+    (Array.isArray(list) ? list : []).forEach(q => {
+        if (q && q.id) byId.set(q.id, q);
+    });
+    if (Array.isArray(window.__epBanks)) {
+        window.__epBanks.forEach(q => {
+            if (!q || !q.id) return;
+            byId.set(q.id, { ...(byId.get(q.id) || {}), ...q });
+        });
+    }
+    const activeId = window.db && window.db.selectedQBankId;
+    const active = activeId ? byId.get(activeId) : null;
+    const acc = window.db && window.db.access;
+    const collegeScoped = !!(acc && acc.collegeId);
+    const usable = q => _searchBankAllowed(q) && !_searchFailedBanks[q.id];
+    const mains = [...byId.values()].filter(q => q.kind !== 'exam_prep' && usable(q));
+    const prep = [...byId.values()].filter(q => q.kind === 'exam_prep' && usable(q));
+    const chosen = [];
+    if (active && usable(active)) chosen.push(active);
+    if (collegeScoped) {
+        mains.forEach(q => {
+            if (!chosen.some(item => item.id === q.id)) chosen.push(q);
+        });
+    } else if (!chosen.length && mains.length) {
+        chosen.push(mains[0]);
+    }
+    prep.forEach(q => {
+        if (!chosen.some(item => item.id === q.id)) chosen.push(q);
+    });
+    return chosen;
+}
+
+function _searchQuestionsForBank(bankId) {
+    const updatedAt = _searchBankUpdatedAt(bankId);
+    const fresh = !updatedAt || _searchIndexMeta[bankId] === updatedAt;
+    if (fresh && Object.prototype.hasOwnProperty.call(_searchIndexCache, bankId)) {
+        return _searchIndexCache[bankId];
+    }
+    if (window.cachedQBanks && window.cachedQBanks[bankId] && window.cachedQBanks[bankId].questions) {
+        return window.cachedQBanks[bankId].questions || [];
+    }
+    return null;
+}
+
+function _searchBankUpdatedAt(qbankId) {
+    const meta = _searchBankMeta(qbankId);
+    const value = Number(meta && meta.updatedAt);
+    return Number.isFinite(value) && value > 0 ? value : 0;
+}
+
+function _searchTaxonomyPath(question) {
+    const data = (question && question.data) || {};
+    const raw = data.taxonomyPath;
+    const path = Array.isArray(raw) ? raw.map(s => String(s == null ? '' : s).trim()).filter(Boolean) : [];
+    const subject = String(data.subject || data.subcategory || '').trim();
+    const chapter = String(data.chapter || '').trim();
+    const part = String(data.part || data.topic || '').trim();
+    const staleRoot = path.length > 0 && subject && String(path[0]).toLowerCase() !== subject.toLowerCase();
+    const yearSegment = path.some((segment, index) => index > 0 && /^(19|20)\d{2}$/.test(segment));
+    if (subject && chapter && (!path.length || path.length < 3 || staleRoot || yearSegment)) {
+        return [subject, chapter, part].filter(Boolean);
+    }
+    return path;
+}
+
+// Main search function that finds subjects, chapters, parts, and tags.
+// NOTE: Question-ID search is disabled to save Firestore reads.
 function _performSearch(query) {
     const results = [];
     const q = (query || '').trim().toLowerCase();
@@ -309,93 +475,203 @@ function _performSearch(query) {
         return;
     }
     
-    // Get current qbank data
-    const activeQBankId = window.db && window.db.selectedQBankId;
-    
-    if (!activeQBankId) {
+    // Search every accessible main QBank and exam-prep bank.
+    const banks = _searchBanks();
+    if (!banks.length) {
         _showSearchDropdown('<div class="search-no-results">Please select a QBank first</div>');
         return;
     }
-    
-    // Use cached questions if available in memory or search index
-    let questions = [];
-    if (window.cachedQBanks && window.cachedQBanks[activeQBankId] && window.cachedQBanks[activeQBankId].questions) {
-        questions = window.cachedQBanks[activeQBankId].questions || [];
-    } else if (_searchIndexCache && _searchIndexCache[activeQBankId]) {
-        questions = _searchIndexCache[activeQBankId];
-    }
-    
-    // If not in memory, try loading from IndexedDB (local-first)
-    if (questions.length === 0) {
+
+    const missingBanks = banks.filter(bank => _searchQuestionsForBank(bank.id) === null);
+    if (missingBanks.length) {
         _showSearchDropdown('<div class="search-loading">Loading QBank data...</div>');
         if (!_searchLoading) {
             _searchLoading = true;
-            _loadQBankFromCache(activeQBankId).then(qs => {
-                _searchLoading = false;
-                setTimeout(() => _performSearch(query), 50);
-            }).catch(() => {
-                _searchLoading = false;
-                _showSearchDropdown('<div class="search-no-results">Failed to load QBank data</div>');
-            });
+            Promise.allSettled(missingBanks.map(bank => _loadQBankFromCache(bank.id)))
+                .then(results => {
+                    _searchLoading = false;
+                    let failed = 0;
+                    results.forEach((result, index) => {
+                        if (result.status === 'rejected') {
+                            failed++;
+                            _searchFailedBanks[missingBanks[index].id] = true;
+                        }
+                    });
+                    if (failed === results.length) {
+                        _showSearchDropdown('<div class="search-no-results">Failed to load QBank data</div>');
+                        return;
+                    }
+                    const input = _getSearchInput();
+                    const latestQuery = input ? input.value : query;
+                    setTimeout(() => _performSearch(latestQuery), 50);
+                });
         }
         return;
     }
-    
-    // Build subject and chapter index
+
+    const activeQBankId = window.db && window.db.selectedQBankId;
     const subjectIndex = {};
-    
-    questions.forEach(question => {
-        const data = question.data || {};
-        const subject = data.subject || 'Uncategorized';
-        const chapter = data.chapter || null;
-        
-        if (subject !== 'Uncategorized') {
-            if (!subjectIndex[subject]) {
-                subjectIndex[subject] = { total: 0, chapters: {} };
-            }
-            subjectIndex[subject].total++;
-            
-            if (chapter) {
-                if (!subjectIndex[subject].chapters[chapter]) {
-                    subjectIndex[subject].chapters[chapter] = 0;
+    const partIndex = {};
+    const tagIndex = {};
+
+    banks.forEach(bank => {
+        const questions = _searchQuestionsForBank(bank.id) || [];
+        const bankLabel = _searchBankLabel(bank);
+        const bankKind = bank.kind || 'main';
+        const bankPriority = bank.id === activeQBankId ? 0 : (bankKind === 'exam_prep' ? 1 : 2);
+        const bankKey = `${bank.id}\u0000`;
+
+        questions.forEach(question => {
+            const data = question.data || {};
+            const taxPath = _searchTaxonomyPath(question);
+            const subject = String(data.subject || data.subcategory || taxPath[0] || 'Uncategorized').trim();
+            const chapter = String(data.chapter || taxPath[1] || '').trim() || null;
+            const part = String((taxPath.length >= 3 ? taxPath[2] : '') || data.part || data.topic || '').trim() || null;
+
+            if (subject !== 'Uncategorized') {
+                const subjectKey = `${bankKey}${subject}`.toLowerCase();
+                if (!subjectIndex[subjectKey]) {
+                    subjectIndex[subjectKey] = {
+                        name: subject,
+                        total: 0,
+                        chapters: {},
+                        bankId: bank.id,
+                        bankLabel,
+                        bankKind,
+                        bankPriority
+                    };
                 }
-                subjectIndex[subject].chapters[chapter]++;
+                subjectIndex[subjectKey].total++;
+
+                if (chapter) {
+                    if (!subjectIndex[subjectKey].chapters[chapter]) {
+                        subjectIndex[subjectKey].chapters[chapter] = 0;
+                    }
+                    subjectIndex[subjectKey].chapters[chapter]++;
+                }
             }
-        }
+
+            if (chapter && part) {
+                const partKey = `${bankKey}${subject}\u0000${chapter}\u0000${part}`.toLowerCase();
+                if (!partIndex[partKey]) {
+                    partIndex[partKey] = {
+                        name: part,
+                        subject,
+                        chapter,
+                        total: 0,
+                        bankId: bank.id,
+                        bankLabel,
+                        bankKind,
+                        bankPriority
+                    };
+                }
+                partIndex[partKey].total++;
+            }
+
+            const tags = _searchTagsOf(question);
+            const seenTags = new Set();
+            tags.forEach(name => {
+                if (!name) return;
+                const tagKey = name.toLowerCase();
+                if (seenTags.has(tagKey)) return;
+                seenTags.add(tagKey);
+                const indexKey = `${bankKey}${tagKey}`;
+                if (!tagIndex[indexKey]) {
+                    tagIndex[indexKey] = {
+                        name,
+                        total: 0,
+                        bankId: bank.id,
+                        bankLabel,
+                        bankKind,
+                        bankPriority
+                    };
+                }
+                tagIndex[indexKey].total++;
+            });
+        });
     });
-    
+
     // Search subjects
-    Object.keys(subjectIndex).forEach(subject => {
-        const subLower = subject.toLowerCase();
+    Object.keys(subjectIndex).forEach(key => {
+        const item = subjectIndex[key];
+        const subLower = item.name.toLowerCase();
         if (subLower.includes(q)) {
             results.push({
                 type: 'subject',
-                name: subject,
-                total: subjectIndex[subject].total,
+                name: item.name,
+                total: item.total,
+                bankId: item.bankId,
+                bankLabel: item.bankLabel,
+                bankKind: item.bankKind,
+                bankPriority: item.bankPriority,
                 matchScore: subLower === q ? 100 : (subLower.startsWith(q) ? 80 : 60)
             });
         }
     });
-    
+
     // Search chapters
-    Object.keys(subjectIndex).forEach(subject => {
-        Object.keys(subjectIndex[subject].chapters).forEach(chapter => {
+    Object.keys(subjectIndex).forEach(key => {
+        const subjectItem = subjectIndex[key];
+        Object.keys(subjectItem.chapters).forEach(chapter => {
             const chLower = chapter.toLowerCase();
             if (chLower.includes(q)) {
                 results.push({
                     type: 'chapter',
                     name: chapter,
-                    subject: subject,
-                    total: subjectIndex[subject].chapters[chapter],
+                    subject: subjectItem.name,
+                    total: subjectItem.chapters[chapter],
+                    bankId: subjectItem.bankId,
+                    bankLabel: subjectItem.bankLabel,
+                    bankKind: subjectItem.bankKind,
+                    bankPriority: subjectItem.bankPriority,
                     matchScore: chLower === q ? 90 : (chLower.startsWith(q) ? 70 : 50)
                 });
             }
         });
     });
-    
-    // Sort by match score, then by name
+
+    // Search parts
+    Object.keys(partIndex).forEach(key => {
+        const item = partIndex[key];
+        const partLower = item.name.toLowerCase();
+        if (partLower.includes(q)) {
+            results.push({
+                type: 'part',
+                name: item.name,
+                subject: item.subject,
+                chapter: item.chapter,
+                total: item.total,
+                bankId: item.bankId,
+                bankLabel: item.bankLabel,
+                bankKind: item.bankKind,
+                bankPriority: item.bankPriority,
+                matchScore: partLower === q ? 88 : (partLower.startsWith(q) ? 68 : 48)
+            });
+        }
+    });
+
+    // Search tags
+    Object.keys(tagIndex).forEach(key => {
+        const item = tagIndex[key];
+        const tagLower = item.name.toLowerCase();
+        if (tagLower.includes(q)) {
+            results.push({
+                type: 'tag',
+                name: item.name,
+                total: item.total,
+                bankId: item.bankId,
+                bankLabel: item.bankLabel,
+                bankKind: item.bankKind,
+                bankPriority: item.bankPriority,
+                matchScore: tagLower === q ? 86 : (tagLower.startsWith(q) ? 66 : 46)
+            });
+        }
+    });
+
+    // Sort by match score, active main QBank first, then by name
     results.sort((a, b) => {
         if (b.matchScore !== a.matchScore) return b.matchScore - a.matchScore;
+        if (a.bankPriority !== b.bankPriority) return a.bankPriority - b.bankPriority;
         return a.name.localeCompare(b.name);
     });
     
@@ -403,7 +679,7 @@ function _performSearch(query) {
     _searchActiveIndex = -1;
     
     if (results.length === 0) {
-        _showSearchDropdown('<div class="search-no-results">No subjects or chapters found</div>');
+        _showSearchDropdown('<div class="search-no-results">No subjects, chapters, parts, or tags found</div>');
     } else {
         _renderSearchResults(results, q);
     }
@@ -415,31 +691,34 @@ function _loadQBankFromCache(qbankId) {
     return new Promise((resolve, reject) => {
         const loadFn = async () => {
             try {
+                const catUpdated = _searchBankUpdatedAt(qbankId);
+                const searchIndexFresh = !catUpdated || _searchIndexMeta[qbankId] === catUpdated;
+
                 // Check if already in memory (either cache)
                 if (window.cachedQBanks && window.cachedQBanks[qbankId] && window.cachedQBanks[qbankId].questions) {
                     return window.cachedQBanks[qbankId].questions;
                 }
                 
                 // Check search index cache
-                if (_searchIndexCache && _searchIndexCache[qbankId]) {
+                if (searchIndexFresh && _searchIndexCache && _searchIndexCache[qbankId]) {
                     return _searchIndexCache[qbankId];
                 }
                 
-                // Try IndexedDB first (local-first approach)
+                // Try IndexedDB first, but only when it matches the bank's
+                // current updatedAt stamp. Old caches can predate Parts/tags.
                 if (window.getCachedQBank) {
                     const idbData = await window.getCachedQBank(qbankId);
-                    if (idbData && idbData.questions && idbData.questions.length > 0) {
+                    const idbFresh = !catUpdated || (idbData && Number(idbData.updatedAt) === catUpdated);
+                    if (idbFresh && idbData && idbData.questions && idbData.questions.length > 0) {
                         // Store in search index only (not in cachedQBanks to avoid corrupting session)
                         _searchIndexCache[qbankId] = idbData.questions;
+                        _searchIndexMeta[qbankId] = catUpdated;
                         return idbData.questions;
                     }
                 }
                 
                 // Authenticated private static endpoint (per-bank key, stems-only).
                 // No public CDN cache: requires Firebase ID token, 403s without access.
-                const qCat = (window.cachedCategories || []).find(c => c.id === qbankId);
-                const catUpdated = qCat ? (qCat.updatedAt || 0) : 0;
-
                 const headers = await window.qbankAuthHeaders();
                 const res = await fetch(`/api/qbank_static?qbankId=${encodeURIComponent(qbankId)}&v=${encodeURIComponent(catUpdated)}`, { headers });
                 const data = await res.json();
@@ -457,6 +736,7 @@ function _loadQBankFromCache(qbankId) {
                 
                 // Store in search index only
                 _searchIndexCache[qbankId] = questions;
+                _searchIndexMeta[qbankId] = catUpdated;
                 
                 // Save to IndexedDB for next time
                 if (window.setCachedQBank) {
@@ -475,21 +755,25 @@ function _loadQBankFromCache(qbankId) {
 
 function _renderSearchResults(results, query) {
     let html = '';
+    let itemIndex = 0;
     
     const subjects = results.filter(r => r.type === 'subject');
     const chapters = results.filter(r => r.type === 'chapter');
+    const parts = results.filter(r => r.type === 'part');
+    const tags = results.filter(r => r.type === 'tag');
     
     if (subjects.length > 0) {
         html += `<div class="search-section-header">Subjects (${subjects.length})</div>`;
-        subjects.slice(0, 5).forEach((item, idx) => {
+        subjects.slice(0, 5).forEach(item => {
+            const idx = itemIndex++;
             html += `
-                <div class="search-suggestion-item" data-action="subject" data-name="${_escHtml(item.name)}" data-idx="${idx}">
+                <div class="search-suggestion-item" role="option" aria-selected="false" id="search-option-${idx}" data-action="subject" data-name="${_escHtml(item.name)}" data-bank-id="${_escHtml(item.bankId)}" data-idx="${idx}">
                     <div class="suggestion-icon subject">
-                        <i class="fa-solid fa-book-medical" style="font-size:12px;"></i>
+                        <i class="fa-solid fa-book-medical" style="font-size:12px;" aria-hidden="true"></i>
                     </div>
                     <div class="suggestion-text">
                         <div class="suggestion-title">${_highlightMatch(item.name, query)}</div>
-                        <div class="suggestion-subtitle">Subject</div>
+                        <div class="suggestion-subtitle">Subject &middot; ${_escHtml(item.bankLabel)}</div>
                     </div>
                     <span class="suggestion-badge count">${item.total} Q</span>
                 </div>`;
@@ -498,15 +782,52 @@ function _renderSearchResults(results, query) {
     
     if (chapters.length > 0) {
         html += `<div class="search-section-header">Chapters (${chapters.length})</div>`;
-        chapters.slice(0, 5).forEach((item, idx) => {
+        chapters.slice(0, 5).forEach(item => {
+            const idx = itemIndex++;
             html += `
-                <div class="search-suggestion-item" data-action="chapter" data-name="${_escHtml(item.name)}" data-subject="${_escHtml(item.subject)}" data-idx="${idx + subjects.length}">
+                <div class="search-suggestion-item" role="option" aria-selected="false" id="search-option-${idx}" data-action="chapter" data-name="${_escHtml(item.name)}" data-subject="${_escHtml(item.subject)}" data-bank-id="${_escHtml(item.bankId)}" data-idx="${idx}">
                     <div class="suggestion-icon chapter">
-                        <i class="fa-solid fa-book-open" style="font-size:12px;"></i>
+                        <i class="fa-solid fa-book-open" style="font-size:12px;" aria-hidden="true"></i>
                     </div>
                     <div class="suggestion-text">
                         <div class="suggestion-title">${_highlightMatch(item.name, query)}</div>
-                        <div class="suggestion-subtitle">${_escHtml(item.subject)}</div>
+                        <div class="suggestion-subtitle">${_escHtml(item.subject)} &middot; ${_escHtml(item.bankLabel)}</div>
+                    </div>
+                    <span class="suggestion-badge count">${item.total} Q</span>
+                </div>`;
+        });
+    }
+
+    if (parts.length > 0) {
+        html += `<div class="search-section-header">Parts (${parts.length})</div>`;
+        parts.slice(0, 5).forEach(item => {
+            const idx = itemIndex++;
+            html += `
+                <div class="search-suggestion-item" role="option" aria-selected="false" id="search-option-${idx}" data-action="part" data-name="${_escHtml(item.name)}" data-subject="${_escHtml(item.subject)}" data-chapter="${_escHtml(item.chapter)}" data-bank-id="${_escHtml(item.bankId)}" data-idx="${idx}">
+                    <div class="suggestion-icon chapter">
+                        <i class="fa-solid fa-layer-group" style="font-size:12px;" aria-hidden="true"></i>
+                    </div>
+                    <div class="suggestion-text">
+                        <div class="suggestion-title">${_highlightMatch(item.name, query)}</div>
+                        <div class="suggestion-subtitle">${_escHtml(item.subject)} &middot; ${_escHtml(item.chapter)} &middot; ${_escHtml(item.bankLabel)}</div>
+                    </div>
+                    <span class="suggestion-badge count">${item.total} Q</span>
+                </div>`;
+        });
+    }
+
+    if (tags.length > 0) {
+        html += `<div class="search-section-header">Tags (${tags.length})</div>`;
+        tags.slice(0, 5).forEach(item => {
+            const idx = itemIndex++;
+            html += `
+                <div class="search-suggestion-item" role="option" aria-selected="false" id="search-option-${idx}" data-action="tag" data-name="${_escHtml(item.name)}" data-bank-id="${_escHtml(item.bankId)}" data-idx="${idx}">
+                    <div class="suggestion-icon question">
+                        <i class="fa-solid fa-tag" style="font-size:12px;" aria-hidden="true"></i>
+                    </div>
+                    <div class="suggestion-text">
+                        <div class="suggestion-title">#${_highlightMatch(item.name, query)}</div>
+                        <div class="suggestion-subtitle">Tag &middot; ${_escHtml(item.bankLabel)}</div>
                     </div>
                     <span class="suggestion-badge count">${item.total} Q</span>
                 </div>`;
@@ -514,70 +835,127 @@ function _renderSearchResults(results, query) {
     }
     
     if (results.length === 0) {
-        html = '<div class="search-no-results">No subjects or chapters found</div>';
+        html = '<div class="search-no-results">No subjects, chapters, parts, or tags found</div>';
     }
     
     _showSearchDropdown(html);
     
-    // Add click handlers (subject / chapter only — ID search disabled)
+    // Add click handlers for taxonomy and tag results
     const dd = _getSearchDropdown();
     dd.querySelectorAll('.search-suggestion-item').forEach(el => {
         el.addEventListener('click', () => {
             const action = el.getAttribute('data-action');
+            const bankId = el.getAttribute('data-bank-id');
             if (action === 'subject') {
                 const name = el.getAttribute('data-name');
-                _openSubjectInQBank(name);
+                _openSubjectInQBank(name, bankId);
             } else if (action === 'chapter') {
                 const name = el.getAttribute('data-name');
                 const subject = el.getAttribute('data-subject');
-                _openChapterInQBank(subject, name);
+                _openChapterInQBank(subject, name, bankId);
+            } else if (action === 'part') {
+                const name = el.getAttribute('data-name');
+                const subject = el.getAttribute('data-subject');
+                const chapter = el.getAttribute('data-chapter');
+                _openPartInQBank(subject, chapter, name, bankId);
+            } else if (action === 'tag') {
+                const name = el.getAttribute('data-name');
+                _openTagInQBank(name, bankId);
             }
         });
     });
 }
 
-function _openSubjectInQBank(subjectName) {
+function _openSubjectInQBank(subjectName, bankId) {
     _closeSearchDropdown();
     const input = _getSearchInput();
-    if (input) { input.value = ''; input.placeholder = 'Search subjects, chapters...'; }
-    
-    if (!window.db || !window.db.selectedQBankId) {
+    if (input) { input.value = ''; input.placeholder = 'Search subjects, chapters, parts, tags...'; }
+
+    const targetBankId = bankId || (window.db && window.db.selectedQBankId);
+    if (!targetBankId) {
         if (window.openQBankSelection) window.openQBankSelection();
         return;
     }
-    
-    const activeQBankId = window.db.selectedQBankId;
-    const qbankName = (window.cachedCategories || []).find(q => q.id === activeQBankId)?.name || 'QBank';
-    
+
+    const qbankName = (_searchBankMeta(targetBankId) || {}).name || 'QBank';
+
     // Use startQBankSession which handles data loading and opens the subject
     if (window.startQBankSession) {
-        window.startQBankSession(activeQBankId, qbankName, subjectName);
+        window.startQBankSession(targetBankId, qbankName, subjectName).catch(() => {});
     }
 }
 
-function _openChapterInQBank(subjectName, chapterName) {
+function _openChapterInQBank(subjectName, chapterName, bankId) {
     _closeSearchDropdown();
     const input = _getSearchInput();
-    if (input) { input.value = ''; input.placeholder = 'Search subjects, chapters...'; }
-    
-    if (!window.db || !window.db.selectedQBankId) {
+    if (input) { input.value = ''; input.placeholder = 'Search subjects, chapters, parts, tags...'; }
+
+    const targetBankId = bankId || (window.db && window.db.selectedQBankId);
+    if (!targetBankId) {
         if (window.openQBankSelection) window.openQBankSelection();
         return;
     }
-    
-    const activeQBankId = window.db.selectedQBankId;
-    const qbankName = (window.cachedCategories || []).find(q => q.id === activeQBankId)?.name || 'QBank';
-    
+
+    const qbankName = (_searchBankMeta(targetBankId) || {}).name || 'QBank';
+
     // Open the subject first (shows chapters), then auto-select the chapter
     if (window.startQBankSession) {
-        window.startQBankSession(activeQBankId, qbankName, subjectName).then(() => {
+        window.startQBankSession(targetBankId, qbankName, subjectName).then(() => {
             // After subject view loads, auto-open the specific chapter
             setTimeout(() => {
                 if (window.startQBankFiltered) {
                     window.startQBankFiltered(subjectName, chapterName);
                 }
             }, 150);
-        });
+        }).catch(() => {});
+    }
+}
+
+function _openPartInQBank(subjectName, chapterName, partName, bankId) {
+    _closeSearchDropdown();
+    const input = _getSearchInput();
+    if (input) { input.value = ''; input.placeholder = 'Search subjects, chapters, parts, tags...'; }
+
+    const targetBankId = bankId || (window.db && window.db.selectedQBankId);
+    if (!targetBankId) {
+        if (window.openQBankSelection) window.openQBankSelection();
+        return;
+    }
+
+    const qbankName = (_searchBankMeta(targetBankId) || {}).name || 'QBank';
+
+    if (window.startQBankSession) {
+        window.startQBankSession(targetBankId, qbankName, subjectName).then(() => {
+            setTimeout(() => {
+                if (window.startQBankFiltered) {
+                    window.startQBankFiltered(subjectName, chapterName, false, [subjectName, chapterName, partName]);
+                }
+            }, 150);
+        }).catch(() => {});
+    }
+}
+
+function _openTagInQBank(tagName, bankId) {
+    _closeSearchDropdown();
+    const input = _getSearchInput();
+    if (input) { input.value = ''; input.placeholder = 'Search subjects, chapters, parts, tags...'; }
+
+    const targetBankId = bankId || (window.db && window.db.selectedQBankId);
+    if (!targetBankId) {
+        if (window.openQBankSelection) window.openQBankSelection();
+        return;
+    }
+
+    const qbankName = (_searchBankMeta(targetBankId) || {}).name || 'QBank';
+
+    if (window.startQBankSession) {
+        window.startQBankSession(targetBankId, qbankName).then(() => {
+            setTimeout(() => {
+                if (window.startQBankFiltered) {
+                    window.startQBankFiltered(null, null, false, null, tagName);
+                }
+            }, 150);
+        }).catch(() => {});
     }
 }
 
@@ -590,6 +968,7 @@ function _searchQuestionById(term) {
 
 // Input handler with debouncing
 window.handleHomeSearchInput = function(event) {
+    _setSearchContext(event.target);
     const query = event.target.value;
     
     clearTimeout(_searchDebounceTimer);
@@ -600,6 +979,7 @@ window.handleHomeSearchInput = function(event) {
 
 // Focus handler - show dropdown if there's content
 window.handleHomeSearchFocus = function(event) {
+    _setSearchContext(event.target);
     const query = event.target.value;
     if (query && query.trim()) {
         _performSearch(query);
@@ -609,6 +989,7 @@ window.handleHomeSearchFocus = function(event) {
 // Keydown handler for Enter, Up, Down arrows
 window.handleHomeSearch = function(event) {
     const inputEl = event.target;
+    _setSearchContext(inputEl);
     const dropdown = _getSearchDropdown();
     
     if (event.key === 'ArrowDown') {
@@ -618,8 +999,11 @@ window.handleHomeSearch = function(event) {
             if (items.length > 0) {
                 _searchActiveIndex = Math.min(_searchActiveIndex + 1, items.length - 1);
                 items.forEach((el, i) => {
-                    el.classList.toggle('active', i === _searchActiveIndex);
+                    const active = i === _searchActiveIndex;
+                    el.classList.toggle('active', active);
+                    el.setAttribute('aria-selected', active ? 'true' : 'false');
                 });
+                inputEl.setAttribute('aria-activedescendant', items[_searchActiveIndex].id);
                 items[_searchActiveIndex].scrollIntoView({ block: 'nearest' });
             }
         }
@@ -633,8 +1017,11 @@ window.handleHomeSearch = function(event) {
             if (items.length > 0) {
                 _searchActiveIndex = Math.max(_searchActiveIndex - 1, 0);
                 items.forEach((el, i) => {
-                    el.classList.toggle('active', i === _searchActiveIndex);
+                    const active = i === _searchActiveIndex;
+                    el.classList.toggle('active', active);
+                    el.setAttribute('aria-selected', active ? 'true' : 'false');
                 });
+                inputEl.setAttribute('aria-activedescendant', items[_searchActiveIndex].id);
                 items[_searchActiveIndex].scrollIntoView({ block: 'nearest' });
             }
         }
@@ -675,6 +1062,17 @@ document.addEventListener('click', function(e) {
     if (input && dropdown && !input.contains(e.target) && !dropdown.contains(e.target)) {
         _closeSearchDropdown();
     }
+});
+
+document.addEventListener('keydown', function(e) {
+    if (!(e.ctrlKey || e.metaKey) || String(e.key).toLowerCase() !== 'k') return;
+    const hero = document.getElementById('cq-home-search-input');
+    const input = hero && hero.getClientRects().length ? hero : _getSearchInput();
+    if (!input) return;
+    e.preventDefault();
+    _setSearchContext(input);
+    input.focus();
+    input.select();
 });
 
 window.toggleRightPane = function () {

@@ -32,6 +32,7 @@
         "Search subjects, chapters, or question ID...": { ar: "ابحث في التخصصات أو الفصول أو رقم السؤال...", fr: "Rechercher spécialités, chapitres ou ID de question..." },
         "Search...": { ar: "بحث...", fr: "Rechercher..." },
         "Change QBank": { ar: "تغيير بنك الأسئلة", fr: "Changer de banque" },
+        "All Banks": { ar: "جميع البنوك", fr: "Toutes les banques" },
 
         // Main nav tabs
         "Study Plan": { ar: "خطة الدراسة", fr: "Plan d'étude" },

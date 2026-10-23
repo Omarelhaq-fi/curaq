@@ -128,6 +128,19 @@
 
                     <section class="bg-surface-container-lowest border border-outline-variant/30 rounded-2xl p-6">
                         <div class="mb-4">
+                            <h3 class="text-lg font-bold text-on-surface">Academic Profile</h3>
+                            <p class="text-sm text-on-surface-variant">Your country, major and college control which QBanks and exam prep banks you can open.</p>
+                        </div>
+                        <div id="profile-academic-summary" style="display:flex;flex-direction:column;gap:8px;font-size:0.9rem;color:var(--text-secondary);">
+                            <div>Loading...</div>
+                        </div>
+                        <button class="px-5 py-2.5 rounded-xl bg-surface-container-highest text-on-surface font-semibold hover:bg-outline-variant/30 transition-colors mt-4" id="profile-academic-update-btn">
+                            <i data-lucide="school" class="inline-block w-4 h-4 mr-2 -mt-1"></i> Update academic profile
+                        </button>
+                    </section>
+
+                    <section class="bg-surface-container-lowest border border-outline-variant/30 rounded-2xl p-6">
+                        <div class="mb-4">
                             <h3 class="text-lg font-bold text-on-surface">Site Language</h3>
                             <p class="text-sm text-on-surface-variant">Translates buttons, menus, labels, and AI content across the app.</p>
                         </div>
@@ -292,6 +305,43 @@
             } catch (e) {}
             try {
                 const u = firebase.auth().currentUser;
+                const academicEl = document.getElementById('profile-academic-summary');
+                if (academicEl && u) {
+                    firebase.firestore().collection('users_index').doc(u.uid).get().then(snap => {
+                        const d = (snap.exists && snap.data()) || {};
+                        const row = (label, value) => {
+                            const line = document.createElement('div');
+                            line.style.display = 'flex';
+                            line.style.justifyContent = 'space-between';
+                            line.style.gap = '16px';
+                            const l = document.createElement('span');
+                            l.textContent = label;
+                            l.style.color = 'var(--text-muted)';
+                            const v = document.createElement('span');
+                            v.textContent = value || 'Not set';
+                            v.style.fontWeight = '600';
+                            v.style.color = 'var(--text-primary)';
+                            v.style.textAlign = 'right';
+                            line.appendChild(l);
+                            line.appendChild(v);
+                            return line;
+                        };
+                        academicEl.innerHTML = '';
+                        academicEl.appendChild(row('Country', d.countryName || d.country));
+                        academicEl.appendChild(row('Major', d.major));
+                        academicEl.appendChild(row('College', d.college));
+                    }).catch(() => {
+                        academicEl.innerHTML = '<div>Could not load academic profile.</div>';
+                    });
+                }
+                const academicBtn = document.getElementById('profile-academic-update-btn');
+                if (academicBtn) {
+                    academicBtn.onclick = () => {
+                        closeProfile();
+                        if (typeof window.showWelcomeOnboarding === 'function') window.showWelcomeOnboarding();
+                        else window.location.reload();
+                    };
+                }
                 const emailEl = document.getElementById('profile-header-email');
                 if (emailEl) emailEl.textContent = (u && (u.email || u.displayName)) || '';
                 const statusEl = document.getElementById('profile-verify-status');
