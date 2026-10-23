@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+﻿import { createFileRoute } from "@tanstack/react-router";
 import { getServiceAccount, getGoogleAccessToken, verifyFirebaseIdToken } from "@/lib/firebase.server";
 import { getCorsHeaders } from "@/lib/cors";
 import { routeRequest } from "@/lib/ai-router.server";
@@ -14,9 +14,16 @@ import {
 import {
   buildAccessBundle,
   getAccessBundleCached,
+  invalidateAccessBundle,
   loadAllBanks,
   resolveBankAccessEdge as resolveBankAccess,
 } from "@/lib/qbank-access.server";
+import {
+  loadAcademicStructure,
+  publicAcademicStructure,
+  resolveAcademicSelection,
+  saveAcademicStructure,
+} from "@/lib/academic.server";
 import { encryptForBank, splitQuestionsForStatic } from "@/lib/qbank-drm.server";
 
 // Exam-prep list: static-ish admin content. 5-min shared cache avoids a full
@@ -174,6 +181,30 @@ function json(body: unknown, status: number, cors: Record<string, string>) {
   });
 }
 
+async function patchUserDocs(
+  sa: { project_id: string },
+  token: string,
+  uid: string,
+  profile: Record<string, string | boolean | number>,
+) {
+  const base = `https://firestore.googleapis.com/v1/projects/${sa.project_id}/databases/(default)/documents`;
+  const fields: Record<string, any> = {};
+  for (const [key, value] of Object.entries(profile)) {
+    if (typeof value === "boolean") fields[key] = { booleanValue: value };
+    else if (typeof value === "number") fields[key] = { integerValue: String(Math.floor(value)) };
+    else fields[key] = { stringValue: String(value) };
+  }
+  const mask = Object.keys(profile).map((k) => `updateMask.fieldPaths=${encodeURIComponent(k)}`).join("&");
+  for (const path of [`users_index/${uid}`, `users/${uid}`]) {
+    const res = await fetch(`${base}/${path}?${mask}`, {
+      method: "PATCH",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ fields }),
+    });
+    if (!res.ok) throw new Error(`Profile save failed (${res.status})`);
+  }
+}
+
 export const Route = createFileRoute("/api/qbank")({
   server: {
     handlers: {
@@ -231,6 +262,15 @@ export const Route = createFileRoute("/api/qbank")({
           const userLimit = rateLimit(`qbank:uid:${uid}`, 60_000, 60);
           if (!userLimit.ok) return rateLimitResponse(userLimit.retryAfter, cors);
 
+          if (action === "academic_structure") {
+            try {
+              const structure = await loadAcademicStructure(sa, token);
+              return json(publicAcademicStructure(structure), 200, cors);
+            } catch {
+              return json({ error: "Failed to load college catalogue" }, 500, cors);
+            }
+          }
+
           if (action === "list_categories") {
             // Version-aware cache: the list lives in memory until an admin
             // publish bumps a bank's `updatedAt` (which invalidates it).
@@ -239,8 +279,8 @@ export const Route = createFileRoute("/api/qbank")({
             //
             // NOTE: intentionally UNFILTERED (all banks, all users). Bank
             // ids/names/countries are already world-public via
-            // /api/public/qbanks, so filtering here buys zero protection —
-            // and it breaks the locked-card → "Request Access" discovery
+            // /api/public/qbanks, so filtering here buys zero protection â€”
+            // and it breaks the locked-card â†’ "Request Access" discovery
             // flow (users can't request banks they can't see). Enforcement
             // lives at the content endpoints (get_questions / qbank_static /
             // qbank_key / get_answers all 403 by the same country+grant
@@ -389,7 +429,7 @@ export const Route = createFileRoute("/api/qbank")({
             // Returns the caller's profile country, the main qbanks of that
             // country, the exam-prep sub-banks of that country, plus any
             // individually granted banks (admin-approved requests).
-            // Bundle is cached 1h per user (KV-style); bank metadata comes
+            // Bundle is cached 5m per user (KV-style); bank metadata comes
             // from the shared publish-invalidated list cache (0 reads warm).
             try {
               const bundle = await getAccessBundleCached(sa, token, uid);
@@ -476,7 +516,7 @@ export const Route = createFileRoute("/api/qbank")({
 
             // Batched access bundle (?includeAccess=1): lets the client skip
             // the standalone bootstrap_access roundtrip. The bundle is
-            // already resolved for the check above (1h cache, 0 extra reads
+            // already resolved for the check above (5m cache, 0 extra reads
             // when warm).
             let accessBundle: ReturnType<typeof buildAccessBundle> | null = null;
             if (urlObj.searchParams.get("includeAccess") === "1" || urlObj.searchParams.get("includeAccess") === "true") {
@@ -757,6 +797,64 @@ export const Route = createFileRoute("/api/qbank")({
           const body = (await request.json()) as any;
           const sa = getServiceAccount();
           const token = await getGoogleAccessToken();
+
+          if (body.action === "complete_onboarding") {
+            const name = String(body.name || "").trim().slice(0, 60);
+            const language = ["en", "fr", "ar"].includes(String(body.language || ""))
+              ? String(body.language)
+              : "en";
+            if (name.length < 2) return json({ error: "Please enter your name." }, 400, cors);
+
+            try {
+              const structure = await loadAcademicStructure(sa, token, true);
+              const selection = resolveAcademicSelection(structure, {
+                countryId: body.countryId,
+                majorId: body.majorId,
+                majorName: body.majorName,
+                collegeId: body.collegeId,
+                collegeName: body.collegeName,
+              });
+              if (selection.changed) await saveAcademicStructure(sa, token, selection.structure);
+
+              const profile = {
+                country: selection.country.id,
+                countryName: selection.country.name,
+                major: selection.major.name,
+                college: selection.college.name,
+                collegeId: selection.college.id,
+                displayName: name,
+                email: String(user.email || ""),
+                onboardingComplete: true,
+                onboardingVersion: 2,
+                onboardingCompletedAt: Date.now(),
+                language,
+              };
+              await patchUserDocs(sa, token, uid, profile);
+              invalidateAccessBundle(uid);
+
+              let access = null;
+              try {
+                access = await getAccessBundleCached(sa, token, uid);
+              } catch {
+                access = null;
+              }
+              return json({
+                ok: true,
+                profile: {
+                  country: selection.country.id,
+                  countryName: selection.country.name,
+                  major: selection.major.name,
+                  college: selection.college.name,
+                  collegeId: selection.college.id,
+                },
+                access,
+              }, 200, cors);
+            } catch (e) {
+              const message = (e as Error)?.message || "Could not save your profile.";
+              return json({ error: message }, 400, cors);
+            }
+          }
+
           if (body.action === "batch_sync_progress") {
             const { updates } = body;
             if (!Array.isArray(updates) || updates.length === 0) return json({ ok: true }, 200, cors);
@@ -1253,7 +1351,7 @@ export const Route = createFileRoute("/api/qbank")({
             setCachedStudyConcept(`${qbankId}/${questionId}/${conceptLang}`, { studyConcept: String(studyConcept), studyConceptLang: conceptLang });
             // Concepts digest for 1-read exports: upsert this (question, lang)
             // entry (map key includes lang, so per-lang concepts coexist and
-            // re-saves overwrite their own key). Best-effort — a digest
+            // re-saves overwrite their own key). Best-effort â€” a digest
             // failure must never fail the concept save itself.
             // Client sends code/subject/chapter it already holds (0 extra reads).
             try {
@@ -1292,7 +1390,7 @@ export const Route = createFileRoute("/api/qbank")({
             if (!PEER_STATS_WRITE_ENABLED) {
               return json({ ok: true, counted: 0, disabled: true }, 200, cors);
             }
-            // Batched peer-stat votes from the client's IDB outbox (≤50).
+            // Batched peer-stat votes from the client's IDB outbox (â‰¤50).
             // Blind increment transforms in ONE commit: no reads, atomic per
             // doc, contention-proof (the old client read-modify-write lost
             // votes under concurrency AND cost 1r+1w per answer). Billed =

@@ -133,6 +133,7 @@ export const TASK_CHAINS: Record<string, TaskChain> = {
   qbank_flashcard_from_question: CHAIN_JSON,
   qbank_study_concept: CHAIN_CHAT,
   extract_qbank_questions: CHAIN_EXTRACT_QBANK,
+  qbank_tag_taxonomy: CHAIN_JSON,
 };
 
 
@@ -142,6 +143,7 @@ export const TASK_LABELS: Record<string, string> = {
   qbank_flashcard_from_question: "Generate AI Flashcard",
   qbank_study_concept: "Study This Concept (Book Style)",
   extract_qbank_questions: "Extract QBank Questions",
+  qbank_tag_taxonomy: "QBank Topic Tagging (AI)",
 };
 
 export function chainFor(task?: string): TaskChain {
@@ -184,7 +186,8 @@ export function probeFor(task: string): Probe {
   // JSON tasks
   if (
     task === "qbank_flashcard_from_question" ||
-    task === "extract_qbank_questions"
+    task === "extract_qbank_questions" ||
+    task === "qbank_tag_taxonomy"
   ) return PROBE_JSON;
   return PROBE_PING;
 }

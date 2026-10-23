@@ -1,4 +1,4 @@
-// Edge-style access cache for QBank authorization.
+﻿// Edge-style access cache for QBank authorization.
 //
 // Goal: /api/qbank_static (and list_categories / qbank_key) must enforce the
 // SAME country+grant rule as /api/qbank?action=get_questions, but with
@@ -6,11 +6,11 @@
 //
 // Production shape (Vercel Edge + Upstash/Vercel KV):
 //   verifyIdToken (cached JWKS, no DB) -> KV GET uid -> { mainIds, prepIds,
-//   grants, country } -> miss? Firestore once, KV SETEX 1h -> 403 or allow.
+//   grants, country } -> miss? Firestore once, KV SETEX 5m -> 403 or allow.
 //
 // This file implements that shape on the current runtime with a per-isolate
-// in-memory map standing in for KV (same TTL semantics: 1h). Swapping the
-// Map for Upstash/Vercel KV later is a drop-in change inside get/set only —
+// in-memory map standing in for KV (same TTL semantics: 5m). Swapping the
+// Map for Upstash/Vercel KV later is a drop-in change inside get/set only â€”
 // callers stay identical. R2 stays private; no public CDN cache.
 //
 // Cost: hot path = 0 Firestore reads (profile bundle + bank list both
@@ -27,24 +27,40 @@ import {
   invalidateUserProfile,
   type QbankListEntry,
 } from "@/lib/qbank-cache.server";
+import {
+  collegeBankIds,
+  loadAcademicStructure,
+  type AcademicStructure,
+} from "@/lib/academic.server";
 
 export interface AccessBundle {
   profileCountry: string;
+  profileMajor?: string;
+  profileCollege?: string;
+  collegeId?: string;
   mainIds: string[];
   prepIds: string[];
   grants: string[];
   legacy: boolean;
 }
 
+type UserProfile = {
+  country: string;
+  grants: string[];
+  collegeId?: string;
+  major?: string;
+  college?: string;
+};
+
 interface BundleEntry extends AccessBundle {
   time: number;
 }
 
-// 1h KV TTL — matches the requested cache window. Grants approved <1h ago
-// are covered by the stale-retry path in resolveBankAccessEdge (one fresh
-// profile read before giving up), so a cached DENY can never permanently
-// lock out a just-approved user.
-const BUNDLE_TTL_MS = 60 * 60_000;
+// 5-minute KV TTL. College catalogue assignments are now access-authoritative
+// and admins need them reflected promptly; profile/bank/structure caches mean
+// a refresh is still essentially 0 Firestore reads. Individual grants are
+// covered sooner too. Stale-deny retry still exists for immediate grant checks.
+const BUNDLE_TTL_MS = 5 * 60_000;
 const MAX_BUNDLE_ENTRIES = 2000;
 
 const bundleCache = new Map<string, BundleEntry>();
@@ -79,22 +95,32 @@ export function invalidateAccessBundle(uid: string): void {
   }
 }
 
+export function invalidateAllAccessBundles(): void {
+  bundleCache.clear();
+}
+
 async function fetchUserProfileFresh(
   sa: { project_id: string },
   token: string,
   uid: string,
-): Promise<{ country: string; grants: string[] }> {
+): Promise<UserProfile> {
   const uRef = `https://firestore.googleapis.com/v1/projects/${sa.project_id}/databases/(default)/documents/users_index/${uid}`;
   const uRes = await fetch(uRef, { headers: { Authorization: `Bearer ${token}` } });
   let country = "";
   let grants: string[] = [];
+  let collegeId = "";
+  let major = "";
+  let college = "";
   if (uRes.ok) {
     const ud = await uRes.json();
     country = String(ud.fields?.country?.stringValue || "").toLowerCase();
     const gv = ud.fields?.qbankGrants?.arrayValue?.values || [];
     grants = gv.map((v: any) => String(v.stringValue || "")).filter(Boolean);
+    collegeId = String(ud.fields?.collegeId?.stringValue || "");
+    major = String(ud.fields?.major?.stringValue || "");
+    college = String(ud.fields?.college?.stringValue || "");
   }
-  const profile = { country, grants };
+  const profile: UserProfile = { country, grants, collegeId, major, college };
   try {
     setCachedUserProfile(uid, profile);
   } catch {
@@ -107,7 +133,7 @@ async function loadUserProfile(
   sa: { project_id: string },
   token: string,
   uid: string,
-): Promise<{ country: string; grants: string[] }> {
+): Promise<UserProfile> {
   const cached = getCachedUserProfile(uid);
   if (cached) return cached;
   return fetchUserProfileFresh(sa, token, uid);
@@ -178,27 +204,82 @@ export async function loadAllBanks(
 }
 
 export function buildAccessBundle(
-  profile: { country: string; grants: string[] },
+  profile: UserProfile,
   allBanks: QbankListEntry[],
+  structure?: AcademicStructure | null,
 ): AccessBundle {
   const country = profile.country;
   const grants = profile.grants;
-  const legacy = !country;
+  const collegeId = profile.collegeId || "";
+  const college = collegeId && structure
+    ? structure.colleges.find((c) => c.id === collegeId) || null
+    : null;
+  const major = college && structure
+    ? structure.majors.find((m) => m.id === college.majorId) || null
+    : null;
+  const legacy = !country && !collegeId;
   const bankCountry = (b: { country: string }) => String(b.country || "global").toLowerCase();
-  const mainIds = legacy
-    ? allBanks.filter((b) => b.kind !== "exam_prep").map((b) => b.id)
-    : allBanks
-        .filter((b) => b.kind !== "exam_prep" && (bankCountry(b) === country || grants.includes(b.id)))
-        .map((b) => b.id);
-  const prepIds = legacy
-    ? allBanks.filter((b) => b.kind === "exam_prep").map((b) => b.id)
-    : allBanks
-        .filter((b) => b.kind === "exam_prep" && (bankCountry(b) === country || grants.includes(b.id)))
-        .map((b) => b.id);
-  return { profileCountry: country, mainIds, prepIds, grants, legacy };
+  const byId = new Map(allBanks.map((b) => [b.id, b]));
+  const base: AccessBundle = {
+    profileCountry: country,
+    profileMajor: major?.name || profile.major || "",
+    profileCollege: college?.name || profile.college || "",
+    collegeId,
+    mainIds: [],
+    prepIds: [],
+    grants,
+    legacy,
+  };
+
+  const addGranted = (main: Set<string>, prep: Set<string>, id: string) => {
+    const bank = byId.get(id);
+    if (!bank) return;
+    (bank.kind === "exam_prep" ? prep : main).add(id);
+  };
+
+  if (legacy) {
+    for (const b of allBanks) (b.kind === "exam_prep" ? base.prepIds : base.mainIds).push(b.id);
+    return base;
+  }
+
+  const main = new Set<string>();
+  const prep = new Set<string>();
+
+  if (collegeId && structure) {
+    // A known college is authoritative: only its attached banks (plus
+    // individually granted banks) are available. An empty attachment list
+    // deliberately means no banks, not "fall back to country".
+    if (college) {
+      const attached = collegeBankIds(structure, collegeId);
+      for (const id of attached.mainIds) {
+        const bank = byId.get(id);
+        if (bank && bank.kind !== "exam_prep") main.add(id);
+      }
+      for (const id of attached.prepIds) {
+        const bank = byId.get(id);
+        if (bank && bank.kind === "exam_prep") prep.add(id);
+      }
+    }
+  } else if (!collegeId) {
+    // Legacy country-scoped accounts (or a missing catalogue entry).
+    for (const b of allBanks) {
+      if (bankCountry(b) === country) (b.kind === "exam_prep" ? prep : main).add(b.id);
+    }
+  } else {
+    // College selected but the catalogue could not be loaded: keep the
+    // legacy country fallback rather than locking the student out.
+    for (const b of allBanks) {
+      if (bankCountry(b) === country) (b.kind === "exam_prep" ? prep : main).add(b.id);
+    }
+  }
+  for (const id of grants) addGranted(main, prep, id);
+
+  base.mainIds = [...main];
+  base.prepIds = [...prep];
+  return base;
 }
 
-/** Hot-path bundle: 1h KV-style cache, Firestore fallback once on miss. */
+/** Hot-path bundle: 5m KV-style cache, Firestore fallback once on miss. */
 export async function getAccessBundleCached(
   sa: { project_id: string },
   token: string,
@@ -208,17 +289,29 @@ export async function getAccessBundleCached(
   if (hit) return hit;
   const profile = await loadUserProfile(sa, token, uid);
   const allBanks = await loadAllBanks(sa, token).catch(() => []);
-  const bundle = buildAccessBundle(profile, allBanks);
+  const structure = profile.collegeId
+    ? await loadAcademicStructure(sa, token).catch(() => null)
+    : null;
+  const bundle = buildAccessBundle(profile, allBanks, structure);
   setBundleCached(uid, bundle);
   return bundle;
 }
 
 export function bankAccessAllowed(
-  profile: { country: string; grants: string[] },
+  profile: UserProfile,
   meta: { country: string; kind: string },
   qbankId: string,
+  bundle?: AccessBundle | null,
 ): boolean {
-  if (!profile.country) return true; // legacy
+  if (bundle) {
+    if (bundle.legacy) return true;
+    return (
+      bundle.grants.includes(qbankId) ||
+      bundle.mainIds.includes(qbankId) ||
+      bundle.prepIds.includes(qbankId)
+    );
+  }
+  if (!profile.country && !profile.collegeId) return true; // legacy
   if (profile.grants.includes(qbankId)) return true;
   return meta.country.toLowerCase() === profile.country;
 }
@@ -226,7 +319,7 @@ export function bankAccessAllowed(
 export interface BankAccessResult {
   ok: boolean;
   status: 200 | 403 | 404;
-  profile: { country: string; grants: string[] };
+  profile: UserProfile;
   meta: { country: string; kind: string; storage_provider?: string } | null;
   bundle: AccessBundle | null;
 }
@@ -234,7 +327,7 @@ export interface BankAccessResult {
 /**
  * Edge-style per-bank check with 0 Firestore reads when warm:
  * bank meta from the shared publish-invalidated list cache, caller bundle
- * from the 1h access cache. On DENY exactly one fresh profile read before
+ * from the 5m access cache. On DENY exactly one fresh profile read before
  * giving up (covers a grant approved seconds ago on another isolate).
  */
 export async function resolveBankAccessEdge(
@@ -244,8 +337,14 @@ export async function resolveBankAccessEdge(
   qbankId: string,
 ): Promise<BankAccessResult> {
   let bundle = await getAccessBundleCached(sa, token, uid).catch(() => null);
-  let profile = bundle
-    ? { country: bundle.profileCountry, grants: bundle.grants }
+  let profile: UserProfile = bundle
+    ? {
+        country: bundle.profileCountry,
+        grants: bundle.grants,
+        collegeId: bundle.collegeId,
+        major: bundle.profileMajor,
+        college: bundle.profileCollege,
+      }
     : await loadUserProfile(sa, token, uid);
 
   const hit = findCachedQbankMeta(qbankId);
@@ -279,7 +378,7 @@ export async function resolveBankAccessEdge(
     }
   }
   if (!meta) return { ok: false, status: 404, profile, meta: null, bundle };
-  if (bankAccessAllowed(profile, meta, qbankId)) {
+  if (bankAccessAllowed(profile, meta, qbankId, bundle)) {
     return { ok: true, status: 200, profile, meta, bundle };
   }
   // Stale-cache retry: drop both caches and read fresh once.
@@ -287,12 +386,15 @@ export async function resolveBankAccessEdge(
   profile = await fetchUserProfileFresh(sa, token, uid);
   try {
     const allBanks = await loadAllBanks(sa, token).catch(() => []);
-    bundle = buildAccessBundle(profile, allBanks);
+    const structure = profile.collegeId
+      ? await loadAcademicStructure(sa, token).catch(() => null)
+      : null;
+    bundle = buildAccessBundle(profile, allBanks, structure);
     setBundleCached(uid, bundle);
   } catch {
     bundle = null;
   }
-  if (bankAccessAllowed(profile, meta, qbankId)) {
+  if (bankAccessAllowed(profile, meta, qbankId, bundle)) {
     return { ok: true, status: 200, profile, meta, bundle };
   }
   return { ok: false, status: 403, profile, meta, bundle };

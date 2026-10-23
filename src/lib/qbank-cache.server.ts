@@ -99,6 +99,9 @@ export function findCachedQbankMeta(
 export interface CachedUserProfile {
   country: string;
   grants: string[];
+  collegeId?: string;
+  major?: string;
+  college?: string;
 }
 
 interface ProfileEntry extends CachedUserProfile {
@@ -117,7 +120,13 @@ export function getCachedUserProfile(uid: string): CachedUserProfile | null {
     profileCache.delete(uid);
     return null;
   }
-  return { country: e.country, grants: e.grants };
+  return {
+    country: e.country,
+    grants: e.grants,
+    collegeId: e.collegeId,
+    major: e.major,
+    college: e.college,
+  };
 }
 
 export function setCachedUserProfile(uid: string, data: CachedUserProfile): void {
@@ -129,7 +138,14 @@ export function setCachedUserProfile(uid: string, data: CachedUserProfile): void
       if (profileCache.size < MAX_PROFILE_ENTRIES - 100 || now - v.time < PROFILE_TTL_MS) break;
     }
   }
-  profileCache.set(uid, { country: data.country, grants: data.grants, time: Date.now() });
+  profileCache.set(uid, {
+    country: data.country,
+    grants: data.grants,
+    collegeId: data.collegeId,
+    major: data.major,
+    college: data.college,
+    time: Date.now(),
+  });
 }
 
 export function invalidateUserProfile(uid: string): void {

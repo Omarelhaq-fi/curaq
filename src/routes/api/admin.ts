@@ -28,6 +28,13 @@ import { loadPaymentsSettings, savePaymentsSettings, type PaymentsSettings } fro
 import { loadAuthSettings, saveAuthSettings, type AuthSettings } from "@/lib/auth-settings.server";
 import { loadPeerStatsSettings, savePeerStatsSettings, type PeerStatsSettings } from "@/lib/peer-stats-settings.server";
 import { invalidateQbankListCache, invalidateUserProfile } from "@/lib/qbank-cache.server";
+import {
+  invalidateAcademicStructureCache,
+  loadAcademicStructure,
+  normalizeAcademicStructure,
+  saveAcademicStructure,
+} from "@/lib/academic.server";
+import { invalidateAllAccessBundles } from "@/lib/qbank-access.server";
 
 // Any write under `qbanks/...` (settings, updatedAt bumps on publish/import,
 // question/chunk edits) makes the cached qbank list stale — drop it so the
@@ -410,9 +417,12 @@ type Body = {
     | "list_ai_functions" | "check_ai_function" | "check_all_ai_functions" | "set_ai_custom_chains"
      | "create_qbank" | "list_qbanks" | "delete_qbank" | "add_qbank_question" | "batch_import_qbank_txt"
      | "list_qbank_questions" | "delete_qbank_question" | "delete_multiple_qbank_questions" | "update_qbank_question" | "rename_qbank_subject" | "rename_qbank_chapter" | "batch_rename_qbank_categories"
+     | "publish_qbank_chunks"
+     | "get_qbank_taxonomy" | "save_qbank_taxonomy" | "list_qbank_tag_index" | "tag_qbank_questions"
      | "list_library_books" | "import_library_json" | "delete_library_book" | "export_study_concepts" | "backfill_concepts_digest"
     | "edit_qbank_settings" | "clear_qbank_question_reports" | "list_reported_questions" | "backfill_qbank_codes"
     | "list_exam_prep" | "save_exam_prep" | "delete_exam_prep"
+    | "get_academic_structure" | "save_academic_structure"
     | "upload_image"
     | "ai_generate_block"
     | "list_access_requests" | "resolve_access_request"
@@ -448,6 +458,9 @@ type Body = {
   questionIds?: string[];
   questionText?: string;
   dataJson?: string;
+  taxonomyText?: string;
+  paths?: unknown;
+  scopePath?: unknown;
   rawText?: string;
   country?: string;
   subcategories?: string;
@@ -474,6 +487,7 @@ type Body = {
   qbankIds?: string[];
   renames?: any[];
   skipDuplicates?: boolean;
+  structure?: unknown;
 };
 
 
@@ -1006,6 +1020,17 @@ export const Route = createFileRoute("/api/admin")({
             return json({ tasks }, 200, cors);
           }
           
+          if (action === "get_academic_structure") {
+            try {
+              const sa = getServiceAccount();
+              const token = await getGoogleAccessToken();
+              const structure = await loadAcademicStructure(sa, token, true);
+              return json({ structure }, 200, cors);
+            } catch (e) {
+              return json({ error: (e as Error).message || "Failed to load college structure" }, 500, cors);
+            }
+          }
+
           if (action === "list_qbanks") {
             const sa = getServiceAccount();
             const token = await getGoogleAccessToken();
@@ -1110,7 +1135,7 @@ export const Route = createFileRoute("/api/admin")({
       POST: async ({ request }) => {
         const cors = getCorsHeaders(request, { methods: "GET, POST, OPTIONS" });
         const ip = getClientIp(request);
-        const rl = rateLimit(`admin:ip:${ip}`, 60_000, 30);
+        const rl = rateLimit(`admin:ip:${ip}`, 60_000, 120);
         if (!rl.ok) return rateLimitResponse(rl.retryAfter, cors);
 
         let actor;
@@ -1132,7 +1157,8 @@ export const Route = createFileRoute("/api/admin")({
           "set_api_keys", "set_maintenance", "set_payments_settings", "set_auth_settings", "set_peer_stats_settings",
           "create_qbank", "delete_qbank", "add_qbank_question", "batch_import_qbank_txt",
           "import_library_json", "delete_library_book", "backfill_concepts_digest",
-          "rename_qbank_subject", "rename_qbank_chapter", "batch_rename_qbank_categories"
+          "rename_qbank_subject", "rename_qbank_chapter", "batch_rename_qbank_categories",
+          "save_qbank_taxonomy", "tag_qbank_questions", "save_academic_structure"
         ]);
         if (MUTATING_ACTIONS.has(body.action)) {
           const auditId = `${Date.now()}_${crypto.randomUUID().slice(0, 8)}`;
@@ -1373,6 +1399,20 @@ export const Route = createFileRoute("/api/admin")({
             return json({ ok: true }, 200, cors);
           }
 
+          if (body.action === "save_academic_structure") {
+            try {
+              const sa = getServiceAccount();
+              const token = await getGoogleAccessToken();
+              const incoming = normalizeAcademicStructure(body.structure);
+              const structure = await saveAcademicStructure(sa, token, incoming);
+              invalidateAcademicStructureCache();
+              invalidateAllAccessBundles();
+              return json({ ok: true, structure }, 200, cors);
+            } catch (e) {
+              return json({ error: (e as Error).message || "Failed to save college structure" }, 400, cors);
+            }
+          }
+
           // ---------- EXAM PREP ----------
           if (body.action === "list_exam_prep") {
             const sa2 = getServiceAccount();
@@ -1560,6 +1600,120 @@ export const Route = createFileRoute("/api/admin")({
             rebuildQbankIndex().catch(e => console.error("[index] publish_qbank rebuild failed:", e.message));
             return json({ ok: true, chunksGenerated: 1, totalQuestions: questions.length }, 200, cors);
           }
+          if (body.action === "get_qbank_taxonomy") {
+            if (!body.qbankId) return json({ error: "Missing qbankId" }, 400, cors);
+            try {
+              const tax = await loadQBankTaxonomy(body.qbankId);
+              return json({
+                paths: tax.paths,
+                text: taxonomyToText(tax.paths),
+                version: tax.version,
+                updatedAt: tax.updatedAt,
+                chunked: tax.chunked,
+              }, 200, cors);
+            } catch (e) {
+              return json({ error: (e as Error).message || "Failed to load taxonomy" }, 404, cors);
+            }
+          }
+
+          if (body.action === "save_qbank_taxonomy") {
+            if (!body.qbankId) return json({ error: "Missing qbankId" }, 400, cors);
+            let paths: string[][];
+            try {
+              paths = parseTaxonomyInput(body.taxonomyText ?? body.paths ?? "");
+            } catch (e) {
+              return json({ error: (e as Error).message || "Invalid taxonomy" }, 400, cors);
+            }
+            try {
+              const current = await loadQBankTaxonomy(body.qbankId);
+              const changed = JSON.stringify(current.paths) !== JSON.stringify(paths);
+              const version = changed ? Math.max(1, current.version + 1) : current.version;
+              const now = Date.now();
+              await fsSetMerge(`qbanks/${body.qbankId}`, {
+                taxonomyPaths: { stringValue: JSON.stringify(paths) },
+                taxonomyVersion: { integerValue: String(version) },
+                taxonomyUpdatedAt: { integerValue: String(now) },
+              });
+              return json({ ok: true, paths, text: taxonomyToText(paths), version, updatedAt: now, changed, chunked: current.chunked }, 200, cors);
+            } catch (e) {
+              return json({ error: (e as Error).message || "Failed to save taxonomy" }, 500, cors);
+            }
+          }
+
+          if (body.action === "list_qbank_tag_index") {
+            if (!body.qbankId) return json({ error: "Missing qbankId" }, 400, cors);
+            if (!/^[a-zA-Z0-9_-]+$/.test(body.qbankId)) return json({ error: "Invalid qbankId" }, 400, cors);
+            let tax: QBankTaxonomy;
+            try { tax = await loadQBankTaxonomy(body.qbankId); }
+            catch (e) { return json({ error: (e as Error).message || "QBank not found" }, 404, cors); }
+
+            const sa = getServiceAccount();
+            const token = await getGoogleAccessToken();
+            let pageToken = "";
+            let total = 0;
+            let tagged = 0;
+            const pendingIds: string[] = [];
+            while (true) {
+              const params = new URLSearchParams({ pageSize: "300" });
+              if (pageToken) params.set("pageToken", pageToken);
+              const url = `https://firestore.googleapis.com/v1/projects/${sa.project_id}/databases/(default)/documents/qbanks/${body.qbankId}/questions?${params}`;
+              const resp = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+              if (!resp.ok && resp.status !== 404) return json({ error: "Failed to scan questions" }, 500, cors);
+              if (resp.status === 404) break;
+              const data = await resp.json() as { documents?: any[]; nextPageToken?: string };
+              for (const doc of (data.documents || [])) {
+                const id = String(doc.name || "").split("/").pop() || "";
+                if (!id) continue;
+                total++;
+                let qData: any = {};
+                try { qData = JSON.parse(doc.fields?.data?.stringValue || "{}"); } catch { qData = {}; }
+                const isTagged = qData.taxonomyVersion === tax.version
+                  && Array.isArray(qData.taxonomyPath)
+                  && qData.taxonomyPath.length > 0;
+                if (isTagged) tagged++;
+                else pendingIds.push(id);
+              }
+              pageToken = data.nextPageToken || "";
+              if (!pageToken) break;
+            }
+            return json({
+              total,
+              tagged,
+              pending: pendingIds.length,
+              pendingIds,
+              version: tax.version,
+              chunked: tax.chunked,
+              hasTaxonomy: tax.paths.length > 0,
+            }, 200, cors);
+          }
+
+          if (body.action === "tag_qbank_questions") {
+            if (!body.qbankId) return json({ error: "Missing qbankId" }, 400, cors);
+            const ids = Array.isArray(body.questionIds)
+              ? [...new Set(body.questionIds.map((id) => String(id || "").trim()).filter((id) => /^[a-zA-Z0-9_-]{1,64}$/.test(id)))].slice(0, TAXONOMY_BATCH_SIZE)
+              : [];
+            if (!ids.length) return json({ error: "Missing questionIds (max 20 per batch)" }, 400, cors);
+            try {
+              const tax = await loadQBankTaxonomy(body.qbankId);
+              if (!tax.paths.length) return json({ error: "Save a taxonomy before tagging questions" }, 400, cors);
+              const scopePath = Array.isArray(body.scopePath)
+                ? body.scopePath.map((s) => String(s || "").trim()).filter(Boolean).slice(0, 5)
+                : [];
+              const scopeKey = scopePath.length ? taxonomyPathKey(scopePath) : "";
+              const scopedPaths = scopeKey
+                ? tax.paths.filter((path) => path.length > scopePath.length && taxonomyPathKey(path.slice(0, scopePath.length)) === scopeKey)
+                : tax.paths;
+              if (!scopedPaths.length) {
+                return json({ error: "Add at least one part under this chapter before scanning" }, 400, cors);
+              }
+              const result = await tagQbankQuestionsBatch(body.qbankId, ids, scopeKey ? { ...tax, paths: scopedPaths } : tax);
+              return json({ ok: true, ...result }, 200, cors);
+            } catch (e) {
+              const err = e as any;
+              const status = err && err.name === "AiBusyError" ? 503 : 500;
+              return json({ error: err?.message || "Tagging failed", retryAfter: err?.retryAfter }, status, cors);
+            }
+          }
           if (body.action === "add_qbank_question") {
             if (!body.qbankId || !body.rawText) return json({ error: "Missing qbankId or rawText" }, 400, cors);
             
@@ -1584,7 +1738,7 @@ CRITICAL RULES - READ CAREFULLY:
 4. Keep the exact original language.
 5. Remove the numbering prefixes (e.g. "1.", "QCM 1") from the 'questionText'.
 6. CRITICAL: If a group of questions shares a clinical case context (e.g. "Cas clinique 1" followed by a paragraph), you MUST prepend that ENTIRE context paragraph to the 'questionText' of EVERY SINGLE question that belongs to that case. REMOVE prefixes like "Cas clinique 1" or "Cas clinique 2" from the text you prepend. Example 'questionText': "[Context paragraph...] \n\n [Question text]".
-7. For clinical cases, set the 'subject' EXACTLY to "Cas cliniques". For others, ${finalSubcategories ? `assign a medical sub-category STRICTLY choosing from this list: [${finalSubcategories}]` : "assign a medical sub-category in the original language"}. If the text specifies a chapter (sub-subcategory), include it in the 'chapter' field.
+7. For clinical cases, set the 'subject' EXACTLY to "Cas cliniques". For others, ${finalSubcategories ? `assign a medical sub-category STRICTLY choosing from this list: [${finalSubcategories}]` : "assign a medical sub-category in the original language"}. If the text specifies a chapter, include it in the 'chapter' field. Also include the narrow part/topic inside that chapter in the 'part' field.
 8. The 'questionText' MUST NOT contain the options themselves. Stop the 'questionText' before the options begin.
 9. The 'options' array MUST contain the full descriptive text of each option, NOT just the letters "A", "B", "C". Remove the prefix letter (e.g. "A.") from the option text.
 10. CRITICAL: For the 'explanation' field, you MUST extract the ENTIRE, complete text of the explanation exactly as provided. DO NOT summarize it, truncate it, or be lazy.
@@ -1595,8 +1749,8 @@ Example Output:
 \`\`\`json
 {
   "questions": [
-    { "questionText": "What are the first steps?", "options": ["Intubation", "Ventilation au masque"], "correctIndices": [0], "explanation": "...", "subject": "...", "chapter": "..." },
-    { "questionText": "Question 2...", "options": ["Option 1", "Option 2", "Option 3"], "correctIndices": [1], "explanation": "...", "subject": "...", "chapter": "..." }
+    { "questionText": "What are the first steps?", "options": ["Intubation", "Ventilation au masque"], "correctIndices": [0], "explanation": "...", "subject": "...", "chapter": "...", "part": "..." },
+    { "questionText": "Question 2...", "options": ["Option 1", "Option 2", "Option 3"], "correctIndices": [1], "explanation": "...", "subject": "...", "chapter": "...", "part": "..." }
   ]
 }
 \`\`\`
@@ -1719,6 +1873,7 @@ Text to process:\n${body.rawText}`
                   explanation: q.explanation || "",
                   subject: q.subject || "",
                   chapter: q.chapter || "",
+                  part: q.part || "",
                   createdAt: Date.now() + parseIndex
                 }),
                 createdAt: Date.now() + parseIndex
@@ -1742,7 +1897,13 @@ Text to process:\n${body.rawText}`
           if (body.action === "batch_import_qbank_txt") {
             if (!body.qbankId || !body.rawText) return json({ error: "Missing qbankId or rawText" }, 400, cors);
             
-            const lines = body.rawText.split('\n');
+            const rawImportText = String(body.rawText || "").replace(/^\uFEFF/, "");
+            let trimmedImportText = rawImportText.trim();
+            const fencedJson = trimmedImportText.match(/^```(?:json|javascript)?\s*([\s\S]*?)\s*```$/i);
+            if (fencedJson) trimmedImportText = fencedJson[1].trim();
+            const isJsonImport = trimmedImportText.startsWith("{") || trimmedImportText.startsWith("[");
+            const fileSubcategory = body.fileSubcategory ? String(body.fileSubcategory).trim() : "";
+            const cleanImportLabel = (v: unknown) => String(v == null ? "" : v).replace(/\s+/g, " ").trim().slice(0, 120);
             type Option = { text: string; isCorrect: boolean; explanation: string };
             type ParsedQuestion = {
               questionText: string;
@@ -1752,69 +1913,186 @@ Text to process:\n${body.rawText}`
               generalComment: string;
               subject: string;
               chapter?: string;
+              part?: string;
+              tags?: string[];
+              taxonomyPath?: string[];
+              taxonomyCandidates?: string[][];
             };
 
             const questions: ParsedQuestion[] = [];
-            let currentSubject = 'Uncategorized';
-            let currentChapter = '';
-            let curQ: Partial<ParsedQuestion> = {};
-            let inQuestionText = false;
-            
-            for (let i = 0; i < lines.length; i++) {
-              const line = lines[i].trim();
-              if (!line) continue;
+            let invalidJsonQuestions = 0;
+            let missingHierarchy = 0;
 
-              if (line.startsWith('-> Subject:')) {
-                currentSubject = line.replace('-> Subject:', '').trim();
-                continue;
+            if (isJsonImport) {
+              let payload: any;
+              try {
+                payload = JSON.parse(trimmedImportText);
+              } catch (e: any) {
+                return json({ error: `Invalid JSON: ${e?.message || "could not parse file"}` }, 400, cors);
               }
+              let list: any[] | null = null;
+              if (Array.isArray(payload)) list = payload;
+              else if (payload && Array.isArray(payload.questions)) list = payload.questions;
+              else if (payload && Array.isArray(payload.items)) list = payload.items;
+              else if (payload && (payload.questionText || payload.question)) list = [payload];
+              if (!list) return json({ error: 'JSON must be an array or an object with a "questions" array' }, 400, cors);
+              if (list.length > 2000) return json({ error: "JSON import is limited to 2,000 questions per file" }, 400, cors);
 
-              if (line.startsWith('-> Chapter:')) {
-                currentChapter = line.replace('-> Chapter:', '').trim();
-                continue;
+              const cleanTag = (v: unknown) => String(v == null ? "" : v).replace(/\s+/g, " ").trim().slice(0, 80);
+              for (const item of list) {
+                if (!item || typeof item !== "object") { invalidJsonQuestions++; continue; }
+                const questionText = String(item.questionText ?? item.question ?? item.text ?? item.stem ?? "").trim();
+                const rawOptions = Array.isArray(item.options) ? item.options : (Array.isArray(item.choices) ? item.choices : []);
+                const options: Option[] = [];
+                for (const rawOpt of rawOptions) {
+                  if (typeof rawOpt === "string") {
+                    const text = rawOpt.trim();
+                    if (text) options.push({ text, isCorrect: false, explanation: "" });
+                  } else if (rawOpt && typeof rawOpt === "object") {
+                    const text = String(rawOpt.text ?? rawOpt.label ?? rawOpt.option ?? rawOpt.value ?? "").trim();
+                    if (!text) continue;
+                    options.push({
+                      text,
+                      isCorrect: rawOpt.correct === true || rawOpt.isCorrect === true || rawOpt.answer === true,
+                      explanation: String(rawOpt.explanation ?? rawOpt.note ?? rawOpt.comment ?? "").trim(),
+                    });
+                  }
+                }
+                if (!questionText || options.length < 2) { invalidJsonQuestions++; continue; }
+
+                const rawCorrect = item.correctIndices ?? item.correctIndex ?? item.correctAnswers;
+                const correctList = Array.isArray(rawCorrect) ? rawCorrect : (rawCorrect === undefined || rawCorrect === null ? [] : [rawCorrect]);
+                const correctIndices = correctList
+                  .map((v: any) => Number(v))
+                  .filter((n: number) => Number.isInteger(n) && n >= 0 && n < options.length);
+                if (correctIndices.length) {
+                  const wanted = new Set(correctIndices);
+                  options.forEach((o, idx) => { o.isCorrect = wanted.has(idx); });
+                }
+                if (!options.some((o) => o.isCorrect)) options[0].isCorrect = true;
+
+                const rawTags = item.tags ?? item.tag ?? [];
+                const tagList = Array.isArray(rawTags) ? rawTags : [rawTags];
+                const tags = Array.from(new Set(tagList.map(cleanTag).filter(Boolean))).slice(0, 20);
+
+                const subject = cleanImportLabel(item.subject);
+                const chapter = cleanImportLabel(item.chapter);
+                const part = cleanImportLabel(item.part ?? item.topic);
+                if (!(subject || fileSubcategory) || !chapter || !part) {
+                  missingHierarchy++;
+                  continue;
+                }
+
+                const year = String(item.year ?? item.annee ?? item["année"] ?? "").trim().slice(0, 20);
+                const code = String(item.code ?? item.sourceCode ?? "").trim().slice(0, 40);
+                const generalComment = String(item.explanation ?? item.generalExplanation ?? item.generalComment ?? "").trim();
+
+                questions.push({
+                  questionText,
+                  code,
+                  year,
+                  options,
+                  generalComment,
+                  subject,
+                  chapter,
+                  part,
+                  tags,
+                });
               }
+            } else {
+              const lines = rawImportText.split('\n');
+              let currentSubject = 'Uncategorized';
+              let currentChapter = '';
+              let currentPart = '';
+              let curQ: Partial<ParsedQuestion> = {};
+              let inQuestionText = false;
 
-              const qMatch = line.match(/^Question \d+ \[Code: (.*?)\]\s*\(Année: (.*?)\):/);
-              if (qMatch) {
-                if (curQ.questionText) questions.push(curQ as ParsedQuestion);
-                curQ = {
-                  code: qMatch[1],
-                  year: qMatch[2],
-                  subject: currentSubject,
-                  chapter: currentChapter,
-                  questionText: '',
-                  options: [],
-                  generalComment: ''
-                };
-                inQuestionText = true;
-                continue;
+              for (let i = 0; i < lines.length; i++) {
+                const line = lines[i].trim();
+                if (!line) continue;
+
+                if (line.startsWith('-> Subject:')) {
+                  currentSubject = line.replace('-> Subject:', '').trim();
+                  continue;
+                }
+
+                if (line.startsWith('-> Chapter:')) {
+                  currentChapter = line.replace('-> Chapter:', '').trim();
+                  continue;
+                }
+
+                if (line.startsWith('-> Part:')) {
+                  currentPart = line.replace('-> Part:', '').trim();
+                  continue;
+                }
+
+                const qMatch = line.match(/^Question \d+ \[Code: (.*?)\]\s*\(Année: (.*?)\):/);
+                if (qMatch) {
+                  if (curQ.questionText) questions.push(curQ as ParsedQuestion);
+                  curQ = {
+                    code: qMatch[1],
+                    year: qMatch[2],
+                    subject: currentSubject,
+                    chapter: currentChapter,
+                    part: currentPart,
+                    questionText: '',
+                    options: [],
+                    generalComment: ''
+                  };
+                  inQuestionText = true;
+                  continue;
+                }
+
+                const optMatch = line.match(/^[A-E]\.\s+(.*?)( ✅ \(CORRECT\))?( -> Note: (.*))?$/);
+                if (optMatch && curQ.options) {
+                  inQuestionText = false;
+                  const text = optMatch[1].trim();
+                  const isCorrect = !!optMatch[2];
+                  const explanation = optMatch[4] ? optMatch[4].trim() : '';
+                  curQ.options.push({ text, isCorrect, explanation });
+                  continue;
+                }
+
+                if (line.startsWith('Explication générale:')) {
+                  inQuestionText = false;
+                  if (curQ) curQ.generalComment = line.replace('Explication générale:', '').trim();
+                  continue;
+                }
+
+                if (inQuestionText && !line.startsWith('-----------------')) {
+                  curQ.questionText += (curQ.questionText ? '\n' : '') + line;
+                }
               }
+              if (curQ.questionText) questions.push(curQ as ParsedQuestion);
+            }
 
-              const optMatch = line.match(/^[A-E]\.\s+(.*?)( ✅ \(CORRECT\))?( -> Note: (.*))?$/);
-              if (optMatch && curQ.options) {
-                inQuestionText = false;
-                const text = optMatch[1].trim();
-                const isCorrect = !!optMatch[2];
-                const explanation = optMatch[4] ? optMatch[4].trim() : '';
-                curQ.options.push({ text, isCorrect, explanation });
-                continue;
-              }
-
-              if (line.startsWith('Explication générale:')) {
-                inQuestionText = false;
-                if (curQ) curQ.generalComment = line.replace('Explication générale:', '').trim();
-                continue;
-              }
-
-              if (inQuestionText && !line.startsWith('-----------------')) {
-                curQ.questionText += (curQ.questionText ? '\n' : '') + line;
+            if (!isJsonImport) {
+              for (const q of questions) {
+                if (!(q.subject && q.subject !== "Uncategorized") && !fileSubcategory) missingHierarchy++;
+                else if (!q.chapter || !q.part) missingHierarchy++;
               }
             }
-            if (curQ.questionText) questions.push(curQ as ParsedQuestion);
-            
-            const fileSubcategory = body.fileSubcategory ? String(body.fileSubcategory).trim() : "";
 
-            // Register fileSubcategory and any parsed question subjects into QBank subcategories
+            if (missingHierarchy) {
+              return json({ error: `Missing Subject, Chapter, or Part in ${missingHierarchy} question(s). Every question must include a subject, chapter, and part.` }, 400, cors);
+            }
+
+            if (!questions.length) {
+              return json({ error: isJsonImport ? "No valid JSON questions found. Each question needs questionText, options, subject, chapter, and part." : "No questions found in rawText" }, 400, cors);
+            }
+
+            // Every import becomes exactly Subject > Chapter > Part. Tags stay
+            // as free-form question metadata and never create extra taxonomy levels.
+            for (const q of questions) {
+              if (!q.subject || q.subject === "Uncategorized") q.subject = fileSubcategory || "Uncategorized";
+              const path = [q.subject, q.chapter || "", q.part || ""].map(cleanImportLabel).filter(Boolean);
+              q.taxonomyPath = path;
+              q.taxonomyCandidates = [path];
+            }
+
+            let taxonomyVersion = 0;
+
+            // Register fileSubcategory, question subjects, and Subject > Chapter > Part branches
             try {
               const qbRes = await fsGet(`qbanks/${body.qbankId}`);
               if (qbRes) {
@@ -1838,9 +2116,35 @@ Text to process:\n${body.rawText}`
                     subcategories: { stringValue: cats.join(", ") }
                   });
                 }
+
+                let taxonomyPaths: string[][] = [];
+                try { taxonomyPaths = parseTaxonomyInput(qbRes.fields?.taxonomyPaths?.stringValue || "[]"); } catch { taxonomyPaths = []; }
+                const seenPaths = new Set(taxonomyPaths.map((path) => taxonomyPathKey(path)));
+                let taxonomyChanged = false;
+                for (const q of questions) {
+                  for (const path of q.taxonomyCandidates || []) {
+                    if (taxonomyPaths.length >= MAX_TAXONOMY_PATHS) break;
+                    const key = taxonomyPathKey(path);
+                    if (seenPaths.has(key)) continue;
+                    seenPaths.add(key);
+                    taxonomyPaths.push(path);
+                    taxonomyChanged = true;
+                  }
+                }
+                const currentVersion = parseInt(qbRes.fields?.taxonomyVersion?.integerValue || "0", 10) || 0;
+                if (taxonomyChanged) {
+                  taxonomyVersion = currentVersion + 1;
+                  await fsSetMerge(`qbanks/${body.qbankId}`, toFields({
+                    taxonomyPaths: JSON.stringify(taxonomyPaths),
+                    taxonomyVersion,
+                    taxonomyUpdatedAt: Date.now()
+                  }));
+                } else {
+                  taxonomyVersion = currentVersion;
+                }
               }
             } catch(e) {
-              console.error("Failed to update QBank subcategories", e);
+              console.error("Failed to update QBank subcategories/taxonomy", e);
             }
 
             // Filter by chosen subjects if provided
@@ -1875,12 +2179,15 @@ Text to process:\n${body.rawText}`
             }
 
             const questionIds: string[] = [];
+            const preTaggedQuestionIds: string[] = [];
+            const untaggedQuestionIds: string[] = [];
+            const explicitTaggedAt = Date.now();
             let duplicatesSkipped = 0;
             let parseIndex = 0;
             
             let currentBatch: Promise<any>[] = [];
             
-            // Pre-mint globally-unique codes for this TXT batch. Imported
+            // Pre-mint globally-unique codes for this import batch. Imported
             // source codes are preserved as sourceCode, never reused.
             const txtCodePool: string[] = [];
             {
@@ -1902,19 +2209,44 @@ Text to process:\n${body.rawText}`
               if (existingQuestions[cleanText]) {
                 const existingDoc = existingQuestions[cleanText];
                 const docPath = existingDoc.name.replace(`projects/${sa.project_id}/databases/(default)/documents/`, '');
+                const existingId = String(existingDoc.name || "").split("/").pop() || "";
                 
                 let existingDataStr = existingDoc.fields?.data?.stringValue || "{}";
                 let exDataObj: any = {};
                 try { exDataObj = JSON.parse(existingDataStr); } catch(e){}
                 
+                const questionTaxonomyPath = Array.isArray(q.taxonomyPath) && q.taxonomyPath.length >= 3 ? q.taxonomyPath : [];
+                const hasExplicitTags = (Array.isArray(q.tags) && q.tags.length > 0) || questionTaxonomyPath.length > 0;
                 let needsUpdate = false;
                 if (exDataObj.chapter !== (q.chapter || "")) {
                    exDataObj.chapter = (q.chapter || "");
                    needsUpdate = true;
                 }
+                if (exDataObj.part !== (q.part || "")) {
+                   exDataObj.part = (q.part || "");
+                   needsUpdate = true;
+                }
                 if (exDataObj.subject !== finalSubject) {
                    exDataObj.subject = finalSubject;
                    needsUpdate = true;
+                }
+                if (hasExplicitTags) {
+                  const mergedTags = Array.from(new Set([
+                    ...(Array.isArray(exDataObj.tags) ? exDataObj.tags : []),
+                    ...(q.year ? [q.year] : []),
+                    ...(q.tags || [])
+                  ].map((tag: any) => String(tag || "").trim()).filter(Boolean)));
+                  if (JSON.stringify(mergedTags) !== JSON.stringify(exDataObj.tags || [])) {
+                    exDataObj.tags = mergedTags;
+                    needsUpdate = true;
+                  }
+                  if (questionTaxonomyPath.length) {
+                    exDataObj.taxonomyPath = questionTaxonomyPath;
+                    exDataObj.taxonomyVersion = taxonomyVersion;
+                    exDataObj.taxonomyTaggedAt = explicitTaggedAt;
+                    exDataObj.taxonomyConfidence = 1;
+                    needsUpdate = true;
+                  }
                 }
                 
                 if (needsUpdate) {
@@ -1922,6 +2254,7 @@ Text to process:\n${body.rawText}`
                        data: JSON.stringify(exDataObj)
                    })));
                 }
+                if (hasExplicitTags && existingId) preTaggedQuestionIds.push(existingId);
                 
                 duplicatesSkipped++;
                 
@@ -1942,7 +2275,12 @@ Text to process:\n${body.rawText}`
                 }
               });
 
-              const qTags = q.year ? [q.year] : [];
+              const qTags = Array.from(new Set([
+                ...(q.year ? [q.year] : []),
+                ...(q.tags || [])
+              ].map((tag: string) => String(tag || "").trim()).filter(Boolean)));
+              const questionTaxonomyPath = Array.isArray(q.taxonomyPath) && q.taxonomyPath.length >= 3 ? q.taxonomyPath : [];
+              const hasExplicitTags = (Array.isArray(q.tags) && q.tags.length > 0) || questionTaxonomyPath.length > 0;
 
               // Determine final subject: if question has a specific subject, use it; if Uncategorized, fall back to fileSubcategory
               // finalSubject is already declared above
@@ -1950,24 +2288,34 @@ Text to process:\n${body.rawText}`
               const qId = crypto.randomUUID();
               const mintedCode = txtCodePool.length ? txtCodePool.shift()! : await newUniqueCode(new Set());
               importedForIndex.push({ id: qId, code: mintedCode });
+              const questionData: any = {
+                code: mintedCode,
+                sourceCode: q.code || "",
+                tags: qTags,
+                options: q.options.map(o => o.text),
+                correctIndices: correctIndices.length ? correctIndices : [0],
+                explanation: explanationText.trim() || "",
+                subject: finalSubject,
+                chapter: q.chapter || "",
+                part: q.part || "",
+                createdAt: Date.now() + parseIndex
+              };
+              if (questionTaxonomyPath.length) {
+                questionData.taxonomyPath = questionTaxonomyPath;
+                questionData.taxonomyVersion = taxonomyVersion;
+                questionData.taxonomyTaggedAt = explicitTaggedAt;
+                questionData.taxonomyConfidence = 1;
+              }
               const p = fsSetMerge(`qbanks/${body.qbankId}/questions/${qId}`, toFields({
                 questionText: text,
-                data: JSON.stringify({
-                  code: mintedCode,
-                  sourceCode: q.code || "",
-                  tags: qTags,
-                  options: q.options.map(o => o.text),
-                  correctIndices: correctIndices.length ? correctIndices : [0],
-                  explanation: explanationText.trim() || "",
-                  subject: finalSubject,
-                  chapter: q.chapter || "",
-                  createdAt: Date.now() + parseIndex
-                }),
+                data: JSON.stringify(questionData),
                 createdAt: Date.now() + parseIndex
               }));
               
               currentBatch.push(p);
               questionIds.push(qId);
+              if (hasExplicitTags) preTaggedQuestionIds.push(qId);
+              else untaggedQuestionIds.push(qId);
               
               if (currentBatch.length >= 50) {
                  await Promise.all(currentBatch);
@@ -1981,7 +2329,17 @@ Text to process:\n${body.rawText}`
             await fsSetMerge(`qbanks/${body.qbankId}`, toFields({ updatedAt: Date.now() }));
             // Surgical index updates — imported questions searchable instantly
             for (const item of importedForIndex) qindexUpsert(body.qbankId!, item.id, item.code);
-            return json({ ok: true, imported: questionIds.length, duplicatesSkipped, totalFound: questions.length }, 200, cors);
+            return json({
+              ok: true,
+              format: isJsonImport ? "json" : "txt",
+              imported: questionIds.length,
+              questionIds,
+              untaggedQuestionIds,
+              preTaggedQuestionIds,
+              duplicatesSkipped,
+              invalidSkipped: invalidJsonQuestions,
+              totalFound: questions.length
+            }, 200, cors);
           }
 
           if (body.action === "list_qbank_questions") {
@@ -3010,3 +3368,282 @@ Text to process:\n${body.rawText}`
     },
   },
 });
+type QBankTaxonomy = { version: number; paths: string[][]; updatedAt: number; chunked: boolean };
+
+const MAX_TAXONOMY_PATHS = 2000;
+const MAX_TAXONOMY_DEPTH = 5;
+const TAXONOMY_BATCH_SIZE = 20;
+const TAXONOMY_PROMPT_PATH_LIMIT = 1500;
+
+function cleanTaxonomySegment(value: unknown): string {
+  return String(value == null ? "" : value)
+    .replace(/^[\s\-*•]+/, "")
+    .replace(/\s+/g, " ")
+    .replace(/:\s*$/, "")
+    .trim()
+    .slice(0, 80);
+}
+
+function taxonomyPathKey(path: string[]): string {
+  return path.map((s) => s.trim().toLowerCase()).join("\u0001");
+}
+
+function splitTaxonomyPathText(value: string): string[] {
+  return value
+    .split(/\s*(?:>|\/|→|›|\\|\u203a)\s*/)
+    .map(cleanTaxonomySegment)
+    .filter(Boolean);
+}
+
+function addTaxonomyPath(paths: string[][], seen: Set<string>, segments: string[]) {
+  const path = segments.map(cleanTaxonomySegment).filter(Boolean).slice(0, MAX_TAXONOMY_DEPTH);
+  if (!path.length) return;
+  const key = taxonomyPathKey(path);
+  if (seen.has(key)) return;
+  seen.add(key);
+  paths.push(path);
+}
+
+function parseTaxonomyText(text: string): string[][] {
+  const paths: string[][] = [];
+  const seen = new Set<string>();
+  const stack: Array<{ indent: number; label: string }> = [];
+  for (const rawLine of text.replace(/^\uFEFF/, "").replace(/\r\n?/g, "\n").split("\n")) {
+    const raw = rawLine.replace(/\t/g, "  ");
+    const trimmed = raw.trim();
+    if (!trimmed || trimmed.startsWith("#") || trimmed.startsWith("//")) continue;
+    const indent = (raw.match(/^ */) || [""])[0].length;
+    const line = trimmed.replace(/^[-*•]\s+/, "").trim();
+    if (!line) continue;
+    while (stack.length && indent <= stack[stack.length - 1].indent) stack.pop();
+
+    if (/(?:>|\/|→|›|\u203a)/.test(line)) {
+      const base = stack.map((s) => s.label);
+      const segments = splitTaxonomyPathText(line);
+      addTaxonomyPath(paths, seen, [...base, ...segments]);
+      segments.forEach((label) => stack.push({ indent, label }));
+      continue;
+    }
+
+    const label = cleanTaxonomySegment(line);
+    if (!label) continue;
+    addTaxonomyPath(paths, seen, [...stack.map((s) => s.label), label]);
+    stack.push({ indent, label });
+  }
+  return paths;
+}
+
+function normalizeTaxonomyArray(value: any, paths: string[][], seen: Set<string>) {
+  if (!Array.isArray(value)) return;
+  for (const item of value) {
+    if (Array.isArray(item)) {
+      addTaxonomyPath(paths, seen, item.map((s) => String(s)));
+      continue;
+    }
+    if (typeof item === "string") {
+      addTaxonomyPath(paths, seen, splitTaxonomyPathText(item));
+      continue;
+    }
+    if (item && typeof item === "object") {
+      const candidate = item.path ?? item.taxonomyPath ?? item.topicPath ?? item.branches ?? item.name;
+      if (Array.isArray(candidate)) addTaxonomyPath(paths, seen, candidate.map((s: any) => String(s)));
+      else if (typeof candidate === "string") addTaxonomyPath(paths, seen, splitTaxonomyPathText(candidate));
+    }
+  }
+}
+
+function parseTaxonomyInput(raw: unknown): string[][] {
+  const paths: string[][] = [];
+  const seen = new Set<string>();
+  let value: any = raw;
+  if (typeof raw === "string") {
+    const trimmed = raw.trim();
+    if (!trimmed) return [];
+    if (trimmed.startsWith("[") || trimmed.startsWith("{")) {
+      try { value = JSON.parse(trimmed); } catch { value = raw; }
+    }
+    if (typeof value === "string") return parseTaxonomyText(trimmed);
+  }
+  if (Array.isArray(value)) normalizeTaxonomyArray(value, paths, seen);
+  else if (value && typeof value === "object") {
+    normalizeTaxonomyArray((value as any).paths ?? (value as any).branches ?? (value as any).taxonomy, paths, seen);
+  }
+  if (paths.length > MAX_TAXONOMY_PATHS) {
+    throw new Error(`Taxonomy is too large (${paths.length} paths). Keep it under ${MAX_TAXONOMY_PATHS}.`);
+  }
+  return paths;
+}
+
+function taxonomyToText(paths: string[][]): string {
+  return paths.map((p) => p.join(" > ")).join("\n");
+}
+
+async function loadQBankTaxonomy(qbankId: string): Promise<QBankTaxonomy> {
+  const doc = await fsGet(`qbanks/${qbankId}`);
+  if (!doc) throw new Error("QBank not found");
+  let paths: string[][] = [];
+  try { paths = parseTaxonomyInput(doc.fields?.taxonomyPaths?.stringValue || "[]"); } catch { paths = []; }
+  const version = parseInt(doc.fields?.taxonomyVersion?.integerValue || "0", 10) || 0;
+  const updatedAt = parseInt(doc.fields?.taxonomyUpdatedAt?.integerValue || "0", 10) || 0;
+  const chunkCount = parseInt(doc.fields?.chunkCount?.integerValue || "0", 10) || 0;
+  const chunked = chunkCount > 0 || doc.fields?.storage_provider?.stringValue === "r2";
+  return { version, paths, updatedAt, chunked };
+}
+
+function taxonomyIndex(paths: string[][]) {
+  const exact = new Map<string, string[]>();
+  const byLeaf = new Map<string, string[][]>();
+  for (const path of paths) {
+    exact.set(taxonomyPathKey(path), path);
+    const leaf = path[path.length - 1].toLowerCase();
+    const list = byLeaf.get(leaf) || [];
+    list.push(path);
+    byLeaf.set(leaf, list);
+  }
+  return { exact, byLeaf };
+}
+
+function normalizeAiTaxonomyPath(raw: unknown, paths: string[][], index: ReturnType<typeof taxonomyIndex>): string[] | null {
+  if (Array.isArray(raw)) {
+    const candidate = raw.map((s) => String(s));
+    const exact = index.exact.get(taxonomyPathKey(candidate));
+    if (exact) return exact;
+  }
+  if (typeof raw === "string") {
+    const candidate = splitTaxonomyPathText(raw);
+    const exact = index.exact.get(taxonomyPathKey(candidate));
+    if (exact) return exact;
+  }
+  const candidate = Array.isArray(raw) ? raw.map((s) => String(s)) : splitTaxonomyPathText(String(raw || ""));
+  if (!candidate.length) return null;
+  const leaf = candidate[candidate.length - 1].toLowerCase();
+  const leafMatches = index.byLeaf.get(leaf) || [];
+  if (leafMatches.length === 1) return leafMatches[0];
+  if (leafMatches.length > 1) {
+    const parent = candidate[candidate.length - 2]?.toLowerCase();
+    const parentMatch = leafMatches.find((p) => p[p.length - 2]?.toLowerCase() === parent);
+    if (parentMatch) return parentMatch;
+  }
+  return null;
+}
+
+function parseAiJsonObject(text: string): any {
+  let cleaned = String(text || "").trim();
+  const fence = cleaned.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fence) cleaned = fence[1].trim();
+  const start = cleaned.indexOf("{");
+  const end = cleaned.lastIndexOf("}");
+  if (start !== -1 && end > start) cleaned = cleaned.slice(start, end + 1);
+  return JSON.parse(cleaned);
+}
+
+function taxonomyPromptCandidates(paths: string[][], questions: Array<{ subject: string; chapter: string }>): string[][] {
+  if (paths.length <= TAXONOMY_PROMPT_PATH_LIMIT) return paths;
+  const hints = new Set<string>();
+  for (const q of questions) {
+    [q.subject, q.chapter].forEach((value) => {
+      String(value || "").toLowerCase().split(/[^a-z0-9]+/).filter(Boolean).forEach((word) => hints.add(word));
+    });
+  }
+  const matched = paths.filter((path) => path.some((segment) => hints.has(segment.toLowerCase())));
+  return matched.length >= 25 ? matched.slice(0, TAXONOMY_PROMPT_PATH_LIMIT) : paths.slice(0, TAXONOMY_PROMPT_PATH_LIMIT);
+}
+
+async function tagQbankQuestionsBatch(
+  qbankId: string,
+  ids: string[],
+  taxonomy: QBankTaxonomy,
+): Promise<{ tagged: number; unmatched: string[]; assignments: Array<{ questionId: string; path: string[]; confidence: number }>; provider: string; model: string }> {
+  const docs = await Promise.all(ids.map((id) => fsGet(`qbanks/${qbankId}/questions/${id}`)));
+  const questions: Array<{ id: string; subject: string; chapter: string; text: string; options: string[]; explanation: string }> = [];
+  const dataById = new Map<string, any>();
+  for (let i = 0; i < ids.length; i++) {
+    const doc = docs[i];
+    if (!doc) continue;
+    const text = doc.fields?.questionText?.stringValue || "";
+    if (!text.trim()) continue;
+    let data: any = {};
+    try { data = JSON.parse(doc.fields?.data?.stringValue || "{}"); } catch { data = {}; }
+    dataById.set(ids[i], data);
+    const options = Array.isArray(data.options)
+      ? data.options.map((o: any) => String(o || "").slice(0, 300)).filter(Boolean)
+      : [];
+    questions.push({
+      id: ids[i],
+      subject: String(data.subject || "").slice(0, 120),
+      chapter: String(data.chapter || "").slice(0, 120),
+      text: String(text).slice(0, 1800),
+      options,
+      explanation: String(data.explanation || "").slice(0, 1200),
+    });
+  }
+  if (!questions.length) {
+    return { tagged: 0, unmatched: [...ids], assignments: [], provider: "", model: "" };
+  }
+
+  const candidates = taxonomyPromptCandidates(taxonomy.paths, questions);
+  const allowed = candidates.map((p) => `- ${p.join(" > ")}`).join("\n");
+  const payload = JSON.stringify({ questions });
+  const r = await routeRequest({
+    messages: [
+      {
+        role: "system",
+        content:
+          "You are a medical education taxonomy classifier. Assign every question to exactly one path from the ALLOWED TAXONOMY. " +
+          "Pick the most specific branch that genuinely fits the question. Use the stem, options, explanation, subject and chapter. " +
+          "Never invent a path. If no branch fits, return an empty path. " +
+          'Return ONLY minified JSON in this exact shape: {"assignments":[{"id":"question id","path":["Branch","Sub-branch"],"confidence":0.0}]}.',
+      },
+      {
+        role: "user",
+        content: `ALLOWED TAXONOMY\n${allowed}\n\nQUESTIONS\n${payload}`,
+      },
+    ],
+    requireJson: true,
+    temperature: 0.1,
+    task: "qbank_tag_taxonomy",
+  });
+
+  let parsed: any;
+  try {
+    parsed = parseAiJsonObject(r.text);
+  } catch {
+    throw new Error("AI returned invalid tagging JSON");
+  }
+  const list = Array.isArray(parsed) ? parsed : (parsed.assignments || parsed.results || parsed.questions || []);
+  if (!Array.isArray(list)) throw new Error("AI returned an invalid tagging payload");
+
+  const index = taxonomyIndex(taxonomy.paths);
+  const byId = new Map<string, any>();
+  for (const item of list) {
+    if (!item || typeof item !== "object") continue;
+    const id = String(item.id || item.questionId || item.qid || "");
+    if (id) byId.set(id, item);
+  }
+
+  const assignments: Array<{ questionId: string; path: string[]; confidence: number }> = [];
+  const unmatched: string[] = [];
+  const writes: Array<Promise<unknown>> = [];
+  const taggedAt = Date.now();
+  for (const q of questions) {
+    const item = byId.get(q.id);
+    const rawPath = item ? (item.path ?? item.taxonomyPath ?? item.topicPath ?? item.topic) : null;
+    const path = normalizeAiTaxonomyPath(rawPath, taxonomy.paths, index);
+    if (!path) { unmatched.push(q.id); continue; }
+    const confidenceRaw = Number(item && item.confidence);
+    const confidence = Number.isFinite(confidenceRaw) ? Math.max(0, Math.min(1, confidenceRaw)) : 0.5;
+    const data = dataById.get(q.id) || {};
+    data.taxonomyPath = path;
+    data.taxonomyVersion = taxonomy.version;
+    data.taxonomyTaggedAt = taggedAt;
+    data.taxonomyConfidence = Math.round(confidence * 100) / 100;
+    writes.push(fsSetMerge(`qbanks/${qbankId}/questions/${q.id}`, toFields({ data: JSON.stringify(data) })));
+    assignments.push({ questionId: q.id, path, confidence });
+  }
+  if (writes.length) await Promise.all(writes);
+  if (writes.length && !taxonomy.chunked) {
+    await fsSetMerge(`qbanks/${qbankId}`, toFields({ updatedAt: Date.now() }));
+  }
+  return { tagged: assignments.length, unmatched, assignments, provider: r.provider, model: r.model };
+}
+
