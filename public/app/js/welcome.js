@@ -244,45 +244,27 @@
         if (chosenMajorId && !majors.some(m => m.id === chosenMajorId)) chosenMajorId = "";
         bodyEl.innerHTML = `
           <h2 class="wo-title">What is your major?</h2>
-          <p class="wo-sub">Choose your programme, or add it if it is not listed yet.</p>
+          <p class="wo-sub">Choose your programme from the list below.</p>
           <div class="wo-col" id="wo-major-grid">
             ${majors.map(m => optBtn("major", m.id, `<span>${esc(m.name)}</span>`, chosenMajorId === m.id)).join("")}
-            ${majors.length ? "" : '<div style="color:#64748B;font-size:13px;padding:10px 0;">No majors are listed for this country yet. Add yours below.</div>'}
-          </div>
-          <label class="wo-label" for="wo-major-custom" style="margin-top:16px;">Or add your major</label>
-          <input id="wo-major-custom" class="wo-input" type="text" maxlength="120"
-                 placeholder="e.g. Medicine, Pharmacy, Dentistry" value="${esc(chosenMajorId ? "" : chosenMajorName)}" />`;
+            ${majors.length ? "" : '<div style="color:#64748B;font-size:13px;padding:10px 0;">No majors are listed for this country yet. Please contact support.</div>'}
+          </div>`;
         navEl.innerHTML = `
           <button id="wo-back" class="wo-btn-ghost"><i class="fa-solid fa-arrow-left"></i> Back</button>
-          <button id="wo-next" class="wo-btn-primary wo-btn-flex" ${chosenMajorId || chosenMajorName.trim().length >= 2 ? "" : "disabled"}>
+          <button id="wo-next" class="wo-btn-primary wo-btn-flex" ${chosenMajorId ? "" : "disabled"}>
             Continue <i class="fa-solid fa-arrow-right"></i>
           </button>`;
         const grid = bodyEl.querySelector("#wo-major-grid");
-        const custom = bodyEl.querySelector("#wo-major-custom");
         const next = navEl.querySelector("#wo-next");
-        const sync = () => {
-          chosenMajorName = (custom.value || "").trim();
-          if (chosenMajorName) {
-            chosenMajorId = "";
-            chosenCollegeId = "";
-            chosenCollegeName = "";
-          }
-          next.disabled = !(chosenMajorId || chosenMajorName.length >= 2);
-        };
         grid.addEventListener("click", (e) => {
           const btn = e.target.closest(".wo-major");
           if (!btn) return;
           chosenMajorId = btn.dataset.value;
-          chosenMajorName = btn.textContent.trim();
+          chosenMajorName = btn.querySelector("span") ? btn.querySelector("span").textContent.trim() : btn.textContent.trim();
           chosenCollegeId = "";
           chosenCollegeName = "";
-          custom.value = "";
           grid.querySelectorAll(".wo-major").forEach(b => b.classList.toggle("selected", b === btn));
           next.disabled = false;
-        });
-        custom.addEventListener("input", () => {
-          grid.querySelectorAll(".wo-major").forEach(b => b.classList.remove("selected"));
-          sync();
         });
         navEl.querySelector("#wo-back").addEventListener("click", () => { step = 2; render(); });
         next.addEventListener("click", () => { if (!next.disabled) { step = 4; render(); } });
@@ -297,36 +279,22 @@
           <p class="wo-sub">Your QBank access is based on ${esc(majorLabel)} at your college.</p>
           <div class="wo-col" id="wo-college-grid">
             ${colleges.map(c => optBtn("college", c.id, `<span>${esc(c.name)}</span>`, chosenCollegeId === c.id)).join("")}
-            ${colleges.length ? "" : '<div style="color:#64748B;font-size:13px;padding:10px 0;">No colleges are listed yet. Add yours below so we can attach the right banks.</div>'}
-          </div>
-          <label class="wo-label" for="wo-college-custom" style="margin-top:16px;">Or add your college</label>
-          <input id="wo-college-custom" class="wo-input" type="text" maxlength="160"
-                 placeholder="e.g. Faculty of Medicine of Tunis" value="${esc(chosenCollegeId ? "" : chosenCollegeName)}" />`;
+            ${colleges.length ? "" : '<div style="color:#64748B;font-size:13px;padding:10px 0;">No colleges are listed yet. Please contact support to have your college added.</div>'}
+          </div>`;
         navEl.innerHTML = `
           <button id="wo-back" class="wo-btn-ghost"><i class="fa-solid fa-arrow-left"></i> Back</button>
-          <button id="wo-next" class="wo-btn-primary wo-btn-flex" ${chosenCollegeId || chosenCollegeName.trim().length >= 2 ? "" : "disabled"}>
+          <button id="wo-next" class="wo-btn-primary wo-btn-flex" ${chosenCollegeId ? "" : "disabled"}>
             Continue <i class="fa-solid fa-arrow-right"></i>
           </button>`;
         const grid = bodyEl.querySelector("#wo-college-grid");
-        const custom = bodyEl.querySelector("#wo-college-custom");
         const next = navEl.querySelector("#wo-next");
-        const sync = () => {
-          chosenCollegeName = (custom.value || "").trim();
-          if (chosenCollegeName) chosenCollegeId = "";
-          next.disabled = !(chosenCollegeId || chosenCollegeName.length >= 2);
-        };
         grid.addEventListener("click", (e) => {
           const btn = e.target.closest(".wo-college");
           if (!btn) return;
           chosenCollegeId = btn.dataset.value;
-          chosenCollegeName = btn.textContent.trim();
-          custom.value = "";
+          chosenCollegeName = btn.querySelector("span") ? btn.querySelector("span").textContent.trim() : btn.textContent.trim();
           grid.querySelectorAll(".wo-college").forEach(b => b.classList.toggle("selected", b === btn));
           next.disabled = false;
-        });
-        custom.addEventListener("input", () => {
-          grid.querySelectorAll(".wo-college").forEach(b => b.classList.remove("selected"));
-          sync();
         });
         navEl.querySelector("#wo-back").addEventListener("click", () => { step = 3; render(); });
         next.addEventListener("click", () => { if (!next.disabled) { step = 5; render(); } });
@@ -364,8 +332,8 @@
     async function save() {
       const name = (chosenName || defaultName || "").trim();
       if (name.length < 2 || !chosenCountry || !chosenLang) return;
-      if (!chosenMajorId && chosenMajorName.trim().length < 2) return;
-      if (!chosenCollegeId && chosenCollegeName.trim().length < 2) return;
+      if (!chosenMajorId) return;
+      if (!chosenCollegeId) return;
 
       const go = overlay.querySelector("#wo-go");
       if (go) {
