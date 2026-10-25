@@ -901,7 +901,7 @@
         const code = CQ_FLAG_CODES[c] || "un";
         return `<button type="button" class="cq-pick-country" data-cq-autofocus onclick="window.cqRenderCollegePicker('${cqJsArg(c)}')">
           <img src="https://flagcdn.com/${code}.svg" alt="" class="cq-pick-flag">
-          <span class="cq-pick-text"><b>${cqEsc(CQ_COUNTRY_LABELS[c] || c)}</b><small>${cols.size} ${cols.size === 1 ? "college" : "colleges"} · ${byCountry[c].length} ${byCountry[c].length === 1 ? "exam" : "exams"}</small></span>
+          <span class="cq-pick-text"><b>${cqEsc(CQ_COUNTRY_LABELS[c] || c)}</b><small><b>${cols.size}</b> <span>${cols.size === 1 ? "college" : "colleges"}</span> <span class="cq-sep">·</span> <b>${byCountry[c].length}</b> <span>${byCountry[c].length === 1 ? "exam" : "exams"}</span></small></span>
           <i data-lucide="chevron-right" class="cq-pick-chev"></i>
         </button>`;
       }).join("") + `</div>`;
@@ -938,14 +938,14 @@
         <div class="cq-current-country">
           <img src="https://flagcdn.com/${code}.svg" alt="" class="cq-pick-flag">
           <b>${cqEsc(cLabel)}</b>
-          <span>${cols.length} ${cols.length === 1 ? "college" : "colleges"}</span>
+          <span><b>${cols.length}</b> <span>${cols.length === 1 ? "college" : "colleges"}</span></span>
         </div>
         <div class="cq-college-list">
           ${cols.map(col => {
             const n = byCollege[col].length;
             return `<button type="button" class="cq-pick-college" data-cq-autofocus onclick="window.cqChooseCollege('${cqJsArg(country)}', '${cqJsArg(col)}')">
               <span class="cq-college-ic"><i data-lucide="school"></i></span>
-              <span class="cq-pick-text"><b>${cqEsc(col)}</b><small>${n} past ${n === 1 ? "exam" : "exams"} · ${cqEsc(cLabel)}</small></span>
+              <span class="cq-pick-text"><b>${cqEsc(col)}</b><small><b>${n}</b> <span>${n === 1 ? "past exam" : "past exams"}</span> <span class="cq-sep">·</span> ${cqEsc(cLabel)}</small></span>
               <i data-lucide="chevron-right" class="cq-pick-chev"></i>
             </button>`;
           }).join("")}
@@ -2426,7 +2426,7 @@
             <div class="cq-resume-text">
               <small>Pick up where you left off</small>
               <b>${cqEsc(resumeLabel)}</b>
-              <span>${cqEsc(resumeBank)} · ${answeredForResume} of ${totalForResume} answered</span>
+              <span><b>${cqEsc(resumeBank)}</b> · <b>${answeredForResume}</b> of <b>${totalForResume}</b> answered</span>
             </div>
             <div class="cq-resume-meter" aria-hidden="true"><span style="width:${resumePct}%"></span></div>
             <button type="button" class="cq-btn cq-btn-ghost" onclick="window.qbankContinueLast()">Resume <i data-lucide="arrow-right"></i></button>
@@ -2440,7 +2440,7 @@
              <div class="cq-school-text">
                <small>Your college</small>
                <b>${cqEsc(savedCollege.college)}</b>
-               <span>${cqEsc(countryName)} · ${savedCollegeBanks.length} past ${savedCollegeBanks.length === 1 ? "exam" : "exams"}</span>
+               <span>${cqEsc(countryName)} <span class="cq-sep">·</span> <b>${savedCollegeBanks.length}</b> <span>${savedCollegeBanks.length === 1 ? "past exam" : "past exams"}</span></span>
              </div>
              <button type="button" class="cq-mini" onclick="window.cqOpenCollegePicker('${cqJsArg(savedCollege.country)}')">Change</button>
            </div>`
@@ -2468,7 +2468,7 @@
       const reviewAction = totalIncorrect > 0
         ? `<button type="button" class="cq-quick-card" onclick="window.startQBankSession('${cqJsArg(activeQBankId)}', '${cqJsArg(activeQBankName)}', null, true)">
              <span class="cq-quick-icon is-rose"><i data-lucide="rotate-ccw"></i></span>
-             <span class="cq-quick-copy"><b>Review incorrects</b><small>${totalIncorrect.toLocaleString()} to revisit</small></span>
+             <span class="cq-quick-copy"><b>Review incorrects</b><small><b>${totalIncorrect.toLocaleString()}</b> to revisit</small></span>
              <i data-lucide="arrow-right" class="cq-quick-arrow"></i>
            </button>`
         : `<button type="button" class="cq-quick-card" disabled aria-disabled="true">
@@ -2529,23 +2529,35 @@
             .cq-streak svg { width: 17px; height: 17px; color: #C2410C; }
             html.dark .cq-streak svg { color: #F0B429; }
             .cq-streak b { color: var(--cq-ink); }
-            .cq-search-stage { display: flex; flex-direction: column; align-items: center; gap: 9px; padding: clamp(22px, 4vw, 34px) clamp(16px, 3vw, 30px); background: linear-gradient(180deg, var(--cq-surface) 0%, var(--cq-teal-soft) 100%); border: 1px solid var(--cq-line); border-radius: 22px; box-shadow: var(--cq-shadow); text-align: center; animation: cq-rise 0.45s ease both; }
-            html.dark .cq-search-stage { background: linear-gradient(180deg, var(--cq-surface) 0%, #0E2528 100%); }
-            .cq-search-title { margin: 0; font-size: clamp(22px, 3vw, 28px); line-height: 1.15; letter-spacing: -0.02em; font-weight: 800; color: var(--cq-ink); }
-            .cq-search-sub { margin: 0 0 6px; max-width: 56ch; font-size: 13.5px; line-height: 1.5; color: var(--cq-ink-2); }
-            .cq-search { position: relative; width: min(100%, 760px); text-align: left; }
-            .cq-search-field { display: flex; align-items: center; gap: 12px; min-height: 64px; padding: 0 14px 0 20px; background: var(--cq-surface); border: 1.5px solid #B9D8D8; border-radius: 16px; box-shadow: 0 12px 30px -22px rgba(16, 24, 40, 0.5); transition: border-color 0.18s ease, box-shadow 0.18s ease; }
-            html.dark .cq-search-field { border-color: #2E6478; box-shadow: none; }
-            .cq-search-field:focus-within { border-color: var(--cq-teal); box-shadow: 0 0 0 4px rgba(0, 122, 122, 0.14), 0 18px 38px -26px rgba(16, 24, 40, 0.55); }
-            .cq-search-icon { width: 24px; height: 24px; color: var(--cq-teal); flex-shrink: 0; }
-            .cq-search input { flex: 1; min-width: 0; height: 62px; border: none; outline: none; background: transparent; color: var(--cq-ink); font: inherit; font-size: 17px; font-weight: 600; }
+            .cq-search-stage { position: relative; isolation: isolate; display: flex; flex-direction: column; align-items: center; gap: 10px; padding: clamp(26px, 4.2vw, 40px) clamp(18px, 3.4vw, 36px); background: linear-gradient(160deg, #FFFFFF 0%, #F3FBFB 52%, #E7F3F3 100%); border: 1px solid #D3E7E7; border-radius: 26px; box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04), 0 30px 60px -46px rgba(0, 122, 122, 0.6); text-align: center; animation: cq-rise 0.45s ease both; }
+            .cq-search-stage::before { content: ""; position: absolute; inset: 0; border-radius: inherit; background: radial-gradient(90% 120% at 50% -10%, rgba(0, 122, 122, 0.15), rgba(0, 122, 122, 0) 70%); pointer-events: none; z-index: -1; }
+            .cq-search-stage::after { content: ""; position: absolute; inset: 0; border-radius: inherit; background-image: radial-gradient(rgba(0, 122, 122, 0.16) 0.7px, transparent 0.7px); background-size: 16px 16px; opacity: 0.28; mask-image: linear-gradient(180deg, transparent 45%, #000 100%); -webkit-mask-image: linear-gradient(180deg, transparent 45%, #000 100%); pointer-events: none; z-index: -1; }
+            html.dark .cq-search-stage { background: linear-gradient(160deg, #10191C 0%, #0D2326 55%, #0B1D20 100%); border-color: #22454A; box-shadow: none; }
+            html.dark .cq-search-stage::before { background: radial-gradient(closest-side, rgba(69, 201, 210, 0.16), rgba(69, 201, 210, 0) 74%); }
+            html.dark .cq-search-stage::after { background-image: radial-gradient(rgba(69, 201, 210, 0.22) 0.7px, transparent 0.7px); }
+            .cq-search-kicker { margin-bottom: 0; }
+            .cq-search-title { margin: 0; font-size: clamp(24px, 3.2vw, 31px); line-height: 1.12; letter-spacing: -0.025em; font-weight: 800; color: var(--cq-ink); }
+            .cq-search-sub { margin: 0 0 10px; max-width: 58ch; font-size: 13.5px; line-height: 1.55; color: var(--cq-ink-2); }
+            .cq-search { position: relative; width: min(100%, 720px); text-align: left; z-index: 1; }
+            .cq-search-field { display: flex; align-items: center; gap: 10px; min-height: 70px; padding: 7px 9px 7px 8px; background: var(--cq-surface); border: 1px solid #CBDFDF; border-radius: 999px; box-shadow: 0 2px 4px rgba(16, 24, 40, 0.04), 0 18px 38px -28px rgba(16, 24, 40, 0.45); transition: border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease; }
+            html.dark .cq-search-field { border-color: #2A5055; box-shadow: 0 18px 38px -30px rgba(0, 0, 0, 0.8); }
+            .cq-search-field:hover { border-color: #A9CDCD; }
+            .cq-search-field:focus-within { border-color: var(--cq-teal); box-shadow: 0 0 0 5px rgba(0, 122, 122, 0.12), 0 24px 46px -30px rgba(16, 24, 40, 0.5); transform: translateY(-1px); }
+            html.dark .cq-search-field:focus-within { box-shadow: 0 0 0 5px rgba(69, 201, 210, 0.14); }
+            .cq-search-icon-wrap { width: 54px; height: 54px; border-radius: 999px; background: linear-gradient(145deg, var(--cq-teal-soft), rgba(230, 242, 242, 0.35)); color: var(--cq-teal); display: grid; place-items: center; flex-shrink: 0; }
+            html.dark .cq-search-icon-wrap { background: linear-gradient(145deg, #123A3F, rgba(18, 58, 63, 0.35)); }
+            .cq-search-icon { width: 22px; height: 22px; color: var(--cq-teal); flex-shrink: 0; }
+            .cq-search input { flex: 1; min-width: 0; height: 52px; padding: 0 2px; border: none; outline: none; background: transparent; color: var(--cq-ink); font: inherit; font-size: 16.5px; font-weight: 600; }
             .cq-search input::placeholder { color: var(--cq-muted); font-weight: 500; }
-            .cq-search-kbd { flex-shrink: 0; padding: 5px 8px; border: 1px solid var(--cq-line); border-radius: 7px; background: var(--cq-teal-soft); color: var(--cq-teal); font-size: 10.5px; font-weight: 800; white-space: nowrap; }
-            .cq-search-dropdown { position: absolute; top: calc(100% + 8px); left: 0; right: 0; z-index: 40; max-height: min(420px, 55vh); overflow-y: auto; background: var(--cq-surface); color: var(--cq-ink); border-radius: 14px; border: 1px solid var(--cq-line); box-shadow: 0 24px 60px -28px rgba(16, 24, 40, 0.55); }
+            .cq-search-kbd { flex-shrink: 0; margin-inline-end: 8px; padding: 7px 11px; border: 1px solid #D6E7E7; border-radius: 10px; background: #F5FBFB; color: var(--cq-teal); font-size: 10.5px; font-weight: 800; letter-spacing: 0.03em; white-space: nowrap; }
+            html.dark .cq-search-kbd { border-color: #24474C; background: #10282C; }
+            .cq-search-dropdown { position: absolute; top: calc(100% + 10px); left: 0; right: 0; z-index: 40; max-height: min(420px, 55vh); overflow-y: auto; padding: 6px; background: var(--cq-surface); color: var(--cq-ink); border-radius: 18px; border: 1px solid var(--cq-line); box-shadow: 0 28px 64px -30px rgba(16, 24, 40, 0.55); }
             .cq-search-dropdown.hidden { display: none; }
-            .cq-search-chips { display: flex; align-items: center; justify-content: center; gap: 8px; flex-wrap: wrap; margin-top: 2px; }
-            .cq-search-chips > span { font-size: 10px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: var(--cq-muted); }
-            .cq-search-chip { min-height: 36px; padding: 0 12px; border: 1px solid var(--cq-line); border-radius: 999px; background: var(--cq-surface); color: var(--cq-ink-2); font: inherit; font-size: 12px; font-weight: 700; cursor: pointer; }
+            .cq-search-chips { display: flex; align-items: center; justify-content: center; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+            .cq-search-chips > span { font-size: 10px; font-weight: 800; letter-spacing: 0.1em; text-transform: uppercase; color: var(--cq-muted); }
+            .cq-search-chip { min-height: 34px; padding: 0 14px; border: 1px solid rgba(185, 216, 216, 0.85); border-radius: 999px; background: rgba(255, 255, 255, 0.78); color: var(--cq-ink-2); font: inherit; font-size: 12px; font-weight: 700; cursor: pointer; backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); transition: border-color 0.18s ease, color 0.18s ease, background 0.18s ease, transform 0.18s ease; }
+            .cq-search-chip:hover { transform: translateY(-1px); }
+            html.dark .cq-search-chip { border-color: #2A5055; background: rgba(16, 25, 28, 0.72); }
             .cq-quick { display: flex; flex-direction: column; gap: 10px; }
             .cq-quick-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
             .cq-quick-head h2 { margin: 0; font-size: 13px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: var(--cq-ink-2); }
@@ -2681,15 +2693,17 @@
               .cq-resume-meter { order: 4; width: 100%; flex-basis: 100%; }
               .cq-resume .cq-btn { width: 100%; margin-top: 2px; }
               .cq-quick-grid { grid-template-columns: 1fr 1fr; }
-              .cq-search-stage { padding: 22px 16px; }
+              .cq-search-stage { padding: 24px 16px; }
             }
             @media (max-width: 440px) {
               .cq-stats { grid-template-columns: 1fr; }
               .cq-stat:last-child { grid-column: auto; }
               .cq-quick-grid { grid-template-columns: 1fr; }
-              .cq-search-stage { padding: 18px 14px; border-radius: 16px; }
-              .cq-search-field { min-height: 58px; padding-left: 16px; }
-              .cq-search input { height: 56px; font-size: 16px; }
+              .cq-search-stage { padding: 20px 14px; border-radius: 20px; }
+              .cq-search-field { min-height: 60px; padding: 6px 7px; }
+              .cq-search-icon-wrap { width: 46px; height: 46px; }
+              .cq-search-icon { width: 20px; height: 20px; }
+              .cq-search input { height: 48px; font-size: 16px; }
               .cq-search-kbd { display: none; }
               .cq-search-chips { justify-content: flex-start; }
               .cq-actions { flex-direction: column; align-items: stretch; }
@@ -2712,21 +2726,20 @@
           <div class="cq-shell">
             <header class="cq-hero">
               <div>
-                <p class="cq-kicker">Your study desk</p>
-                <h1 class="cq-title">${greeting}, ${cqEsc(firstName)}</h1>
+                <h1 class="cq-title"><span>${greeting}</span>, ${cqEsc(firstName)}</h1>
                 <p class="cq-sub">Search a topic, jump into a block, or continue where you left off.</p>
               </div>
-              <div class="cq-streak" title="Study streak"><i data-lucide="flame"></i><b>${streakVal}</b> day${streakVal === 1 ? "" : "s"} streak</div>
+              <div class="cq-streak" title="Study streak"><i data-lucide="flame"></i><b>${streakVal}</b> <span>${streakVal === 1 ? "day streak" : "days streak"}</span></div>
             </header>
 
             <section class="cq-search-stage" aria-labelledby="cq-search-title">
-              <p class="cq-kicker">Search your banks</p>
+              <p class="cq-kicker cq-search-kicker">Search your banks</p>
               <h2 class="cq-search-title" id="cq-search-title">Find what you need, fast</h2>
               <p class="cq-search-sub">Search subjects, chapters, parts and tags across your accessible banks.</p>
               <div class="cq-search" role="search">
                 <label class="cq-sr-only" for="cq-home-search-input">Search subjects, chapters, parts and tags</label>
                 <div class="cq-search-field">
-                  <i data-lucide="search" class="cq-search-icon" aria-hidden="true"></i>
+                  <span class="cq-search-icon-wrap" aria-hidden="true"><i data-lucide="search" class="cq-search-icon"></i></span>
                   <input id="cq-home-search-input" data-home-search-input type="search" autocomplete="off" spellcheck="false" placeholder="Search subjects, chapters, parts, tags..." aria-controls="cq-home-search-dropdown" aria-expanded="false" aria-autocomplete="list" onkeydown="window.handleHomeSearch && window.handleHomeSearch(event)" oninput="window.handleHomeSearchInput && window.handleHomeSearchInput(event)" onfocus="window.handleHomeSearchFocus && window.handleHomeSearchFocus(event)"/>
                   <kbd class="cq-search-kbd">Ctrl K</kbd>
                 </div>
@@ -2754,7 +2767,7 @@
                 ${reviewAction}
                 <button type="button" class="cq-quick-card" onclick="window.openExamPrepTab()">
                   <span class="cq-quick-icon is-blue"><i data-lucide="graduation-cap"></i></span>
-                  <span class="cq-quick-copy"><b>Past papers</b><small>${examEmpty ? "No past papers yet" : `${prepBanks.length} ${prepBanks.length === 1 ? "exam" : "exams"} available`}</small></span>
+                  <span class="cq-quick-copy"><b>Past papers</b><small>${examEmpty ? "No past papers yet" : `<b>${prepBanks.length}</b> ${prepBanks.length === 1 ? "exam available" : "exams available"}`}</small></span>
                   <i data-lucide="arrow-right" class="cq-quick-arrow"></i>
                 </button>
               </div>
@@ -2774,12 +2787,12 @@
                   ${bankFlag}
                   <div>
                     <b>${cqEsc(activeQBankName)}</b>
-                    <span>${subjectCount} ${subjectCount === 1 ? "subject" : "subjects"} · ${totalQuestions.toLocaleString()} questions</span>
+                    <span><b>${subjectCount}</b> <span>${subjectCount === 1 ? "subject" : "subjects"}</span> <span class="cq-sep">·</span> <b>${totalQuestions.toLocaleString()}</b> <span>questions</span></span>
                   </div>
                 </div>
                 <div class="cq-meter">
-                  <div class="cq-meter-head"><span>${totalAnswered.toLocaleString()} answered</span><span>${globalScore}% average</span></div>
-                  <div class="cq-track" role="img" aria-label="${progressPct}% of this bank answered"><div class="cq-fill" style="width:${progressPct}%"></div></div>
+                  <div class="cq-meter-head"><span><b>${totalAnswered.toLocaleString()}</b> answered</span><span><b>${globalScore}%</b> average</span></div>
+                  <div class="cq-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${progressPct}" aria-label="Bank progress"><div class="cq-fill" style="width:${progressPct}%"></div></div>
                 </div>
                 <div class="cq-actions">
                   <button type="button" class="cq-btn cq-btn-primary" onclick="window.showQBankSubjects()">Start practicing <i data-lucide="arrow-right"></i></button>
@@ -2808,7 +2821,7 @@
               <div class="cq-stat"><i data-lucide="rotate-ccw"></i><div><span>${totalIncorrect.toLocaleString()}</span><small>questions to review</small></div></div>
             </section>
 
-            <p class="cq-foot">${prepBanks.length > 0 ? `${prepCountryCount} ${prepCountryCount === 1 ? "country" : "countries"} of past exams available` : "Past exams will appear when your college adds them"} · You can change your college anytime.</p>
+            <p class="cq-foot">${prepBanks.length > 0 ? `<b>${prepCountryCount}</b> ${prepCountryCount === 1 ? "country of past exams available" : "countries of past exams available"}` : "Past exams will appear when your college adds them"} <span class="cq-foot-sep">·</span> <span>You can change your college anytime.</span></p>
           </div>
           <div id="cq-college-modal" class="cq-modal" hidden onclick="if (event.target === this) window.cqCloseCollegePicker()">
             <div class="cq-modal-card" role="dialog" aria-modal="true" aria-labelledby="cq-college-title">
