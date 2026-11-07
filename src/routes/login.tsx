@@ -94,8 +94,7 @@ type Mode = "signin" | "signup";
 
 // ============================================================
 // Real question-player preview (right panel, desktop only).
-// Mirrors the actual QBank question page (/app question view
-// + public/app/assets/qbank-preview.png): header with counter
+// Mirrors the actual QBank question page: header with counter
 // and QCM / CAS CLINIQUES tabs, French stem, A–E options and
 // the teal Submit Answer bar — cleaned up (no duplicated
 // letters) so it reads crisply at any scale.
@@ -392,7 +391,7 @@ function LoginPage() {
             </h1>
             <p className="text-[13px] leading-[1.6] font-medium text-slate-500 text-center mt-2 mb-6">
               {isSignup
-                ? "Start learning smarter, free forever."
+                ? "Start learning smarter today."
                 : "Let's get you signed in securely."}
             </p>
 

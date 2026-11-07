@@ -14,9 +14,11 @@ import {
   dbStats,
 } from "@/lib/firebase.server";
 import { getCorsHeaders } from "@/lib/cors";
-import { getClientIp, rateLimit, rateLimitResponse } from "@/lib/rate-limit.server";
+import { getClientIp, rateLimit, rateLimitGlobal, rateLimitResponse } from "@/lib/rate-limit.server";
 import { resolveBankAccessEdge, checkAppCheck } from "@/lib/qbank-access.server";
 import { getBankKeyString, getBankKeyId } from "@/lib/qbank-drm.server";
+import { loadAuthSettings } from "@/lib/auth-settings.server";
+import { isAdminEmail } from "@/lib/admin.server";
 
 export const Route = createFileRoute("/api/qbank_key")({
   server: {
@@ -42,10 +44,12 @@ export const Route = createFileRoute("/api/qbank_key")({
           }
           let uid = "";
           let email = "";
+          let emailVerified = true;
           try {
             const user = await verifyFirebaseIdToken(m[1]);
             uid = String((user as any).sub || (user as any).user_id || "");
             email = String((user as any).email || "");
+            emailVerified = (user as any).email_verified !== false;
             if (!uid) throw new Error("no uid");
           } catch {
             return new Response(JSON.stringify({ error: "Unauthorized" }), {
@@ -56,8 +60,24 @@ export const Route = createFileRoute("/api/qbank_key")({
 
           // Strict per-user limit: key issuance is the DRM choke point.
           // 10/min/uid still allows normal study; bulk key-harvest stalls.
-          const userLimit = rateLimit(`qbank-key:uid:${uid}`, 60_000, 10);
+          const userLimit = await rateLimitGlobal(`qbank-key:uid:${uid}`, 60_000, 10);
           if (!userLimit.ok) return rateLimitResponse(userLimit.retryAfter, cors);
+
+          // Same email-verification policy as /api/qbank. Key issuance is a
+          // content endpoint, so skipping the check here would let unverified
+          // accounts decrypt downloaded banks. Admins are exempt.
+          const authPolicy = await loadAuthSettings();
+          if (!emailVerified && authPolicy.requireEmailVerification) {
+            if (!(await isAdminEmail(email))) {
+              return new Response(JSON.stringify({
+                error: "Please verify your email address before using the QBank. Check your inbox for the verification link (or resend it from your profile).",
+                reason: "email_not_verified",
+              }), {
+                status: 403,
+                headers: { "content-type": "application/json", ...cors },
+              });
+            }
+          }
 
           const appCheck = checkAppCheck(request);
           if (appCheck.enforced && !appCheck.present) {

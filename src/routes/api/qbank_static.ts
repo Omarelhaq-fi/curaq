@@ -32,6 +32,8 @@ import { gunzipSync } from "node:zlib";
 import { S3Client, GetObjectCommand } from "@aws-sdk/client-s3";
 import { resolveBankAccessEdge, checkAppCheck } from "@/lib/qbank-access.server";
 import { encryptForBank, splitQuestionsForStatic, getBankKeyId } from "@/lib/qbank-drm.server";
+import { loadAuthSettings } from "@/lib/auth-settings.server";
+import { isAdminEmail } from "@/lib/admin.server";
 
 // QBank metadata (storage_provider) rarely changes. 5-min shared cache
 // avoids 1 Firestore read on every origin miss.
@@ -62,9 +64,13 @@ export const Route = createFileRoute("/api/qbank_static")({
             });
           }
           let uid = "";
+          let email = "";
+          let emailVerified = true;
           try {
             const user = await verifyFirebaseIdToken(m[1]);
             uid = String((user as any).sub || (user as any).user_id || "");
+            email = String((user as any).email || "");
+            emailVerified = (user as any).email_verified !== false;
             if (!uid) throw new Error("no uid");
           } catch {
             return new Response(JSON.stringify({ error: "Unauthorized" }), {
@@ -75,6 +81,22 @@ export const Route = createFileRoute("/api/qbank_static")({
 
           const userLimit = rateLimit(`qbank-static:uid:${uid}`, 60_000, 30);
           if (!userLimit.ok) return rateLimitResponse(userLimit.retryAfter, cors);
+
+          // Same email-verification policy as /api/qbank. Without this check
+          // the static payload endpoint would be a direct bypass for
+          // unverified accounts. Admins are exempt.
+          const authPolicy = await loadAuthSettings();
+          if (!emailVerified && authPolicy.requireEmailVerification) {
+            if (!(await isAdminEmail(email))) {
+              return new Response(JSON.stringify({
+                error: "Please verify your email address before using the QBank. Check your inbox for the verification link (or resend it from your profile).",
+                reason: "email_not_verified",
+              }), {
+                status: 403,
+                headers: { "content-type": "application/json", ...cors },
+              });
+            }
+          }
 
           // ---- Optional App Check (opt-in enforcement, presence logged).
           const appCheck = checkAppCheck(request);

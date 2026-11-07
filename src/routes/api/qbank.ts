@@ -2,7 +2,7 @@
 import { getServiceAccount, getGoogleAccessToken, verifyFirebaseIdToken } from "@/lib/firebase.server";
 import { getCorsHeaders } from "@/lib/cors";
 import { routeRequest } from "@/lib/ai-router.server";
-import { getClientIp, rateLimit, rateLimitResponse } from "@/lib/rate-limit.server";
+import { getClientIp, rateLimit, rateLimitGlobal, rateLimitResponse } from "@/lib/rate-limit.server";
 import { ensureQIndex, qindexLookup, normRef } from "@/lib/qindex.server";
 import { gunzipSync } from "node:zlib";
 import { S3Client, GetObjectCommand } from "@aws-sdk/client-s3";
@@ -10,6 +10,7 @@ import { S3Client, GetObjectCommand } from "@aws-sdk/client-s3";
 import { dbStats } from "@/lib/firebase.server";
 import {
   getQbankListCache,
+  invalidateUserProfile,
 } from "@/lib/qbank-cache.server";
 import {
   buildAccessBundle,
@@ -25,6 +26,8 @@ import {
   saveAcademicStructure,
 } from "@/lib/academic.server";
 import { encryptForBank, splitQuestionsForStatic } from "@/lib/qbank-drm.server";
+import { loadAuthSettings } from "@/lib/auth-settings.server";
+import { isAdminEmail } from "@/lib/admin.server";
 
 // Exam-prep list: static-ish admin content. 5-min shared cache avoids a full
 // collection scan (N reads) on every call.
@@ -181,6 +184,37 @@ function json(body: unknown, status: number, cors: Record<string, string>) {
   });
 }
 
+// Arabic-Indic / Persian digits are common in the Middle East; normalise them
+// to ASCII so phone numbers validate and store consistently.
+function normalizeDigits(input: unknown): string {
+  return String(input == null ? "" : input)
+    .replace(/[\u0660-\u0669]/g, (d) => String(d.charCodeAt(0) - 0x0660))
+    .replace(/[\u06F0-\u06F9]/g, (d) => String(d.charCodeAt(0) - 0x06F0));
+}
+
+// Onboarding accepts exactly one contact: a Telegram username or a phone
+// number. Usernames are stored with a leading "@"; phone numbers are stripped
+// to digits (with a leading "+" preserved) so admins can copy them directly.
+function parseTelegramContact(raw: unknown): { value: string; type: "username" | "phone" } | null {
+  const value = normalizeDigits(raw).trim();
+  if (!value) return null;
+
+  let username = value;
+  if (username.startsWith("@")) username = username.slice(1);
+  if (/^[a-zA-Z][a-zA-Z0-9_]{4,31}$/.test(username)) {
+    return { value: `@${username}`, type: "username" };
+  }
+
+  if (/^[+\d][\d\s().-]*$/.test(value)) {
+    const digits = value.replace(/\D/g, "");
+    if (digits.length >= 7 && digits.length <= 15) {
+      return { value: value.startsWith("+") ? `+${digits}` : digits, type: "phone" };
+    }
+  }
+
+  return null;
+}
+
 async function patchUserDocs(
   sa: { project_id: string },
   token: string,
@@ -239,17 +273,6 @@ export const Route = createFileRoute("/api/qbank")({
           }
         }
 
-        if (action === "debug_peer_stats_doc") {
-          try {
-            const url = `https://firestore.googleapis.com/v1/projects/${sa.project_id}/databases/(default)/documents/admin/peer_stats_settings`;
-            const r = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
-            const data = await r.json();
-            return json({ raw: data }, 200, cors);
-          } catch (e) {
-            return json({ error: e.message }, 500, cors);
-          }
-        }
-
         // Auth required for everything below
         try {
           const auth = request.headers.get("authorization") || "";
@@ -261,6 +284,20 @@ export const Route = createFileRoute("/api/qbank")({
 
           const userLimit = rateLimit(`qbank:uid:${uid}`, 60_000, 60);
           if (!userLimit.ok) return rateLimitResponse(userLimit.retryAfter, cors);
+
+          // Email verification (admin-configurable, same policy as AI,
+          // payments and notifications). Admins are exempt so operations are
+          // never locked out by an unverified operations account.
+          const authPolicy = await loadAuthSettings();
+          if (user.email_verified === false && authPolicy.requireEmailVerification) {
+            const isAdmin = await isAdminEmail(user.email);
+            if (!isAdmin) {
+              return json({
+                error: "Please verify your email address before using the QBank. Check your inbox for the verification link (or resend it from your profile).",
+                reason: "email_not_verified",
+              }, 403, cors);
+            }
+          }
 
           if (action === "academic_structure") {
             try {
@@ -435,7 +472,7 @@ export const Route = createFileRoute("/api/qbank")({
               const bundle = await getAccessBundleCached(sa, token, uid);
               return json(bundle, 200, cors);
             } catch {
-              return json({ profileCountry: "", mainIds: [], prepIds: [], grants: [], legacy: true }, 200, cors);
+              return json({ profileCountry: "", mainIds: [], prepIds: [], grants: [], paidUntil: 0, legacy: false }, 200, cors);
             }
           }
 
@@ -661,7 +698,8 @@ export const Route = createFileRoute("/api/qbank")({
                     correct: data.correct?.booleanValue,
                     timeTakenMs: parseInt(data.timeTakenMs?.integerValue || "0", 10),
                     marked: data.marked?.booleanValue || false,
-                    note: data.note?.stringValue || ""
+                    note: data.note?.stringValue || "",
+                    omitted: data.omitted?.booleanValue || false,
                   };
                 }
               } catch (e) {
@@ -794,38 +832,46 @@ export const Route = createFileRoute("/api/qbank")({
           const userLimit = rateLimit(`qbank:uid:${uid}`, 60_000, 60);
           if (!userLimit.ok) return rateLimitResponse(userLimit.retryAfter, cors);
 
+          // Same email-verification policy as the GET handler above.
+          const authPolicy = await loadAuthSettings();
+          if (user.email_verified === false && authPolicy.requireEmailVerification) {
+            const isAdmin = await isAdminEmail(user.email);
+            if (!isAdmin) {
+              return json({
+                error: "Please verify your email address before using the QBank. Check your inbox for the verification link (or resend it from your profile).",
+                reason: "email_not_verified",
+              }, 403, cors);
+            }
+          }
+
           const body = (await request.json()) as any;
           const sa = getServiceAccount();
           const token = await getGoogleAccessToken();
 
           if (body.action === "complete_onboarding") {
             const name = String(body.name || "").trim().slice(0, 60);
+            const telegram = parseTelegramContact(body.telegram);
             const language = ["en", "fr", "ar"].includes(String(body.language || ""))
               ? String(body.language)
               : "en";
             if (name.length < 2) return json({ error: "Please enter your name." }, 400, cors);
+            if (!telegram) {
+              return json({
+                error: "Enter a valid Telegram username (e.g. @name) or phone number (7–15 digits).",
+              }, 400, cors);
+            }
+
+            const onboardingLimit = await rateLimitGlobal(`onboarding:uid:${uid}`, 3600_000, 10);
+            if (!onboardingLimit.ok) return rateLimitResponse(onboardingLimit.retryAfter, cors);
 
             try {
-              const structure = await loadAcademicStructure(sa, token, true);
-              const selection = resolveAcademicSelection(structure, {
-                countryId: body.countryId,
-                majorId: body.majorId,
-                majorName: body.majorName,
-                collegeId: body.collegeId,
-                collegeName: body.collegeName,
-              });
-              if (selection.changed) await saveAcademicStructure(sa, token, selection.structure);
-
               const profile = {
-                country: selection.country.id,
-                countryName: selection.country.name,
-                major: selection.major.name,
-                college: selection.college.name,
-                collegeId: selection.college.id,
                 displayName: name,
                 email: String(user.email || ""),
+                telegram: telegram.value,
+                telegramType: telegram.type,
                 onboardingComplete: true,
-                onboardingVersion: 2,
+                onboardingVersion: 4,
                 onboardingCompletedAt: Date.now(),
                 language,
               };
@@ -841,11 +887,9 @@ export const Route = createFileRoute("/api/qbank")({
               return json({
                 ok: true,
                 profile: {
-                  country: selection.country.id,
-                  countryName: selection.country.name,
-                  major: selection.major.name,
-                  college: selection.college.name,
-                  collegeId: selection.college.id,
+                  displayName: name,
+                  telegram: telegram.value,
+                  language,
                 },
                 access,
               }, 200, cors);
@@ -853,6 +897,90 @@ export const Route = createFileRoute("/api/qbank")({
               const message = (e as Error)?.message || "Could not save your profile.";
               return json({ error: message }, 400, cors);
             }
+          }
+
+          if (body.action === "redeem_license") {
+            const code = String(body.code || body.licenseCode || "").replace(/[^A-Za-z0-9-]/g, "").toUpperCase();
+            if (code.length < 8) return json({ error: "Enter a valid license code." }, 400, cors);
+            const licUrl = `https://firestore.googleapis.com/v1/projects/${sa.project_id}/databases/(default)/documents/qbank_licenses/${code}`;
+            const licRes = await fetch(licUrl, { headers: { Authorization: `Bearer ${token}` } });
+            if (!licRes.ok) return json({ error: "License code not found." }, 404, cors);
+            const lic = await licRes.json();
+            const licFields = lic.fields || {};
+            const revoked = licFields.revoked?.booleanValue === true;
+            const usedBy = String(licFields.usedBy?.stringValue || "");
+            const usedEmail = String(licFields.usedEmail?.stringValue || "");
+            const days = Number(licFields.days?.integerValue || 0);
+            if (revoked) return json({ error: "This license was revoked." }, 403, cors);
+            if (usedBy) {
+              return json({
+                error: usedBy === uid
+                  ? "You already redeemed this license."
+                  : `This license was already redeemed by ${usedEmail || "another account"}.`,
+              }, 403, cors);
+            }
+            if (!Number.isFinite(days) || days < 1 || days > 3650) {
+              return json({ error: "This license has an invalid duration." }, 400, cors);
+            }
+
+            const userRes = await fetch(
+              `https://firestore.googleapis.com/v1/projects/${sa.project_id}/databases/(default)/documents/users_index/${uid}`,
+              { headers: { Authorization: `Bearer ${token}` } }
+            );
+            const userData = userRes.ok ? await userRes.json() : { fields: {} };
+            const currentPaidUntil = Number(userData.fields?.paidUntil?.integerValue || 0);
+            const paidUntil = Math.max(Date.now(), currentPaidUntil) + days * 86_400_000;
+            const patch = {
+              fields: {
+                paidUntil: { integerValue: String(paidUntil) },
+              },
+            };
+            const mask = "updateMask.fieldPaths=paidUntil";
+            const patchRes = await fetch(
+              `https://firestore.googleapis.com/v1/projects/${sa.project_id}/databases/(default)/documents/users_index/${uid}?${mask}`,
+              {
+                method: "PATCH",
+                headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+                body: JSON.stringify(patch),
+              }
+            );
+            if (!patchRes.ok) return json({ error: "Could not activate your license." }, 500, cors);
+
+            const licenseMask = "updateMask.fieldPaths=usedBy&updateMask.fieldPaths=usedEmail&updateMask.fieldPaths=redeemedAt&updateMask.fieldPaths=activatedUntil";
+            await fetch(`${licUrl}?${licenseMask}`, {
+              method: "PATCH",
+              headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+              body: JSON.stringify({
+                fields: {
+                  usedBy: { stringValue: uid },
+                  usedEmail: { stringValue: String(user.email || "") },
+                  redeemedAt: { timestampValue: new Date().toISOString() },
+                  activatedUntil: { integerValue: String(paidUntil) },
+                },
+              }),
+            }).catch(() => {});
+            invalidateUserProfile(uid);
+            invalidateAccessBundle(uid);
+            let access = null;
+            try { access = await getAccessBundleCached(sa, token, uid); } catch {}
+            return json({ ok: true, paidUntil, access }, 200, cors);
+          }
+
+          if (body.action === "set_active_qbank") {
+            const qbankId = String(body.qbankId || "");
+            if (!/^[a-zA-Z0-9_-]+$/.test(qbankId)) return json({ error: "Invalid qbankId" }, 400, cors);
+            const access = await resolveBankAccess(sa, token, uid, qbankId);
+            if (!access.ok) return json({ error: access.status === 404 ? "QBank not found" : "Forbidden" }, access.status, cors);
+            const patchRes = await fetch(
+              `https://firestore.googleapis.com/v1/projects/${sa.project_id}/databases/(default)/documents/users_index/${uid}?updateMask.fieldPaths=activeQbankId`,
+              {
+                method: "PATCH",
+                headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+                body: JSON.stringify({ fields: { activeQbankId: { stringValue: qbankId } } }),
+              }
+            );
+            if (!patchRes.ok) return json({ error: "Could not save your selected QBank." }, 500, cors);
+            return json({ ok: true, qbankId }, 200, cors);
           }
 
           if (body.action === "batch_sync_progress") {
@@ -890,6 +1018,7 @@ export const Route = createFileRoute("/api/qbank")({
                if (u.timeTakenMs !== undefined) { qField.timeTakenMs = { integerValue: String(u.timeTakenMs) }; }
                if (u.marked !== undefined) { qField.marked = { booleanValue: !!u.marked }; }
                if (u.note !== undefined) { qField.note = { stringValue: String(u.note) }; }
+               if (u.omitted !== undefined) { qField.omitted = { booleanValue: !!u.omitted }; }
                qField.timestamp = { timestampValue: new Date().toISOString() };
                
                qbankUpdates[u.qbankId].progressFields[u.questionId] = { mapValue: { fields: qField } };
@@ -898,6 +1027,7 @@ export const Route = createFileRoute("/api/qbank")({
                if (u.timeTakenMs !== undefined) qbankUpdates[u.qbankId].paths.add(`progress.\`${u.questionId}\`.timeTakenMs`);
                if (u.marked !== undefined) qbankUpdates[u.qbankId].paths.add(`progress.\`${u.questionId}\`.marked`);
                if (u.note !== undefined) qbankUpdates[u.qbankId].paths.add(`progress.\`${u.questionId}\`.note`);
+               if (u.omitted !== undefined) qbankUpdates[u.qbankId].paths.add(`progress.\`${u.questionId}\`.omitted`);
                if (qField.subject) qbankUpdates[u.qbankId].paths.add(`progress.\`${u.questionId}\`.subject`);
                if (qField.chapter) qbankUpdates[u.qbankId].paths.add(`progress.\`${u.questionId}\`.chapter`);
                qbankUpdates[u.qbankId].paths.add(`progress.\`${u.questionId}\`.timestamp`);

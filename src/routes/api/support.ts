@@ -11,7 +11,7 @@ import {
 } from "@/lib/firebase.server";
 import { isAdminEmail } from "@/lib/admin.server";
 import { getCorsHeaders } from "@/lib/cors";
-import { getClientIp, rateLimit, rateLimitResponse } from "@/lib/rate-limit.server";
+import { getClientIp, rateLimit, rateLimitGlobal, rateLimitResponse } from "@/lib/rate-limit.server";
 
 type FSValue = {
   stringValue?: string;
@@ -317,7 +317,11 @@ export const Route = createFileRoute("/api/support")({
         let user;
         try { user = await requireUser(request); }
         catch { return json({ error: "Unauthorized" }, 401, cors); }
-        // Email verification not required for support tickets.
+        // INTENTIONAL: email verification is NOT required to open or read a
+        // support ticket. Users must be able to ask for help precisely when
+        // they cannot verify their email / access their account. Abuse is
+        // bounded by the IP + per-UID rate limits above and by input
+        // sanitization; tickets grant no access to QBank content.
 
         let body: {
           action?: string;
@@ -334,7 +338,7 @@ export const Route = createFileRoute("/api/support")({
         try {
           if (body.action === "create") {
             // Rate-limit per user
-            const rl2 = rateLimit(`support:create:${user.sub}`, 3600_000, 8);
+            const rl2 = await rateLimitGlobal(`support:create:${user.sub}`, 3600_000, 8);
             if (!rl2.ok) return rateLimitResponse(rl2.retryAfter, cors);
 
             const subject = sanitize(body.subject, 140);

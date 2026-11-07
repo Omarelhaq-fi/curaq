@@ -10,7 +10,7 @@ import { z } from "zod";
 import { verifyFirebaseIdToken } from "@/lib/firebase.server";
 import { buildTaskRequest } from "@/lib/prompt-registry.server";
 import { getCorsHeaders } from "@/lib/cors";
-import { getClientIp, rateLimit, rateLimitResponse } from "@/lib/rate-limit.server";
+import { getClientIp, rateLimit, rateLimitGlobal, rateLimitResponse } from "@/lib/rate-limit.server";
 import { isAdminEmail } from "@/lib/admin.server";
 import { loadAuthSettings } from "@/lib/auth-settings.server";
 import { routeRequest, AiBusyError, logRecent } from "@/lib/ai-router.server";
@@ -89,7 +89,7 @@ export const Route = createFileRoute("/api/ai")({
           }, 403, cors);
         }
 
-        const userLimit = rateLimit(`ai:uid:${user.sub}`, 60_000, 30);
+        const userLimit = await rateLimitGlobal(`ai:uid:${user.sub}`, 60_000, 30);
         if (!userLimit.ok) return rateLimitResponse(userLimit.retryAfter, cors);
 
         let raw: unknown;

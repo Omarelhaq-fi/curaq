@@ -3,10 +3,10 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 export const Route = createFileRoute("/qbanks/usmle")({
   head: () => ({
     meta: [
-      { title: "USMLE Step 1 & 2 CK Prep | CuraQ Free Medical QBank" },
+      { title: "USMLE Step 1 & 2 CK Prep | CuraQ Medical QBank" },
       {
         name: "description",
-        content: "Master the USMLE with our comprehensive, 100% free QBank. High-yield questions, deep explanations, and performance tracking.",
+        content: "Master the USMLE with our comprehensive QBank. High-yield questions, deep explanations, and performance tracking.",
       },
     ],
   }),
@@ -24,7 +24,7 @@ function USMLEQBank() {
             onClick={() => navigate({ to: "/login", search: { mode: "signup" } })}
             className="bg-[#0e7c86] hover:bg-[#0b6770] text-white text-[14px] font-semibold py-2 px-4 rounded transition-colors"
           >
-            Start Practicing for Free
+            Start Practicing
           </button>
         </div>
       </header>
@@ -57,13 +57,13 @@ function USMLEQBank() {
         <div className="text-center bg-[#0a3d4a] text-white rounded-lg p-12">
           <h2 className="text-[28px] font-bold mb-4">Start your USMLE prep today.</h2>
           <p className="text-[16px] text-white/90 mb-8 max-w-xl mx-auto">
-            Stop paying thousands of dollars for prep materials. Get premium-quality USMLE practice completely free.
+            Get premium-quality USMLE practice built to match the real exam.
           </p>
           <button
             onClick={() => navigate({ to: "/login", search: { mode: "signup" } })}
             className="bg-white hover:bg-gray-100 text-[#0a3d4a] text-[16px] font-bold py-3 px-8 rounded-full shadow-sm transition-colors"
           >
-            Create Free Account
+            Create Account
           </button>
         </div>
       </main>

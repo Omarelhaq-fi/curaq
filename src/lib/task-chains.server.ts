@@ -134,6 +134,7 @@ export const TASK_CHAINS: Record<string, TaskChain> = {
   qbank_study_concept: CHAIN_CHAT,
   extract_qbank_questions: CHAIN_EXTRACT_QBANK,
   qbank_tag_taxonomy: CHAIN_JSON,
+  smart_explain_visuals: CHAIN_JSON,
 };
 
 
@@ -144,6 +145,7 @@ export const TASK_LABELS: Record<string, string> = {
   qbank_study_concept: "Study This Concept (Book Style)",
   extract_qbank_questions: "Extract QBank Questions",
   qbank_tag_taxonomy: "QBank Topic Tagging (AI)",
+  smart_explain_visuals: "Smart Explain — Medical Visual Planner",
 };
 
 export function chainFor(task?: string): TaskChain {

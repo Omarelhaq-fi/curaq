@@ -70,7 +70,7 @@ function TermsOfService() {
 
           <h3>5. "As Is" Service</h3>
           <p>
-            CuraQ is provided 100% free of charge and on an "as is" and "as available" basis. While we strive for high accuracy and uptime, we make no warranties that the service will be uninterrupted, error-free, or that the AI-generated content is entirely accurate. You use the service at your own risk.
+            CuraQ is provided on an "as is" and "as available" basis. While we strive for high accuracy and uptime, we make no warranties that the service will be uninterrupted, error-free, or that the AI-generated content is entirely accurate. You use the service at your own risk.
           </p>
 
           <h3>6. Contact Us</h3>

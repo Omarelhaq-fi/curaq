@@ -64,6 +64,30 @@ const PERMISSIONS_POLICY = [
   "interest-cohort=()",
 ].join(", ");
 
+// CSP for the static /app SPA. The app is normally served straight from the
+// assets binding (public/_headers handles it), but requests that fall through
+// to the Worker — SPA fallback, error responses — must carry the same policy.
+// Keep this in sync with the /* rule in public/_headers.
+const APP_CSP = [
+  "default-src 'self'",
+  // 'unsafe-inline' is required: the app ships inline boot/config scripts and
+  // inline event handlers. 'wasm-unsafe-eval' lets tesseract.js compile its
+  // WebAssembly core without enabling JS eval().
+  "script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://unpkg.com https://www.gstatic.com https://apis.google.com https://www.google.com https://www.googletagmanager.com",
+  "worker-src 'self' blob: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net",
+  "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net https://cdnjs.cloudflare.com",
+  "font-src 'self' data: https://fonts.gstatic.com https://cdnjs.cloudflare.com",
+  "img-src 'self' data: blob: https:",
+  "media-src 'self' blob: https:",
+  "connect-src 'self' https://*.googleapis.com https://*.firebaseio.com https://*.firebase.com https://*.firebaseapp.com https://*.google-analytics.com https://analytics.google.com https://stats.g.doubleclick.net https://www.google.com https://www.gstatic.com https://cdn.jsdelivr.net https://api.groq.com https://api.imgbb.com https://tessdata.projectnaptha.com https://www.youtube.com https://video.google.com wss://*.firebaseio.com",
+  "frame-src 'self' https://exora-web.firebaseapp.com https://*.firebaseapp.com https://www.youtube.com https://www.youtube-nocookie.com https://www.google.com https://recaptcha.google.com",
+  "object-src 'none'",
+  "base-uri 'self'",
+  "form-action 'self'",
+  "frame-ancestors 'none'",
+  "manifest-src 'self'",
+].join("; ");
+
 const HTML_SECURITY_HEADERS: Record<string, string> = {
   "content-security-policy": CSP,
   "strict-transport-security": "max-age=31536000; includeSubDomains",
@@ -73,16 +97,24 @@ const HTML_SECURITY_HEADERS: Record<string, string> = {
   "permissions-policy": PERMISSIONS_POLICY,
 };
 
+const APP_HTML_SECURITY_HEADERS: Record<string, string> = {
+  ...HTML_SECURITY_HEADERS,
+  "content-security-policy": APP_CSP,
+};
+
 const BASE_SECURITY_HEADERS: Record<string, string> = {
   "strict-transport-security": "max-age=31536000; includeSubDomains",
   "x-content-type-options": "nosniff",
   "referrer-policy": "strict-origin-when-cross-origin",
 };
 
-function withSecurityHeaders(response: Response): Response {
+function withSecurityHeaders(response: Response, pathname = ""): Response {
   const ct = response.headers.get("content-type") || "";
   const isHtml = ct.includes("text/html");
-  const extras = isHtml ? HTML_SECURITY_HEADERS : BASE_SECURITY_HEADERS;
+  const isApp = pathname === "/app" || pathname.startsWith("/app/");
+  const extras = isHtml
+    ? (isApp ? APP_HTML_SECURITY_HEADERS : HTML_SECURITY_HEADERS)
+    : BASE_SECURITY_HEADERS;
   // Return a new response so headers can be added even if original was immutable.
   const headers = new Headers(response.headers);
   for (const [k, v] of Object.entries(extras)) {
@@ -97,11 +129,15 @@ function withSecurityHeaders(response: Response): Response {
 
 export default {
   async fetch(request: Request, env: unknown, ctx: unknown) {
+    let pathname = "";
+    try {
+      pathname = new URL(request.url).pathname;
+    } catch { /* non-absolute request URL — leave pathname empty */ }
     try {
       const handler = await getServerEntry();
       const response = await handler.fetch(request, env, ctx);
       const normalized = await normalizeCatastrophicSsrResponse(response);
-      return withSecurityHeaders(normalized);
+      return withSecurityHeaders(normalized, pathname);
     } catch (error) {
       console.error(error);
       return withSecurityHeaders(
@@ -109,6 +145,7 @@ export default {
           status: 500,
           headers: { "content-type": "text/html; charset=utf-8" },
         }),
+        pathname,
       );
     }
   },

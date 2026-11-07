@@ -3,10 +3,10 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 export const Route = createFileRoute("/qbanks/tunisia")({
   head: () => ({
     meta: [
-      { title: "Examen Blanc Résidanat | CuraQ Free Medical QBank" },
+      { title: "Examen Blanc Résidanat | CuraQ Medical QBank" },
       {
         name: "description",
-        content: "Practice with the most comprehensive free question bank for the Tunisia Examen Blanc Résidanat. Real past papers, detailed explanations, and 100% free.",
+        content: "Practice with the most comprehensive question bank for the Tunisia Examen Blanc Résidanat. Real past papers and detailed explanations.",
       },
     ],
   }),
@@ -24,7 +24,7 @@ function TunisiaQBank() {
             onClick={() => navigate({ to: "/login", search: { mode: "signup" } })}
             className="bg-[#0e7c86] hover:bg-[#0b6770] text-white text-[14px] font-semibold py-2 px-4 rounded transition-colors"
           >
-            Start Practicing for Free
+            Start Practicing
           </button>
         </div>
       </header>
@@ -35,7 +35,7 @@ function TunisiaQBank() {
             Examen Blanc Résidanat QBank
           </h1>
           <p className="text-[18px] text-[#666666] leading-relaxed max-w-2xl">
-            The ultimate free resource for medical students preparing for the Tunisian National Board exams (FMT, FMS, FMM). Over 35,000+ verified questions and clinical cases.
+            The ultimate resource for medical students preparing for the Tunisian National Board exams (FMT, FMS, FMM). Over 35,000+ verified questions and clinical cases.
           </p>
         </div>
 
@@ -57,13 +57,13 @@ function TunisiaQBank() {
         <div className="text-center bg-[#0a3d4a] text-white rounded-lg p-12">
           <h2 className="text-[28px] font-bold mb-4">Ready to master the Résidanat?</h2>
           <p className="text-[16px] text-white/90 mb-8 max-w-xl mx-auto">
-            Join thousands of medical students using CuraQ to achieve their highest possible scores. 100% free forever, no credit card required.
+            Join thousands of medical students using CuraQ to achieve their highest possible scores.
           </p>
           <button
             onClick={() => navigate({ to: "/login", search: { mode: "signup" } })}
             className="bg-white hover:bg-gray-100 text-[#0a3d4a] text-[16px] font-bold py-3 px-8 rounded-full shadow-sm transition-colors"
           >
-            Create Free Account
+            Create Account
           </button>
         </div>
       </main>

@@ -32,7 +32,7 @@ function RefundPolicy() {
           <div className="on-hero-copy" style={{ margin: '0 auto' }}>
             <h1>Refund Policy</h1>
             <p className="on-lede" style={{ margin: '0 auto' }}>
-              CuraQ is 100% free to use. All financial contributions are considered voluntary donations.
+              All financial contributions are considered voluntary donations.
             </p>
           </div>
         </div>
@@ -44,15 +44,15 @@ function RefundPolicy() {
           
           <h3>1. Core Policy: No Refunds</h3>
           <p>
-            CuraQ provides its entire suite of tools (including AI features, spaced repetition flashcards, and exam-style MCQs) completely free of charge. We do not lock features behind paywalls or require premium subscriptions. 
+            CuraQ provides a suite of tools, including AI features, spaced repetition flashcards, and exam-style MCQs.
           </p>
           <p>
-            Because our services are fully accessible at no cost, any financial support provided by users is classified strictly as a <strong>voluntary donation</strong>. As such, <strong>all donations are final and non-refundable</strong>.
+            Because our services are supported by voluntary contributions, any financial support provided by users is classified strictly as a <strong>voluntary donation</strong>. As such, <strong>all donations are final and non-refundable</strong>.
           </p>
 
           <h3>2. Purpose of Donations</h3>
           <p>
-            The funds we receive from our generous community are used directly to keep our servers running, cover API and infrastructure costs, and support the ongoing development of new features. By donating, you are helping ensure that CuraQ remains free and accessible to medical and university students around the world.
+            The funds we receive from our generous community are used directly to keep our servers running, cover API and infrastructure costs, and support the ongoing development of new features. By donating, you are helping keep CuraQ accessible to medical and university students around the world.
           </p>
 
           <h3>3. Accidental or Duplicate Donations</h3>

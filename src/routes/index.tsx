@@ -4,17 +4,17 @@ import { useEffect, useState } from "react";
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "CuraQ | Free Medical QBank" },
+      { title: "CuraQ | Medical QBank" },
       {
         name: "description",
         content:
-          "CuraQ is a free Medical QBank featuring high-yield questions across all specialties. 100% free forever.",
+          "CuraQ is a Medical QBank featuring high-yield questions across all specialties.",
       },
-      { property: "og:title", content: "CuraQ | Free Medical QBank" },
+      { property: "og:title", content: "CuraQ | Medical QBank" },
       {
         property: "og:description",
         content:
-          "Practice with our massive clinical question bank, covering all specialties and years. 100% free forever.",
+          "Practice with our massive clinical question bank, covering all specialties and years.",
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
@@ -171,7 +171,7 @@ function SiteHeader({ onSignin, onSignup }: { onSignin: () => void; onSignup: ()
                 : "bg-[#0e7c86] text-white hover:bg-[#0b6770]"
             } shadow-sm transition-colors`}
           >
-            Start Free
+            Get Started
           </button>
           <button
             className={`xl:hidden w-8 h-8 grid place-items-center rounded transition-colors ${

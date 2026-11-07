@@ -77,18 +77,18 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "OmNote | Free AI Study Workspace for Med Students" },
+      { title: "OmNote | AI Study Workspace for Med Students" },
       {
         name: "description",
         content:
-          "The best free alternative to RemNote. An intelligent, AI-powered study workspace tailored for med students. Upload PDFs, generate flashcards, and master medical concepts for free.",
+          "An intelligent, AI-powered study workspace tailored for med students. Upload PDFs, generate flashcards, and master medical concepts.",
       },
       { name: "author", content: "OmNote" },
-      { property: "og:title", content: "OmNote | Free AI Study Workspace for Med Students" },
+      { property: "og:title", content: "OmNote | AI Study Workspace for Med Students" },
       {
         property: "og:description",
         content:
-          "The best free alternative to RemNote. An intelligent, AI-powered study workspace tailored for med students. Upload PDFs, generate flashcards, and master medical concepts for free.",
+          "An intelligent, AI-powered study workspace tailored for med students. Upload PDFs, generate flashcards, and master medical concepts.",
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
@@ -120,12 +120,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
           "url": "https://omnote.online",
           "applicationCategory": "EducationalApplication",
           "operatingSystem": "All",
-          "description": "Free AI-powered study workspace and best alternative to RemNote. Upload PDFs, generate flashcards, and study smarter.",
-          "offers": {
-            "@type": "Offer",
-            "price": "0",
-            "priceCurrency": "USD"
-          }
+          "description": "AI-powered study workspace and alternative to RemNote. Upload PDFs, generate flashcards, and study smarter.",
         }),
       },
     ],

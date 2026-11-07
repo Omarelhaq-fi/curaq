@@ -1,11 +1,9 @@
 import { createStart, createMiddleware } from "@tanstack/react-start";
 
 import { renderErrorPage } from "./lib/error-page";
-// NOTE: Supabase middleware removed — this app authenticates with Firebase
-// (see verifyFirebaseIdToken). The Lovable Supabase boilerplate import
-// ("@/integrations/supabase/auth-attacher") doesn't resolve (@/* maps to
-// src/*) and broke SSR with a 500 on every page. Supabase env vars aren't
-// configured either, so the middleware could never run.
+// NOTE: This app authenticates with Firebase (see verifyFirebaseIdToken).
+// The Lovable Supabase boilerplate middleware and client were removed: its
+// import broke SSR with a 500 on every page and Supabase was never configured.
 
 const errorMiddleware = createMiddleware().server(async ({ next }) => {
   try {

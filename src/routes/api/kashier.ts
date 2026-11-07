@@ -3,7 +3,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { verifyFirebaseIdToken } from "@/lib/firebase.server";
 import { getCorsHeaders } from "@/lib/cors";
-import { getClientIp, rateLimit, rateLimitResponse } from "@/lib/rate-limit.server";
+import { getClientIp, rateLimit, rateLimitGlobal, rateLimitResponse } from "@/lib/rate-limit.server";
 import {
   detectCurrencyFromRequest,
   getPrice,
@@ -95,7 +95,7 @@ export const Route = createFileRoute("/api/kashier")({
         try { user = await requireAuth(request); }
         catch { return json({ error: "Unauthorized" }, 401, cors); }
 
-        const userLimit = rateLimit(`kashier:uid:${user.sub}`, 60_000, 10);
+        const userLimit = await rateLimitGlobal(`kashier:uid:${user.sub}`, 60_000, 10);
         if (!userLimit.ok) return rateLimitResponse(userLimit.retryAfter, cors);
 
         let body: { action?: string; plan?: string; currency?: string };

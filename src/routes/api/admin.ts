@@ -34,14 +34,18 @@ import {
   normalizeAcademicStructure,
   saveAcademicStructure,
 } from "@/lib/academic.server";
-import { invalidateAllAccessBundles } from "@/lib/qbank-access.server";
+import { invalidateAccessBundle, invalidateAllAccessBundles } from "@/lib/qbank-access.server";
+
 
 // Any write under `qbanks/...` (settings, updatedAt bumps on publish/import,
 // question/chunk edits) makes the cached qbank list stale — drop it so the
 // next read repopulates. Paths are Firestore document paths like
 // `qbanks/abc` or `qbanks/abc/questions/q1`.
 function touchQbankListCache(path: string): void {
-  if (path === "qbanks" || path.startsWith("qbanks/")) invalidateQbankListCache();
+  if (path === "qbanks" || path.startsWith("qbanks/")) {
+    invalidateQbankListCache();
+    invalidateAllAccessBundles();
+  }
 }
 import { getKashierConfig } from "@/lib/kashier.server";
 import {
@@ -241,8 +245,9 @@ async function rebuildQbankIndex(): Promise<void> {
         const kind = doc.fields?.kind?.stringValue || "main";
         const college = doc.fields?.college?.stringValue || "";
         const year = doc.fields?.year?.stringValue || "";
+        const accessTier = doc.fields?.accessTier?.stringValue === "paid" ? "paid" : "free";
         const storage_provider = doc.fields?.storage_provider?.stringValue || "";
-        qbanks.push({ id, name, country, updatedAt, isLocked, isPartyLocked, resources, kind, college, year, storage_provider });
+        qbanks.push({ id, name, country, updatedAt, isLocked, isPartyLocked, resources, kind, college, year, accessTier, storage_provider });
       }
     }
     pageToken = data.nextPageToken || "";
@@ -320,6 +325,15 @@ async function fsListUsers(_limit = 500) {
     return {
       uid,
       email: f.email?.stringValue || "",
+      displayName: f.displayName?.stringValue || "",
+      country: f.country?.stringValue || "",
+      countryName: f.countryName?.stringValue || "",
+      major: f.major?.stringValue || "",
+      college: f.college?.stringValue || "",
+      telegram: f.telegram?.stringValue || "",
+      telegramType: f.telegramType?.stringValue || "",
+      grants: (f.qbankGrants?.arrayValue?.values || []).map((v: any) => String(v.stringValue || "")).filter(Boolean),
+      paidUntil: Number(f.paidUntil?.integerValue || 0),
       plan: f.plan?.stringValue || "free",
       proUntil: f.proUntil?.timestampValue || null,
       credits: Number(f.credits?.integerValue ?? "-1"),
@@ -353,6 +367,15 @@ async function fsListUsers(_limit = 500) {
         const row = {
           uid: a.uid,
           email: a.email,
+          displayName: "",
+          country: "",
+          countryName: "",
+          major: "",
+          college: "",
+          telegram: "",
+          telegramType: "",
+          grants: [] as string[],
+          paidUntil: 0,
           plan: "free",
           proUntil: null as string | null,
           credits: -1,
@@ -426,6 +449,8 @@ type Body = {
     | "upload_image"
     | "ai_generate_block"
     | "list_access_requests" | "resolve_access_request"
+    | "generate_license" | "list_licenses" | "revoke_license"
+    | "assign_user_qbanks" | "clear_user_paid"
     | "whoami";
   uid?: string;
   days?: number;
@@ -488,6 +513,11 @@ type Body = {
   renames?: any[];
   skipDuplicates?: boolean;
   structure?: unknown;
+  accessTier?: "free" | "paid";
+  licenseDays?: number;
+  licenseNote?: string;
+  licenseCode?: string;
+  grants?: string[];
 };
 
 
@@ -869,6 +899,13 @@ async function computeUserDetail(uid: string) {
   return {
     uid,
     email: idx.email?.stringValue || "",
+    displayName: idx.displayName?.stringValue || "",
+    country: idx.country?.stringValue || "",
+    countryName: idx.countryName?.stringValue || "",
+    major: idx.major?.stringValue || "",
+    college: idx.college?.stringValue || "",
+    telegram: idx.telegram?.stringValue || "",
+    telegramType: idx.telegramType?.stringValue || "",
     plan: idx.plan?.stringValue || "free",
     proUntil: idx.proUntil?.timestampValue || null,
     credits: Number(idx.credits?.integerValue ?? "-1"),
@@ -1052,7 +1089,8 @@ export const Route = createFileRoute("/api/admin")({
                 resources,
                 kind: d.fields?.kind?.stringValue || "main",
                 college: d.fields?.college?.stringValue || "",
-                year: d.fields?.year?.stringValue || ""
+                year: d.fields?.year?.stringValue || "",
+                accessTier: d.fields?.accessTier?.stringValue === "paid" ? "paid" : "free"
               };
             });
             return json({ qbanks }, 200, cors);
@@ -1369,16 +1407,17 @@ export const Route = createFileRoute("/api/admin")({
               kind: body.kind === "exam_prep" ? "exam_prep" : "main",
               college: body.college || "",
               year: body.year || "",
+              accessTier: body.accessTier === "paid" ? "paid" : "free",
               updatedAt: Date.now()
             }));
-            rebuildQbankIndex().catch(e => console.error("[index] create_qbank rebuild failed:", e.message));
+            await rebuildQbankIndex().catch(e => console.error("[index] create_qbank rebuild failed:", e.message));
             return json({ ok: true, id }, 200, cors);
           }
 
           if (body.action === "delete_qbank") {
             if (!body.qbankId) return json({ error: "Missing qbankId" }, 400, cors);
             await fsDeleteDoc(`qbanks/${body.qbankId}`);
-            rebuildQbankIndex().catch(e => console.error("[index] delete_qbank rebuild failed:", e.message));
+            await rebuildQbankIndex().catch(e => console.error("[index] delete_qbank rebuild failed:", e.message));
             return json({ ok: true }, 200, cors);
           }
 
@@ -1392,10 +1431,11 @@ export const Route = createFileRoute("/api/admin")({
             if (body.resources !== undefined) epPatch.resources = { stringValue: JSON.stringify(Array.isArray(body.resources) ? body.resources : []) };
             if (typeof body.college === "string") epPatch.college = { stringValue: body.college };
             if (typeof body.year === "string") epPatch.year = { stringValue: body.year };
+            if (body.accessTier === "paid" || body.accessTier === "free") epPatch.accessTier = { stringValue: body.accessTier };
             if (typeof body.country === "string" && body.country.trim()) epPatch.country = { stringValue: body.country.trim() };
             if (typeof body.qbankName === "string" && body.qbankName.trim()) epPatch.name = { stringValue: body.qbankName.trim() };
             await fsSetMerge(`qbanks/${body.qbankId}`, epPatch);
-            rebuildQbankIndex().catch(e => console.error("[index] edit_qbank_settings rebuild failed:", e.message));
+            await rebuildQbankIndex().catch(e => console.error("[index] edit_qbank_settings rebuild failed:", e.message));
             return json({ ok: true }, 200, cors);
           }
 
@@ -1903,7 +1943,9 @@ Text to process:\n${body.rawText}`
             if (fencedJson) trimmedImportText = fencedJson[1].trim();
             const isJsonImport = trimmedImportText.startsWith("{") || trimmedImportText.startsWith("[");
             const fileSubcategory = body.fileSubcategory ? String(body.fileSubcategory).trim() : "";
+            const fileObjective = body.fileObjective ? String(body.fileObjective).replace(/\s+/g, " ").trim().slice(0, 220) : "";
             const cleanImportLabel = (v: unknown) => String(v == null ? "" : v).replace(/\s+/g, " ").trim().slice(0, 120);
+            const cleanImportObjective = (v: unknown) => String(v == null ? "" : v).replace(/\s+/g, " ").trim().slice(0, 220);
             type Option = { text: string; isCorrect: boolean; explanation: string };
             type ParsedQuestion = {
               questionText: string;
@@ -1911,9 +1953,10 @@ Text to process:\n${body.rawText}`
               year: string;
               options: Option[];
               generalComment: string;
-              subject: string;
-              chapter?: string;
-              part?: string;
+              objective: string;
+              subject: string; // Organ system
+              chapter?: string; // Clinical specialty
+              part?: string; // Sub-topic / disease
               tags?: string[];
               taxonomyPath?: string[];
               taxonomyCandidates?: string[][];
@@ -1975,10 +2018,11 @@ Text to process:\n${body.rawText}`
                 const tagList = Array.isArray(rawTags) ? rawTags : [rawTags];
                 const tags = Array.from(new Set(tagList.map(cleanTag).filter(Boolean))).slice(0, 20);
 
-                const subject = cleanImportLabel(item.subject);
-                const chapter = cleanImportLabel(item.chapter);
-                const part = cleanImportLabel(item.part ?? item.topic);
-                if (!(subject || fileSubcategory) || !chapter || !part) {
+                const objective = cleanImportObjective(item.objective ?? item.objectiveText ?? item.educationalObjective ?? item.educational_objective ?? item.examObjective ?? item.examObjectiveText) || fileObjective;
+                const subject = cleanImportLabel(item.organSystem ?? item.organ_system ?? item.organ ?? item.subject ?? fileSubcategory);
+                const chapter = cleanImportLabel(item.clinicalSpecialty ?? item.clinical_specialty ?? item.specialty ?? item.chapter);
+                const part = cleanImportLabel(item.subTopic ?? item.subtopic ?? item.sub_topic ?? item.disease ?? item.topic ?? item.part);
+                if (!objective || !(subject || fileSubcategory) || !chapter || !part) {
                   missingHierarchy++;
                   continue;
                 }
@@ -1993,6 +2037,7 @@ Text to process:\n${body.rawText}`
                   year,
                   options,
                   generalComment,
+                  objective,
                   subject,
                   chapter,
                   part,
@@ -2001,7 +2046,8 @@ Text to process:\n${body.rawText}`
               }
             } else {
               const lines = rawImportText.split('\n');
-              let currentSubject = 'Uncategorized';
+              let currentObjective = fileObjective;
+              let currentSubject = fileSubcategory || 'Uncategorized';
               let currentChapter = '';
               let currentPart = '';
               let curQ: Partial<ParsedQuestion> = {};
@@ -2011,6 +2057,27 @@ Text to process:\n${body.rawText}`
                 const line = lines[i].trim();
                 if (!line) continue;
 
+                if (line.startsWith('-> Objective:')) {
+                  currentObjective = line.replace('-> Objective:', '').trim().replace(/\s+/g, " ").slice(0, 220);
+                  continue;
+                }
+
+                if (line.startsWith('-> Organ System:')) {
+                  currentSubject = line.replace('-> Organ System:', '').trim();
+                  continue;
+                }
+
+                if (line.startsWith('-> Clinical Specialty:')) {
+                  currentChapter = line.replace('-> Clinical Specialty:', '').trim();
+                  continue;
+                }
+
+                if (line.startsWith('-> Sub-topic / Disease:')) {
+                  currentPart = line.replace('-> Sub-topic / Disease:', '').trim();
+                  continue;
+                }
+
+                // Legacy aliases are accepted for existing TXT files.
                 if (line.startsWith('-> Subject:')) {
                   currentSubject = line.replace('-> Subject:', '').trim();
                   continue;
@@ -2032,6 +2099,7 @@ Text to process:\n${body.rawText}`
                   curQ = {
                     code: qMatch[1],
                     year: qMatch[2],
+                    objective: currentObjective,
                     subject: currentSubject,
                     chapter: currentChapter,
                     part: currentPart,
@@ -2068,31 +2136,38 @@ Text to process:\n${body.rawText}`
 
             if (!isJsonImport) {
               for (const q of questions) {
-                if (!(q.subject && q.subject !== "Uncategorized") && !fileSubcategory) missingHierarchy++;
+                if (!q.objective || !(q.subject && q.subject !== "Uncategorized") && !fileSubcategory) missingHierarchy++;
                 else if (!q.chapter || !q.part) missingHierarchy++;
               }
             }
 
             if (missingHierarchy) {
-              return json({ error: `Missing Subject, Chapter, or Part in ${missingHierarchy} question(s). Every question must include a subject, chapter, and part.` }, 400, cors);
+              return json({ error: `Missing Objective, Organ System, Clinical Specialty, or Sub-topic / Disease in ${missingHierarchy} question(s). Every question must include all four levels.` }, 400, cors);
             }
 
             if (!questions.length) {
-              return json({ error: isJsonImport ? "No valid JSON questions found. Each question needs questionText, options, subject, chapter, and part." : "No questions found in rawText" }, 400, cors);
+              return json({ error: isJsonImport ? "No valid JSON questions found. Each question needs questionText, options, objective, organSystem, clinicalSpecialty, and subTopic." : "No questions found in rawText" }, 400, cors);
             }
 
-            // Every import becomes exactly Subject > Chapter > Part. Tags stay
-            // as free-form question metadata and never create extra taxonomy levels.
+            // Every import becomes exactly Objective → Organ System → Clinical
+            // Specialty → Sub-topic / Disease. Tags stay free-form metadata.
             for (const q of questions) {
               if (!q.subject || q.subject === "Uncategorized") q.subject = fileSubcategory || "Uncategorized";
-              const path = [q.subject, q.chapter || "", q.part || ""].map(cleanImportLabel).filter(Boolean);
+              if (!q.objective) q.objective = fileObjective || "General educational objective";
+              const path = [
+                cleanImportObjective(q.objective),
+                cleanImportObjective(q.subject),
+                cleanImportObjective(q.chapter || ""),
+                cleanImportObjective(q.part || ""),
+              ].filter(Boolean).slice(0, 4);
               q.taxonomyPath = path;
               q.taxonomyCandidates = [path];
             }
 
             let taxonomyVersion = 0;
 
-            // Register fileSubcategory, question subjects, and Subject > Chapter > Part branches
+            // Register fileSubcategory as the fallback organ system and register
+            // all Objective → Organ System → Clinical Specialty → Sub-topic / Disease branches.
             try {
               const qbRes = await fsGet(`qbanks/${body.qbankId}`);
               if (qbRes) {
@@ -2215,9 +2290,13 @@ Text to process:\n${body.rawText}`
                 let exDataObj: any = {};
                 try { exDataObj = JSON.parse(existingDataStr); } catch(e){}
                 
-                const questionTaxonomyPath = Array.isArray(q.taxonomyPath) && q.taxonomyPath.length >= 3 ? q.taxonomyPath : [];
+                const questionTaxonomyPath = Array.isArray(q.taxonomyPath) && q.taxonomyPath.length >= 4 ? q.taxonomyPath : [];
                 const hasExplicitTags = (Array.isArray(q.tags) && q.tags.length > 0) || questionTaxonomyPath.length > 0;
                 let needsUpdate = false;
+                if (exDataObj.objective !== (q.objective || fileObjective || "General educational objective")) {
+                   exDataObj.objective = q.objective || fileObjective || "General educational objective";
+                   needsUpdate = true;
+                }
                 if (exDataObj.chapter !== (q.chapter || "")) {
                    exDataObj.chapter = (q.chapter || "");
                    needsUpdate = true;
@@ -2228,6 +2307,15 @@ Text to process:\n${body.rawText}`
                 }
                 if (exDataObj.subject !== finalSubject) {
                    exDataObj.subject = finalSubject;
+                   exDataObj.organSystem = finalSubject;
+                   needsUpdate = true;
+                }
+                if (exDataObj.clinicalSpecialty !== (q.chapter || "")) {
+                   exDataObj.clinicalSpecialty = q.chapter || "";
+                   needsUpdate = true;
+                }
+                if (exDataObj.subTopic !== (q.part || "")) {
+                   exDataObj.subTopic = q.part || "";
                    needsUpdate = true;
                 }
                 if (hasExplicitTags) {
@@ -2279,7 +2367,7 @@ Text to process:\n${body.rawText}`
                 ...(q.year ? [q.year] : []),
                 ...(q.tags || [])
               ].map((tag: string) => String(tag || "").trim()).filter(Boolean)));
-              const questionTaxonomyPath = Array.isArray(q.taxonomyPath) && q.taxonomyPath.length >= 3 ? q.taxonomyPath : [];
+              const questionTaxonomyPath = Array.isArray(q.taxonomyPath) && q.taxonomyPath.length >= 4 ? q.taxonomyPath : [];
               const hasExplicitTags = (Array.isArray(q.tags) && q.tags.length > 0) || questionTaxonomyPath.length > 0;
 
               // Determine final subject: if question has a specific subject, use it; if Uncategorized, fall back to fileSubcategory
@@ -2298,6 +2386,10 @@ Text to process:\n${body.rawText}`
                 subject: finalSubject,
                 chapter: q.chapter || "",
                 part: q.part || "",
+                objective: q.objective || fileObjective || "General educational objective",
+                organSystem: finalSubject,
+                clinicalSpecialty: q.chapter || "",
+                subTopic: q.part || "",
                 createdAt: Date.now() + parseIndex
               };
               if (questionTaxonomyPath.length) {
@@ -3032,6 +3124,114 @@ Text to process:\n${body.rawText}`
             }
 
             return json({ ok: true, updatedCount, mode }, 200, cors);
+          }
+
+          // ---------- LICENSES & QBANK ASSIGNMENTS ----------
+          if (body.action === "generate_license") {
+            const days = Math.max(1, Math.min(3650, Number(body.licenseDays || 30)));
+            const alphabet = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+            const raw = crypto.getRandomValues(new Uint8Array(12));
+            let bodyCode = "";
+            for (let i = 0; i < 12; i++) bodyCode += alphabet[raw[i] % alphabet.length];
+            const code = `CQ-${bodyCode.slice(0, 4)}-${bodyCode.slice(4, 8)}-${bodyCode.slice(8)}`;
+            await fsSetMerge(`qbank_licenses/${code}`, {
+              code: { stringValue: code },
+              days: { integerValue: String(days) },
+              note: { stringValue: String(body.licenseNote || "").slice(0, 200) },
+              createdBy: { stringValue: String(actor.email || actor.sub || "") },
+              createdAt: { timestampValue: new Date().toISOString() },
+              revoked: { booleanValue: false },
+              usedBy: { nullValue: null },
+              usedEmail: { nullValue: null },
+              redeemedAt: { nullValue: null },
+              activatedUntil: { nullValue: null },
+            });
+            return json({ ok: true, code, days }, 200, cors);
+          }
+
+          if (body.action === "list_licenses") {
+            const sa = getServiceAccount();
+            const token = await getGoogleAccessToken();
+            const docs: any[] = [];
+            let pageToken = "";
+            while (true) {
+              const params = new URLSearchParams({ pageSize: "300" });
+              if (pageToken) params.set("pageToken", pageToken);
+              const res = await fetch(
+                `https://firestore.googleapis.com/v1/projects/${sa.project_id}/databases/(default)/documents/qbank_licenses?${params}`,
+                { headers: { Authorization: `Bearer ${token}` } }
+              );
+              if (!res.ok && res.status !== 404) throw new Error(`Failed to load licenses: ${res.status}`);
+              if (res.status === 404) break;
+              const data = await res.json();
+              for (const doc of data.documents || []) docs.push(doc);
+              pageToken = data.nextPageToken || "";
+              if (!pageToken) break;
+            }
+            const licenses = docs.map((doc) => {
+              const f = doc.fields || {};
+              return {
+                code: String(f.code?.stringValue || doc.name.split("/").pop()),
+                days: Number(f.days?.integerValue || 0),
+                note: String(f.note?.stringValue || ""),
+                createdBy: String(f.createdBy?.stringValue || ""),
+                createdAt: String(f.createdAt?.timestampValue || ""),
+                revoked: f.revoked?.booleanValue === true,
+                usedBy: String(f.usedBy?.stringValue || ""),
+                usedEmail: String(f.usedEmail?.stringValue || ""),
+                redeemedAt: String(f.redeemedAt?.timestampValue || ""),
+                activatedUntil: Number(f.activatedUntil?.integerValue || 0),
+              };
+            }).sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt))).slice(0, 500);
+            return json({ licenses }, 200, cors);
+          }
+
+          if (body.action === "revoke_license") {
+            const code = String(body.licenseCode || "").replace(/[^A-Za-z0-9-]/g, "").toUpperCase();
+            if (!code) return json({ error: "Missing license code" }, 400, cors);
+            await fsSetMerge(`qbank_licenses/${code}`, {
+              code: { stringValue: code },
+              revoked: { booleanValue: true },
+              revokedBy: { stringValue: String(actor.email || actor.sub || "") },
+              revokedAt: { timestampValue: new Date().toISOString() },
+            });
+            return json({ ok: true }, 200, cors);
+          }
+
+          if (body.action === "assign_user_qbanks") {
+            const uid = String(body.uid || "");
+            const grants = Array.isArray(body.grants) ? body.grants : [];
+            const validIds = grants
+              .map((id) => String(id || "").trim())
+              .filter((id) => /^[a-zA-Z0-9_-]+$/.test(id))
+              .slice(0, 200);
+            if (!uid) return json({ error: "Missing user" }, 400, cors);
+            await fetch(
+              `https://firestore.googleapis.com/v1/projects/${getServiceAccount().project_id}/databases/(default)/documents/users_index/${uid}?updateMask.fieldPaths=qbankGrants`,
+              {
+                method: "PATCH",
+                headers: { Authorization: `Bearer ${await getGoogleAccessToken()}`, "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  fields: {
+                    qbankGrants: {
+                      arrayValue: { values: validIds.map((id) => ({ stringValue: id })) },
+                    },
+                  },
+                }),
+              }
+            );
+            invalidateUserProfile(uid);
+            invalidateAccessBundle(uid);
+            return json({ ok: true, grants: validIds }, 200, cors);
+          }
+
+          if (body.action === "clear_user_paid") {
+            const uid = String(body.uid || "");
+            if (!uid) return json({ error: "Missing user" }, 400, cors);
+            await fsPatch(`users_index/${uid}`, { paidUntil: 0 });
+            invalidateUserProfile(uid);
+            invalidateAccessBundle(uid);
+            return json({ ok: true }, 200, cors);
           }
 
           if (body.action === "list_access_requests") {

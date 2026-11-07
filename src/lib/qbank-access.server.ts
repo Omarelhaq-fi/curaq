@@ -27,17 +27,13 @@ import {
   invalidateUserProfile,
   type QbankListEntry,
 } from "@/lib/qbank-cache.server";
-import {
-  collegeBankIds,
-  loadAcademicStructure,
-  type AcademicStructure,
-} from "@/lib/academic.server";
 
 export interface AccessBundle {
   profileCountry: string;
   profileMajor?: string;
   profileCollege?: string;
   collegeId?: string;
+  paidUntil: number;
   mainIds: string[];
   prepIds: string[];
   grants: string[];
@@ -47,6 +43,7 @@ export interface AccessBundle {
 type UserProfile = {
   country: string;
   grants: string[];
+  paidUntil?: number;
   collegeId?: string;
   major?: string;
   college?: string;
@@ -108,6 +105,7 @@ async function fetchUserProfileFresh(
   const uRes = await fetch(uRef, { headers: { Authorization: `Bearer ${token}` } });
   let country = "";
   let grants: string[] = [];
+  let paidUntil = 0;
   let collegeId = "";
   let major = "";
   let college = "";
@@ -116,11 +114,12 @@ async function fetchUserProfileFresh(
     country = String(ud.fields?.country?.stringValue || "").toLowerCase();
     const gv = ud.fields?.qbankGrants?.arrayValue?.values || [];
     grants = gv.map((v: any) => String(v.stringValue || "")).filter(Boolean);
+    paidUntil = Number(ud.fields?.paidUntil?.integerValue || 0);
     collegeId = String(ud.fields?.collegeId?.stringValue || "");
     major = String(ud.fields?.major?.stringValue || "");
     college = String(ud.fields?.college?.stringValue || "");
   }
-  const profile: UserProfile = { country, grants, collegeId, major, college };
+  const profile: UserProfile = { country, grants, paidUntil, collegeId, major, college };
   try {
     setCachedUserProfile(uid, profile);
   } catch {
@@ -192,8 +191,9 @@ export async function loadAllBanks(
         const kind = doc.fields?.kind?.stringValue || "main";
         const college = doc.fields?.college?.stringValue || "";
         const year = doc.fields?.year?.stringValue || "";
+        const accessTier = doc.fields?.accessTier?.stringValue === "paid" ? "paid" : "free";
         const storage_provider = doc.fields?.storage_provider?.stringValue || "";
-        qbanks.push({ id, name, country, updatedAt, isLocked, isPartyLocked, resources, kind, college, year, storage_provider });
+        qbanks.push({ id, name, country, updatedAt, isLocked, isPartyLocked, resources, kind, college, year, accessTier, storage_provider });
       }
     }
     pageToken = data.nextPageToken || "";
@@ -206,73 +206,45 @@ export async function loadAllBanks(
 export function buildAccessBundle(
   profile: UserProfile,
   allBanks: QbankListEntry[],
-  structure?: AcademicStructure | null,
+  _structure?: unknown,
 ): AccessBundle {
   const country = profile.country;
   const grants = profile.grants;
+  const paidUntil = Number(profile.paidUntil || 0);
+  const paidActive = paidUntil > Date.now();
   const collegeId = profile.collegeId || "";
-  const college = collegeId && structure
-    ? structure.colleges.find((c) => c.id === collegeId) || null
-    : null;
-  const major = college && structure
-    ? structure.majors.find((m) => m.id === college.majorId) || null
-    : null;
-  const legacy = !country && !collegeId;
-  const bankCountry = (b: { country: string }) => String(b.country || "global").toLowerCase();
+  const major = profile.major || "";
+  const college = profile.college || "";
   const byId = new Map(allBanks.map((b) => [b.id, b]));
   const base: AccessBundle = {
     profileCountry: country,
-    profileMajor: major?.name || profile.major || "",
-    profileCollege: college?.name || profile.college || "",
+    profileMajor: major,
+    profileCollege: college,
     collegeId,
+    paidUntil,
     mainIds: [],
     prepIds: [],
     grants,
-    legacy,
+    legacy: false,
   };
 
-  const addGranted = (main: Set<string>, prep: Set<string>, id: string) => {
+  const addBank = (main: Set<string>, prep: Set<string>, id: string) => {
     const bank = byId.get(id);
     if (!bank) return;
     (bank.kind === "exam_prep" ? prep : main).add(id);
   };
 
-  if (legacy) {
-    for (const b of allBanks) (b.kind === "exam_prep" ? base.prepIds : base.mainIds).push(b.id);
-    return base;
-  }
-
+  // Every account sees free banks. Paid banks unlock while a license is
+  // active. Explicit admin assignments (qbankGrants) always win.
   const main = new Set<string>();
   const prep = new Set<string>();
-
-  if (collegeId && structure) {
-    // A known college is authoritative: only its attached banks (plus
-    // individually granted banks) are available. An empty attachment list
-    // deliberately means no banks, not "fall back to country".
-    if (college) {
-      const attached = collegeBankIds(structure, collegeId);
-      for (const id of attached.mainIds) {
-        const bank = byId.get(id);
-        if (bank && bank.kind !== "exam_prep") main.add(id);
-      }
-      for (const id of attached.prepIds) {
-        const bank = byId.get(id);
-        if (bank && bank.kind === "exam_prep") prep.add(id);
-      }
-    }
-  } else if (!collegeId) {
-    // Legacy country-scoped accounts (or a missing catalogue entry).
-    for (const b of allBanks) {
-      if (bankCountry(b) === country) (b.kind === "exam_prep" ? prep : main).add(b.id);
-    }
-  } else {
-    // College selected but the catalogue could not be loaded: keep the
-    // legacy country fallback rather than locking the student out.
-    for (const b of allBanks) {
-      if (bankCountry(b) === country) (b.kind === "exam_prep" ? prep : main).add(b.id);
+  for (const bank of allBanks) {
+    const tier = bank.accessTier || "free";
+    if (tier !== "paid" || paidActive || grants.includes(bank.id)) {
+      (bank.kind === "exam_prep" ? prep : main).add(bank.id);
     }
   }
-  for (const id of grants) addGranted(main, prep, id);
+  for (const id of grants) addBank(main, prep, id);
 
   base.mainIds = [...main];
   base.prepIds = [...prep];
@@ -289,38 +261,34 @@ export async function getAccessBundleCached(
   if (hit) return hit;
   const profile = await loadUserProfile(sa, token, uid);
   const allBanks = await loadAllBanks(sa, token).catch(() => []);
-  const structure = profile.collegeId
-    ? await loadAcademicStructure(sa, token).catch(() => null)
-    : null;
-  const bundle = buildAccessBundle(profile, allBanks, structure);
+  const bundle = buildAccessBundle(profile, allBanks);
   setBundleCached(uid, bundle);
   return bundle;
 }
 
 export function bankAccessAllowed(
   profile: UserProfile,
-  meta: { country: string; kind: string },
+  meta: { country: string; kind: string; accessTier?: "free" | "paid" },
   qbankId: string,
   bundle?: AccessBundle | null,
 ): boolean {
   if (bundle) {
-    if (bundle.legacy) return true;
     return (
       bundle.grants.includes(qbankId) ||
       bundle.mainIds.includes(qbankId) ||
       bundle.prepIds.includes(qbankId)
     );
   }
-  if (!profile.country && !profile.collegeId) return true; // legacy
   if (profile.grants.includes(qbankId)) return true;
-  return meta.country.toLowerCase() === profile.country;
+  const paidActive = Number(profile.paidUntil || 0) > Date.now();
+  return (meta.accessTier || "free") !== "paid" || paidActive;
 }
 
 export interface BankAccessResult {
   ok: boolean;
   status: 200 | 403 | 404;
   profile: UserProfile;
-  meta: { country: string; kind: string; storage_provider?: string } | null;
+  meta: { country: string; kind: string; accessTier?: "free" | "paid"; storage_provider?: string } | null;
   bundle: AccessBundle | null;
 }
 
@@ -341,6 +309,7 @@ export async function resolveBankAccessEdge(
     ? {
         country: bundle.profileCountry,
         grants: bundle.grants,
+        paidUntil: bundle.paidUntil,
         collegeId: bundle.collegeId,
         major: bundle.profileMajor,
         college: bundle.profileCollege,
@@ -348,8 +317,8 @@ export async function resolveBankAccessEdge(
     : await loadUserProfile(sa, token, uid);
 
   const hit = findCachedQbankMeta(qbankId);
-  let meta: { country: string; kind: string; storage_provider?: string } | null = hit
-    ? { country: hit.country, kind: hit.kind, storage_provider: hit.storage_provider }
+  let meta: { country: string; kind: string; accessTier?: "free" | "paid"; storage_provider?: string } | null = hit
+    ? { country: hit.country, kind: hit.kind, accessTier: hit.accessTier, storage_provider: hit.storage_provider }
     : null;
 
   if ((!meta || meta.storage_provider === undefined) && /^[a-zA-Z0-9_-]+$/.test(qbankId)) {
@@ -369,9 +338,10 @@ export async function resolveBankAccessEdge(
         const fresh = {
           country: String(bd.fields?.country?.stringValue || "global"),
           kind: String(bd.fields?.kind?.stringValue || "main"),
+          accessTier: bd.fields?.accessTier?.stringValue === "paid" ? "paid" as const : "free" as const,
           storage_provider: freshProvider || undefined,
         };
-        meta = meta ? { ...meta, storage_provider: fresh.storage_provider } : fresh;
+        meta = meta ? { ...meta, ...fresh, storage_provider: fresh.storage_provider } : fresh;
       }
     } catch {
       /* keep cached meta */
@@ -386,10 +356,7 @@ export async function resolveBankAccessEdge(
   profile = await fetchUserProfileFresh(sa, token, uid);
   try {
     const allBanks = await loadAllBanks(sa, token).catch(() => []);
-    const structure = profile.collegeId
-      ? await loadAcademicStructure(sa, token).catch(() => null)
-      : null;
-    bundle = buildAccessBundle(profile, allBanks, structure);
+    bundle = buildAccessBundle(profile, allBanks);
     setBundleCached(uid, bundle);
   } catch {
     bundle = null;
@@ -402,7 +369,6 @@ export async function resolveBankAccessEdge(
 
 /** Filter a bank list to what this bundle may see. Never leaks other IDs. */
 export function filterBanksForBundle(banks: QbankListEntry[], bundle: AccessBundle): QbankListEntry[] {
-  if (bundle.legacy) return banks;
   const allowed = new Set([...bundle.mainIds, ...bundle.prepIds, ...bundle.grants]);
   return banks.filter((b) => allowed.has(b.id));
 }

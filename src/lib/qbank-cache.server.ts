@@ -25,6 +25,7 @@ export interface QbankListEntry {
   kind: string;
   college: string;
   year: string;
+  accessTier?: "free" | "paid";
   storage_provider?: string;
 }
 
@@ -79,7 +80,7 @@ export function patchCachedQbankStorageProvider(id: string, provider: string): v
 /** Country/kind/storage lookup for access checks without a Firestore read. */
 export function findCachedQbankMeta(
   id: string,
-): { id: string; country: string; kind: string; storage_provider?: string } | null {
+): { id: string; country: string; kind: string; accessTier: "free" | "paid"; storage_provider?: string } | null {
   const c = getQbankListCache();
   if (!c) return null;
   const b = c.banks.find((x) => x.id === id);
@@ -88,6 +89,7 @@ export function findCachedQbankMeta(
     id: b.id,
     country: String(b.country || "global"),
     kind: String(b.kind || "main"),
+    accessTier: b.accessTier === "paid" ? "paid" : "free",
     storage_provider: typeof b.storage_provider === "string" ? b.storage_provider : undefined,
   };
 }
@@ -99,6 +101,7 @@ export function findCachedQbankMeta(
 export interface CachedUserProfile {
   country: string;
   grants: string[];
+  paidUntil?: number;
   collegeId?: string;
   major?: string;
   college?: string;
@@ -123,6 +126,7 @@ export function getCachedUserProfile(uid: string): CachedUserProfile | null {
   return {
     country: e.country,
     grants: e.grants,
+    paidUntil: e.paidUntil,
     collegeId: e.collegeId,
     major: e.major,
     college: e.college,
@@ -141,6 +145,7 @@ export function setCachedUserProfile(uid: string, data: CachedUserProfile): void
   profileCache.set(uid, {
     country: data.country,
     grants: data.grants,
+    paidUntil: data.paidUntil,
     collegeId: data.collegeId,
     major: data.major,
     college: data.college,

@@ -3,10 +3,10 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 export const Route = createFileRoute("/qbanks/egypt")({
   head: () => ({
     meta: [
-      { title: "Egypt Clinical Bank | CuraQ Free Medical QBank" },
+      { title: "Egypt Clinical Bank | CuraQ Medical QBank" },
       {
         name: "description",
-        content: "Free QBank for the Egyptian Medical Syndicate & University Fellowship. Practice with clinical cases and high-yield questions.",
+        content: "QBank for the Egyptian Medical Syndicate & University Fellowship. Practice with clinical cases and high-yield questions.",
       },
     ],
   }),
@@ -24,7 +24,7 @@ function EgyptQBank() {
             onClick={() => navigate({ to: "/login", search: { mode: "signup" } })}
             className="bg-[#0e7c86] hover:bg-[#0b6770] text-white text-[14px] font-semibold py-2 px-4 rounded transition-colors"
           >
-            Start Practicing for Free
+            Start Practicing
           </button>
         </div>
       </header>
@@ -57,13 +57,13 @@ function EgyptQBank() {
         <div className="text-center bg-[#0a3d4a] text-white rounded-lg p-12">
           <h2 className="text-[28px] font-bold mb-4">Advance Your Medical Career in Egypt</h2>
           <p className="text-[16px] text-white/90 mb-8 max-w-xl mx-auto">
-            Get access to the most comprehensive and rapidly growing clinical bank for Egyptian fellowships, completely free of charge.
+            Get access to the most comprehensive and rapidly growing clinical bank for Egyptian fellowships.
           </p>
           <button
             onClick={() => navigate({ to: "/login", search: { mode: "signup" } })}
             className="bg-white hover:bg-gray-100 text-[#0a3d4a] text-[16px] font-bold py-3 px-8 rounded-full shadow-sm transition-colors"
           >
-            Create Free Account
+            Create Account
           </button>
         </div>
       </main>

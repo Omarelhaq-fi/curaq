@@ -3,10 +3,10 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 export const Route = createFileRoute("/qbanks/plab")({
   head: () => ({
     meta: [
-      { title: "PLAB 1 Preparation | CuraQ Free Medical QBank" },
+      { title: "PLAB 1 Preparation | CuraQ Medical QBank" },
       {
         name: "description",
-        content: "The ultimate free PLAB 1 question bank. Practice with thousands of GMC-style questions and clinical scenarios to pass the UK medical licensing exam.",
+        content: "The ultimate PLAB 1 question bank. Practice with thousands of GMC-style questions and clinical scenarios to pass the UK medical licensing exam.",
       },
     ],
   }),
@@ -24,7 +24,7 @@ function PLABQBank() {
             onClick={() => navigate({ to: "/login", search: { mode: "signup" } })}
             className="bg-[#0e7c86] hover:bg-[#0b6770] text-white text-[14px] font-semibold py-2 px-4 rounded transition-colors"
           >
-            Start Practicing for Free
+            Start Practicing
           </button>
         </div>
       </header>
@@ -57,13 +57,13 @@ function PLABQBank() {
         <div className="text-center bg-[#0a3d4a] text-white rounded-lg p-12">
           <h2 className="text-[28px] font-bold mb-4">Start your journey to the NHS.</h2>
           <p className="text-[16px] text-white/90 mb-8 max-w-xl mx-auto">
-            Get premium-quality PLAB 1 preparation for absolutely free. Track your progress and master clinical concepts today.
+            Get premium-quality PLAB 1 preparation. Track your progress and master clinical concepts today.
           </p>
           <button
             onClick={() => navigate({ to: "/login", search: { mode: "signup" } })}
             className="bg-white hover:bg-gray-100 text-[#0a3d4a] text-[16px] font-bold py-3 px-8 rounded-full shadow-sm transition-colors"
           >
-            Create Free Account
+            Create Account
           </button>
         </div>
       </main>
