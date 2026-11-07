@@ -330,6 +330,7 @@
                         academicEl.appendChild(row('Country', d.countryName || d.country));
                         academicEl.appendChild(row('Major', d.major));
                         academicEl.appendChild(row('College', d.college));
+                        academicEl.appendChild(row('Telegram', d.telegram));
                     }).catch(() => {
                         academicEl.innerHTML = '<div>Could not load academic profile.</div>';
                     });

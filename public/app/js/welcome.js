@@ -1,9 +1,8 @@
 // Welcome onboarding — full-screen overlay shown once per account until the
-// student provides their display name + country + language. Covers brand-new signups AND
-// legacy accounts created before country existed. Saves to users_index +
-// users/{uid} via Firestore compat SDK (same as syncDbToCloud).
+// student provides a display name, contact and language. Saves to users_index
+// + users/{uid} via Firestore compat SDK (same as syncDbToCloud).
 //
-// Design: 3-step wizard (name → country → language) in the app's clinical
+// Design: 3-step wizard (name → Telegram → language) in the app's clinical
 // style (Inter, white 6px cards, #E2E8F0 borders, teal #007a7a primary).
 (function () {
   const COUNTRIES = [
@@ -32,18 +31,52 @@
   };
 
   const STEP_LABELS = {
+    0: "Email verification",
     1: "Your name",
-    2: "Your country",
-    3: "Your major",
-    4: "Your college",
-    5: "Your language",
+    2: "Telegram",
+    3: "Your language",
   };
-  const TOTAL_STEPS = 5;
+  const TOTAL_STEPS = 3;
 
   function esc(s) {
     return String(s == null ? "" : s).replace(/[&<>"']/g, c => ({
       "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
     }[c]));
+  }
+
+  // Arabic-Indic / Persian digits are common in the Middle East; normalise
+  // them to ASCII so phone numbers validate and store consistently.
+  function normalizeDigits(input) {
+    return String(input == null ? "" : input)
+      .replace(/[\u0660-\u0669]/g, d => String(d.charCodeAt(0) - 0x0660))
+      .replace(/[\u06F0-\u06F9]/g, d => String(d.charCodeAt(0) - 0x06F0));
+  }
+
+  // Exactly one contact method is accepted: a Telegram username (stored as
+  // "@name") or a phone number. Mixed input such as "@name +20123" is rejected.
+  function parseTelegram(raw) {
+    const value = normalizeDigits(raw).trim();
+    if (!value) return { ok: false, error: "Enter your Telegram username or phone number." };
+
+    let username = value;
+    if (username.startsWith("@")) username = username.slice(1);
+    if (/^[a-zA-Z][a-zA-Z0-9_]{4,31}$/.test(username)) {
+      return { ok: true, type: "username", value: "@" + username };
+    }
+
+    if (/^[+\d][\d\s().-]*$/.test(value)) {
+      const digits = value.replace(/\D/g, "");
+      if (digits.length >= 7 && digits.length <= 15) {
+        return {
+          ok: true,
+          type: "phone",
+          value: value.startsWith("+") ? "+" + digits : digits,
+        };
+      }
+      return { ok: false, error: "Enter a phone number with 7–15 digits (include country code if possible)." };
+    }
+
+    return { ok: false, error: "Enter one contact only: a username (e.g. @curaq_student) or a phone number (e.g. +20 100 123 4567)." };
   }
 
   window.showWelcomeOnboarding = async function () {
@@ -58,44 +91,6 @@
       const snap = await firebase.firestore().collection("users_index").doc(user.uid).get();
       if (snap.exists) existingProfile = snap.data() || {};
     } catch (_) {}
-
-    let catalogue = { countries: [], majors: [], colleges: [] };
-    try {
-      const token = await user.getIdToken();
-      const res = await fetch("/api/qbank?action=academic_structure", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (res.ok) catalogue = await res.json();
-    } catch (_) {}
-
-    const academicCountries = Array.isArray(catalogue.countries) && catalogue.countries.length
-      ? catalogue.countries.map(c => ({ value: c.id, label: c.name, flag: c.code || null }))
-      : COUNTRIES.slice();
-    if (existingProfile.country && !academicCountries.some(c => c.value === existingProfile.country)) {
-      academicCountries.push({
-        value: existingProfile.country,
-        label: existingProfile.countryName || existingProfile.country,
-        flag: null,
-      });
-    }
-
-    function countryLabel(v) {
-      const c = academicCountries.find(x => x.value === v);
-      return c ? c.label : v;
-    }
-
-    const majorsForCountry = (country) => (catalogue.majors || [])
-      .filter(m => m.countryId === country)
-      .sort((a, b) => String(a.name).localeCompare(String(b.name)));
-    const collegesFor = (country, majorId, majorName) => {
-      const list = catalogue.colleges || [];
-      if (majorId) return list.filter(c => c.majorId === majorId).sort((a, b) => String(a.name).localeCompare(String(b.name)));
-      if (majorName) {
-        const same = (catalogue.majors || []).find(m => m.countryId === country && String(m.name).toLowerCase() === String(majorName).toLowerCase());
-        if (same) return list.filter(c => c.majorId === same.id).sort((a, b) => String(a.name).localeCompare(String(b.name)));
-      }
-      return [];
-    };
 
     const defaultName = user.displayName || existingProfile.displayName || "";
     const avatar = user.photoURL || "";
@@ -144,14 +139,15 @@
     document.body.appendChild(overlay);
     document.body.style.overflow = "hidden";
 
-    let step = 1;
+    let step = user.emailVerified === false ? 0 : 1;
     let chosenName = (defaultName || "").trim();
     let chosenCountry = existingProfile.country || "";
     let chosenMajorId = existingProfile.majorId || "";
     let chosenMajorName = existingProfile.major || "";
     let chosenCollegeId = existingProfile.collegeId || "";
     let chosenCollegeName = existingProfile.college || "";
-    let chosenLang = "";
+    let chosenTelegram = existingProfile.telegram || "";
+    let chosenLang = existingProfile.language || "";
 
     const stepsEl = overlay.querySelector("#wo-steps");
     const bodyEl = overlay.querySelector("#wo-body");
@@ -162,7 +158,98 @@
       if (statusEl) statusEl.textContent = msg || "";
     }
 
+    const verifyStorageKey = `curaq_verify_sent_${user.uid}`;
+    let verificationSending = false;
+    let verificationSentAt = 0;
+    try { verificationSentAt = Number(localStorage.getItem(verifyStorageKey) || 0); } catch (_) {}
+    let verificationAutoSent = false;
+
+    async function sendVerificationLink(manual = false) {
+      if (!user || verificationSending) return;
+      const now = Date.now();
+      if (!manual && verificationSentAt && now - verificationSentAt < 10 * 60 * 1000) {
+        setStatus("Verification link already sent recently. Check your inbox, then tap I have verified.");
+        return;
+      }
+      verificationSending = true;
+      setStatus("Sending verification link…");
+      try {
+        await user.sendEmailVerification({
+          url: `${window.location.origin}/app/index.html`,
+          handleCodeInApp: false,
+        });
+        verificationSending = false;
+        verificationSentAt = Date.now();
+        try { localStorage.setItem(verifyStorageKey, String(verificationSentAt)); } catch (_) {}
+        setStatus(`Verification link sent to ${user.email || "your email"}. Open it, then tap Continue.`);
+      } catch (e) {
+        verificationSending = false;
+        setStatus(`Could not send verification link: ${e.message || e}. You can continue with Google instead.`);
+      }
+    }
+
+    async function checkEmailVerified() {
+      setStatus("Checking verification…");
+      try { await user.reload(); } catch (_) {}
+      if (user.emailVerified) {
+        step = 1;
+        render();
+        return;
+      }
+      setStatus("Your email is not verified yet. Open the link from your inbox, then tap Continue.");
+    }
+
+    async function continueWithGoogle() {
+      setStatus("Opening Google…");
+      try {
+        const provider = new firebase.auth.GoogleAuthProvider();
+        provider.setCustomParameters({ prompt: "select_account" });
+        provider.addScope("profile");
+        provider.addScope("email");
+        const current = firebase.auth().currentUser || user;
+        if (current && current.providerData.some(p => p.providerId === "google.com")) {
+          await current.reload();
+        } else if (current) {
+          await current.linkWithPopup(provider);
+          await current.reload();
+        } else {
+          await firebase.auth().signInWithPopup(provider);
+          const afterPopup = firebase.auth().currentUser;
+          if (afterPopup) await afterPopup.reload();
+        }
+        const after = firebase.auth().currentUser;
+        if (!after) {
+          setStatus("Google sign-in did not complete.");
+          return;
+        }
+        if (user && after.uid !== user.uid) {
+          overlay.remove();
+          document.body.style.overflow = "";
+          window.location.reload();
+          return;
+        }
+        if (after.emailVerified) {
+          step = 1;
+          render();
+          return;
+        }
+        setStatus("Google connected, but your email is not marked verified yet. Tap Continue again, or use the verification link.");
+      } catch (e) {
+        if (e && (e.code === "auth/popup-closed-by-user" || e.code === "auth/cancelled-popup-request")) {
+          setStatus("");
+          return;
+        }
+        setStatus(`Could not continue with Google: ${e.message || e}. You can still use the verification link.`);
+      }
+    }
+
     function renderStepper() {
+      if (step === 0) {
+        stepsEl.innerHTML = `
+          <div class="wo-stepmeta"><span>Verify your email</span><span>Required</span></div>
+          <div class="wo-track"><div class="wo-fill" style="width:0%;"></div></div>`;
+        return;
+      }
       stepsEl.innerHTML = `
         <div class="wo-stepmeta"><span>Step ${step} of ${TOTAL_STEPS}</span><span>${STEP_LABELS[step]}</span></div>
         <div class="wo-track"><div class="wo-fill" style="width:${Math.round((step / TOTAL_STEPS) * 100)}%;"></div></div>`;
@@ -179,6 +266,27 @@
       bodyEl.style.animation = "none";
       void bodyEl.offsetWidth;
       bodyEl.style.animation = "";
+
+      if (step === 0) {
+        bodyEl.innerHTML = `
+          <h2 class="wo-title">Verify your email</h2>
+          <p class="wo-sub">We sent a verification link to <b>${esc(user.email || "your inbox")}</b>. Open it on this device to finish setting up CuraQ.</p>
+          <div class="wo-verify-actions">
+            <button type="button" id="wo-resend" class="wo-btn-ghost wo-btn-flex"><i class="fa-solid fa-envelope"></i> Resend link</button>
+            <button type="button" id="wo-checked" class="wo-btn-primary wo-btn-flex">I have verified <i class="fa-solid fa-arrow-right"></i></button>
+          </div>
+          <div class="wo-verify-or"><span>or</span></div>
+          <button type="button" id="wo-google" class="wo-btn-google"><i class="fa-brands fa-google"></i> Continue with Google instead</button>
+          <p class="wo-hint">If the link does not arrive, continue with Google to finish without waiting for email verification.</p>`;
+        navEl.innerHTML = "";
+        bodyEl.querySelector("#wo-resend").addEventListener("click", () => sendVerificationLink(true));
+        bodyEl.querySelector("#wo-checked").addEventListener("click", checkEmailVerified);
+        bodyEl.querySelector("#wo-google").addEventListener("click", continueWithGoogle);
+        if (!verificationAutoSent) {
+          verificationAutoSent = true;
+          sendVerificationLink(false);
+        }
+      }
 
       if (step === 1) {
         bodyEl.innerHTML = `
@@ -206,68 +314,82 @@
       }
 
       if (step === 2) {
+        const initialTelegram = parseTelegram(chosenTelegram);
         bodyEl.innerHTML = `
-          <h2 class="wo-title">Where are you studying?</h2>
-          <p class="wo-sub">This helps us tailor medical guidelines to your region.</p>
-          <div class="wo-grid" id="wo-country-grid">
-            ${academicCountries.map(c => optBtn("country", c.value,
-              `${c.flag ? `<img src="https://flagcdn.com/${c.flag}.svg" alt="" />` : `<span class="wo-globe">🌍</span>`}<span>${esc(c.label)}</span>`,
-              chosenCountry === c.value)).join("")}
-          </div>`;
+          <h2 class="wo-title">How can we reach you on Telegram?</h2>
+          <p class="wo-sub">Enter either your Telegram username or your phone number — one is enough. We'll only use it for account and study updates.</p>
+          <label class="wo-label" for="wo-telegram">Telegram username or phone number</label>
+          <input id="wo-telegram" class="wo-input" type="text" maxlength="40"
+                 placeholder="@username or +20 100 123 4567" value="${esc(chosenTelegram)}" autocomplete="off" />
+          <div class="wo-hint" id="wo-telegram-hint"></div>`;
         navEl.innerHTML = `
           <button id="wo-back" class="wo-btn-ghost"><i class="fa-solid fa-arrow-left"></i> Back</button>
-          <button id="wo-next" class="wo-btn-primary wo-btn-flex" ${chosenCountry ? "" : "disabled"}>
+          <button id="wo-next" class="wo-btn-primary wo-btn-flex" ${initialTelegram.ok ? "" : "disabled"}>
             Continue <i class="fa-solid fa-arrow-right"></i>
           </button>`;
-        const grid = bodyEl.querySelector("#wo-country-grid");
+        const tgEl = bodyEl.querySelector("#wo-telegram");
+        const hintEl = bodyEl.querySelector("#wo-telegram-hint");
         const next = navEl.querySelector("#wo-next");
-        grid.addEventListener("click", (e) => {
-          const btn = e.target.closest(".wo-country");
-          if (!btn) return;
-          if (chosenCountry !== btn.dataset.value) {
-            chosenMajorId = "";
-            chosenMajorName = "";
-            chosenCollegeId = "";
-            chosenCollegeName = "";
+
+        function refreshTelegram() {
+          const parsed = parseTelegram(tgEl.value);
+          chosenTelegram = (tgEl.value || "").trim();
+          next.disabled = !parsed.ok;
+          if (!chosenTelegram) {
+            hintEl.textContent = "Username (e.g. @curaq_student) or phone with country code (e.g. +20 100 123 4567).";
+            hintEl.classList.remove("is-error");
+          } else if (parsed.ok) {
+            hintEl.textContent = parsed.type === "username"
+              ? "Telegram username — saved as " + parsed.value
+              : "Phone number — saved as " + parsed.value;
+            hintEl.classList.remove("is-error");
+          } else {
+            hintEl.textContent = parsed.error;
+            hintEl.classList.add("is-error");
           }
-          chosenCountry = btn.dataset.value;
-          grid.querySelectorAll(".wo-country").forEach(b => b.classList.toggle("selected", b === btn));
-          if (COUNTRY_LANG[chosenCountry] && !chosenLang) chosenLang = COUNTRY_LANG[chosenCountry];
-          next.disabled = false;
+        }
+
+        tgEl.addEventListener("input", refreshTelegram);
+        tgEl.addEventListener("keydown", (e) => {
+          if (e.key === "Enter" && !next.disabled) next.click();
         });
         navEl.querySelector("#wo-back").addEventListener("click", () => { step = 1; render(); });
-        next.addEventListener("click", () => { if (chosenCountry) { step = 3; render(); } });
+        next.addEventListener("click", () => {
+          const parsed = parseTelegram(tgEl.value);
+          if (!parsed.ok) return;
+          chosenTelegram = parsed.value;
+          step = 3;
+          render();
+        });
+        refreshTelegram();
+        setTimeout(() => { tgEl.focus(); }, 60);
       }
 
       if (step === 3) {
-        const majors = majorsForCountry(chosenCountry);
-        if (chosenMajorId && !majors.some(m => m.id === chosenMajorId)) chosenMajorId = "";
+        const nameVal = chosenName || defaultName;
         bodyEl.innerHTML = `
-          <h2 class="wo-title">What is your major?</h2>
-          <p class="wo-sub">Choose your programme from the list below.</p>
-          <div class="wo-col" id="wo-major-grid">
-            ${majors.map(m => optBtn("major", m.id, `<span>${esc(m.name)}</span>`, chosenMajorId === m.id)).join("")}
-            ${majors.length ? "" : '<div style="color:#64748B;font-size:13px;padding:10px 0;">No majors are listed for this country yet. Please contact support.</div>'}
+          <h2 class="wo-title">Preferred language</h2>
+          <p class="wo-sub">Your workspace, questions and AI tutor will use this language.</p>
+          <div class="wo-summary"><i class="fa-solid fa-circle-check"></i><span>${esc((nameVal || "").trim().split(" ")[0] || "You")} &middot; ${esc(chosenTelegram || "Telegram")}</span></div>
+          <div class="wo-col" id="wo-lang-grid">
+            ${LANGUAGES.map(l => optBtn("lang", l.value, `<span>${esc(l.label)}</span>`, chosenLang === l.value)).join("")}
           </div>`;
         navEl.innerHTML = `
           <button id="wo-back" class="wo-btn-ghost"><i class="fa-solid fa-arrow-left"></i> Back</button>
-          <button id="wo-next" class="wo-btn-primary wo-btn-flex" ${chosenMajorId ? "" : "disabled"}>
-            Continue <i class="fa-solid fa-arrow-right"></i>
+          <button id="wo-go" class="wo-btn-primary wo-btn-flex" ${chosenLang ? "" : "disabled"}>
+            Complete Setup <i class="fa-solid fa-arrow-right"></i>
           </button>`;
-        const grid = bodyEl.querySelector("#wo-major-grid");
-        const next = navEl.querySelector("#wo-next");
+        const grid = bodyEl.querySelector("#wo-lang-grid");
+        const go = navEl.querySelector("#wo-go");
         grid.addEventListener("click", (e) => {
-          const btn = e.target.closest(".wo-major");
+          const btn = e.target.closest(".wo-lang");
           if (!btn) return;
-          chosenMajorId = btn.dataset.value;
-          chosenMajorName = btn.querySelector("span") ? btn.querySelector("span").textContent.trim() : btn.textContent.trim();
-          chosenCollegeId = "";
-          chosenCollegeName = "";
-          grid.querySelectorAll(".wo-major").forEach(b => b.classList.toggle("selected", b === btn));
-          next.disabled = false;
+          chosenLang = btn.dataset.value;
+          grid.querySelectorAll(".wo-lang").forEach(b => b.classList.toggle("selected", b === btn));
+          go.disabled = false;
         });
         navEl.querySelector("#wo-back").addEventListener("click", () => { step = 2; render(); });
-        next.addEventListener("click", () => { if (!next.disabled) { step = 4; render(); } });
+        go.addEventListener("click", save);
       }
 
       if (step === 4) {
@@ -301,12 +423,64 @@
       }
 
       if (step === 5) {
+        const initialTelegram = parseTelegram(chosenTelegram);
+        bodyEl.innerHTML = `
+          <h2 class="wo-title">How can we reach you on Telegram?</h2>
+          <p class="wo-sub">Enter either your Telegram username or your phone number — one is enough. We'll only use it for account and study updates.</p>
+          <label class="wo-label" for="wo-telegram">Telegram username or phone number</label>
+          <input id="wo-telegram" class="wo-input" type="text" maxlength="40"
+                 placeholder="@username or +20 100 123 4567" value="${esc(chosenTelegram)}" autocomplete="off" />
+          <div class="wo-hint" id="wo-telegram-hint"></div>`;
+        navEl.innerHTML = `
+          <button id="wo-back" class="wo-btn-ghost"><i class="fa-solid fa-arrow-left"></i> Back</button>
+          <button id="wo-next" class="wo-btn-primary wo-btn-flex" ${initialTelegram.ok ? "" : "disabled"}>
+            Continue <i class="fa-solid fa-arrow-right"></i>
+          </button>`;
+        const tgEl = bodyEl.querySelector("#wo-telegram");
+        const hintEl = bodyEl.querySelector("#wo-telegram-hint");
+        const next = navEl.querySelector("#wo-next");
+
+        function refreshTelegram() {
+          const parsed = parseTelegram(tgEl.value);
+          chosenTelegram = (tgEl.value || "").trim();
+          next.disabled = !parsed.ok;
+          if (!chosenTelegram) {
+            hintEl.textContent = "Username (e.g. @curaq_student) or phone with country code (e.g. +20 100 123 4567).";
+            hintEl.classList.remove("is-error");
+          } else if (parsed.ok) {
+            hintEl.textContent = parsed.type === "username"
+              ? "Telegram username — saved as " + parsed.value
+              : "Phone number — saved as " + parsed.value;
+            hintEl.classList.remove("is-error");
+          } else {
+            hintEl.textContent = parsed.error;
+            hintEl.classList.add("is-error");
+          }
+        }
+
+        tgEl.addEventListener("input", refreshTelegram);
+        tgEl.addEventListener("keydown", (e) => {
+          if (e.key === "Enter" && !next.disabled) next.click();
+        });
+        navEl.querySelector("#wo-back").addEventListener("click", () => { step = 4; render(); });
+        next.addEventListener("click", () => {
+          const parsed = parseTelegram(tgEl.value);
+          if (!parsed.ok) return;
+          chosenTelegram = parsed.value;
+          step = 6;
+          render();
+        });
+        refreshTelegram();
+        setTimeout(() => { tgEl.focus(); }, 60);
+      }
+
+      if (step === 6) {
         const cLabel = countryLabel(chosenCountry);
         const nameVal = chosenName || defaultName;
         bodyEl.innerHTML = `
           <h2 class="wo-title">Preferred language</h2>
           <p class="wo-sub">Your workspace, questions and AI tutor will use this language.</p>
-          <div class="wo-summary"><i class="fa-solid fa-circle-check"></i><span>${esc((nameVal || "").trim().split(" ")[0] || "You")} &middot; ${esc(cLabel)} &middot; ${esc(chosenMajorName || "Major")} &middot; ${esc(chosenCollegeName || "College")}</span></div>
+          <div class="wo-summary"><i class="fa-solid fa-circle-check"></i><span>${esc((nameVal || "").trim().split(" ")[0] || "You")} &middot; ${esc(cLabel)} &middot; ${esc(chosenMajorName || "Major")} &middot; ${esc(chosenCollegeName || "College")} &middot; ${esc(chosenTelegram || "Telegram")}</span></div>
           <div class="wo-col" id="wo-lang-grid">
             ${LANGUAGES.map(l => optBtn("lang", l.value, `<span>${esc(l.label)}</span>`, chosenLang === l.value)).join("")}
           </div>`;
@@ -324,16 +498,16 @@
           grid.querySelectorAll(".wo-lang").forEach(b => b.classList.toggle("selected", b === btn));
           go.disabled = false;
         });
-        navEl.querySelector("#wo-back").addEventListener("click", () => { step = 4; render(); });
+        navEl.querySelector("#wo-back").addEventListener("click", () => { step = 5; render(); });
         go.addEventListener("click", save);
       }
     }
 
     async function save() {
       const name = (chosenName || defaultName || "").trim();
-      if (name.length < 2 || !chosenCountry || !chosenLang) return;
-      if (!chosenMajorId) return;
-      if (!chosenCollegeId) return;
+      const parsedTelegram = parseTelegram(chosenTelegram);
+      if (name.length < 2 || !chosenLang || !parsedTelegram.ok) return;
+      chosenTelegram = parsedTelegram.value;
 
       const go = overlay.querySelector("#wo-go");
       if (go) {
@@ -350,11 +524,7 @@
             action: "complete_onboarding",
             name,
             language: chosenLang,
-            countryId: chosenCountry,
-            majorId: chosenMajorId || "",
-            majorName: chosenMajorId ? "" : chosenMajorName.trim(),
-            collegeId: chosenCollegeId || "",
-            collegeName: chosenCollegeId ? "" : chosenCollegeName.trim(),
+            telegram: parsedTelegram.value,
           }),
         });
         const data = await res.json().catch(() => ({}));
@@ -520,6 +690,11 @@
   }
   .wo-input::placeholder { color: #94A3B8; }
 
+  .wo-hint {
+    margin-top: 8px; font-size: 12px; line-height: 1.45; color: #64748B;
+  }
+  .wo-hint.is-error { color: #C62828; font-weight: 600; }
+
   .wo-summary {
     display: flex; align-items: center; gap: 8px;
     background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 999px;
@@ -566,5 +741,16 @@
     display: inline-flex; align-items: center; justify-content: center; gap: 8px;
   }
   .wo-btn-ghost:hover { background: #E2E8F0; }
+  .wo-verify-actions { display: flex; gap: 10px; margin: 4px 0 6px; }
+  @media (max-width: 520px) { .wo-verify-actions { flex-direction: column; } }
+  .wo-verify-or { display: flex; align-items: center; gap: 10px; margin: 14px 0; color: #94A3B8; font-size: 11px; font-weight: 800; letter-spacing: 0.1em; text-transform: uppercase; }
+  .wo-verify-or::before, .wo-verify-or::after { content: ""; flex: 1; height: 1px; background: #E2E8F0; }
+  .wo-btn-google {
+    width: 100%; border: 1px solid #E2E8F0; border-radius: 6px; padding: 12px 18px;
+    background: #ffffff; color: #111827; font-family: inherit; font-size: 14px; font-weight: 700;
+    cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+    transition: background .2s ease, border-color .2s ease;
+  }
+  .wo-btn-google:hover { background: #F8FAFC; border-color: #cbd5e1; }
   `;
 })();

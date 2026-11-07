@@ -1,4 +1,4 @@
-(function () {
+﻿(function () {
   let qbanks = [];
   let currentQBankId = null;
   let allQuestions = [];
@@ -32,7 +32,7 @@
       document.querySelectorAll('nav a[data-path]').forEach(a => {
         a.classList.remove(
           'qbank-nav-active',
-          'border-[#007a7a]', 'bg-[#007a7a]/5', 'text-[#007a7a]', 'font-bold',
+          'border-[#007a7a]', 'bg-[#007a7a]/5', 'bg-[#e6f2f2]', 'text-[#007a7a]', 'font-bold',
           'border-primary', 'bg-primary/10', 'text-primary'
         );
         if (!a.classList.contains('font-medium')) a.classList.add('font-medium');
@@ -45,6 +45,98 @@
         tab.classList.add('qbank-nav-active');
       }
     } catch (_) {}
+  };
+
+  window.toggleQBankNav = function(force) {
+    const open = typeof force === "boolean" ? force : !document.body.classList.contains("qbank-nav-open");
+    document.body.classList.toggle("qbank-nav-open", open);
+    const btn = document.getElementById("qbank-nav-btn");
+    if (btn) btn.setAttribute("aria-expanded", open ? "true" : "false");
+  };
+
+  document.addEventListener("click", (event) => {
+    if (event.target && event.target.closest && event.target.closest("aside nav a[data-path]")) {
+      window.toggleQBankNav(false);
+    }
+  });
+
+  window.addEventListener("resize", () => {
+    if (window.innerWidth > 1024) window.toggleQBankNav(false);
+  });
+
+  window.qbankFocusSearch = function() {
+    nextNavToken();
+    if (window.setQBankNav) window.setQBankNav("search");
+    if (window.closeFullscreen) window.closeFullscreen("qbank-modal");
+    const input = document.getElementById("home-search-input");
+    if (input) {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      input.focus();
+      if (input.select) input.select();
+    }
+  };
+
+  window.qbankOpenNotes = function() {
+    nextNavToken();
+    if (window.setQBankNav) window.setQBankNav("notes");
+    if (window.closeFullscreen) window.closeFullscreen("qbank-modal");
+    qblockEnsureStyles();
+    if (window.hideAllMainViews) window.hideAllMainViews();
+    const view = document.getElementById("qbank-home-view");
+    if (view) view.style.display = "flex";
+    const modal = document.getElementById("qbank-modal");
+    if (modal) modal.style.display = "none";
+    const area = document.getElementById("qbank-home-content");
+    if (!area) return;
+    const progress = qbankProgressMap();
+    const questions = qblockActiveQuestions();
+    const byId = {};
+    questions.forEach(q => { if (q && q.id) byId[q.id] = q; });
+    const notes = Object.keys(progress)
+      .map(id => {
+        const p = progress[id] || {};
+        const q = byId[id] || null;
+        const data = (q && q.data) || {};
+        const code = data.code || (q && q.id ? "Q-" + String(q.id).substring(0, 5).toUpperCase() : "Question");
+        const objective = q ? qblockObjectiveOf(q) : "";
+        const organSystem = q ? qblockSubjectOf(q) : "";
+        const specialty = q ? qblockClinicalSpecialtyOf(q) : "";
+        const subTopic = q ? qblockSubTopicOf(q) : "";
+        return { id, code, objective, organSystem, specialty, subTopic, note: String(p.note || "").trim(), updatedAt: p.updatedAt || p.noteUpdatedAt || p.timestamp || 0 };
+      })
+      .filter(item => item.note)
+      .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+
+    const rows = notes.map(item => `
+      <article class="qbn-note">
+        <div class="qbn-note-head">
+          <span class="qbn-code">${cqEsc(item.code)}</span>
+          ${item.objective ? `<span class="qbn-meta">${cqEsc(item.objective)}</span>` : ""}
+          ${item.organSystem ? `<span class="qbn-meta">${cqEsc(item.organSystem)}</span>` : ""}
+          ${item.specialty ? `<span class="qbn-meta">${cqEsc(item.specialty)}</span>` : ""}
+          ${item.subTopic ? `<span class="qbn-meta">${cqEsc(item.subTopic)}</span>` : ""}
+        </div>
+        <div class="qbn-note-text">${cqEsc(item.note)}</div>
+      </article>`).join("");
+
+    area.innerHTML = `
+      <div class="qbc-page">
+        <div class="qbc-top">
+          <button type="button" class="qbc-back" onclick="window.openQBank()"><i data-lucide="arrow-left" aria-hidden="true"></i> Back to home</button>
+          <span class="qbc-kicker">QBank notes</span>
+        </div>
+        <div class="qbc-heading">
+          <div>
+            <h1 class="qbc-title">Notes</h1>
+            <p class="qbc-sub">Question notes you saved while practising.</p>
+          </div>
+        </div>
+        <div class="qbc-panel">
+          ${notes.length ? `<div class="qbn-list">${rows}</div>` : `<div class="qbc-empty-inline" style="padding:22px;">No notes yet. Open a question and use the note tool to save one.</div>`}
+        </div>
+        <p class="qbc-foot">${notes.length} note${notes.length === 1 ? "" : "s"} in this bank.</p>
+      </div>`;
+    if (window.lucide && window.lucide.createIcons) window.lucide.createIcons();
   };
 
   // --- IndexedDB Caching ---
@@ -160,6 +252,7 @@
         if (update.timeTakenMs !== undefined) progressObj[update.questionId].timeTakenMs = update.timeTakenMs;
         if (update.marked !== undefined) progressObj[update.questionId].marked = update.marked;
         if (update.note !== undefined) progressObj[update.questionId].note = update.note;
+        if (update.omitted !== undefined) progressObj[update.questionId].omitted = !!update.omitted;
       }
     });
     return progressObj;
@@ -332,7 +425,7 @@
     return `${m}:${s}`;
   }
 
-  function startTimer() {
+  function startTimer(resume) {
     const block = window.__qbankBlock;
     if (block && block.active && block.submitted) {
       const display = document.getElementById("qbank-timer-display");
@@ -343,8 +436,9 @@
       qblockTick();
       return;
     }
+    if ((block && block.active && block.suspended) || (!block && window.__qbankPausedAt)) return;
     stopTimer();
-    questionStartTime = Date.now();
+    if (!resume) questionStartTime = Date.now();
     const display = document.getElementById("qbank-timer-display");
     if (display) display.innerHTML = `<i data-lucide="clock" style="width:14px;height:14px;vertical-align:-2px;"></i> Time: 00:00`;
     
@@ -360,6 +454,535 @@
       qbankTimer = null;
     }
   }
+
+  // ============================================================
+  // QBank chrome: the teal top/bottom toolbars around the question.
+  // All state lives on window so the markup (index.html) can call
+  // the window.* handlers directly.
+  // ============================================================
+  const QBANK_CHROME_PREFS_KEY = "curaq_qbank_chrome_prefs:v1";
+  const QBANK_TEXT_ZOOM_KEY = "curaq_qbank_text_zoom:v1";
+  const QBANK_TEXT_ZOOMS = [
+    { stem: 16, option: 15, label: "Default" },
+    { stem: 17.5, option: 16, label: "Large" },
+    { stem: 19.5, option: 17.5, label: "Extra large" },
+    { stem: 14.5, option: 13.5, label: "Small" },
+  ];
+  let qbankChromeTicker = null;
+
+  function qbankToastSafe(msg, isError) {
+    try {
+      if (typeof window.qbankToast === "function") return window.qbankToast(msg, !!isError);
+    } catch (_) {}
+    try { console[isError ? "warn" : "log"](msg); } catch (_) {}
+  }
+
+  function qbankProgressMap() {
+    if (!window.qbankProgress) window.qbankProgress = {};
+    return window.qbankProgress;
+  }
+
+  function qbankGetChromePrefs() {
+    const fallback = { mode: "exam", timed: true };
+    try {
+      const raw = localStorage.getItem(QBANK_CHROME_PREFS_KEY);
+      if (!raw) return fallback;
+      const p = JSON.parse(raw);
+      return {
+        mode: p && p.mode === "tutor" ? "tutor" : "exam",
+        timed: !(p && p.timed === false),
+      };
+    } catch (_) {
+      return fallback;
+    }
+  }
+
+  function qbankSaveChromePrefs(prefs) {
+    try { localStorage.setItem(QBANK_CHROME_PREFS_KEY, JSON.stringify(prefs)); } catch (_) {}
+  }
+
+  function qbankTextZoomIndex() {
+    let idx = 0;
+    try { idx = parseInt(localStorage.getItem(QBANK_TEXT_ZOOM_KEY) || "0", 10) || 0; } catch (_) {}
+    if (idx < 0 || idx >= QBANK_TEXT_ZOOMS.length) idx = 0;
+    return idx;
+  }
+
+  function qbankApplyTextZoom() {
+    const area = document.getElementById("qbank-question-area");
+    const z = QBANK_TEXT_ZOOMS[qbankTextZoomIndex()];
+    if (!area || !z) return;
+    area.style.setProperty("--qbank-stem-size", z.stem + "px");
+    area.style.setProperty("--qbank-option-size", z.option + "px");
+  }
+
+  function qbankFreeSessionElapsedMs() {
+    const started = Number(window.__qbankSessionStartedAt) || 0;
+    if (!started) return 0;
+    const pausedMs = Number(window.__qbankPausedMs) || 0;
+    const pausedAt = Number(window.__qbankPausedAt) || 0;
+    const end = pausedAt || Date.now();
+    return Math.max(0, end - started - pausedMs);
+  }
+
+  function qbankBlockElapsedSec(b) {
+    const end = b.suspended && b.pausedAt ? b.pausedAt : Date.now();
+    return Math.max(0, (end - b.startedAt) / 1000);
+  }
+
+  function qbankChromeClockText() {
+    const b = window.__qbankBlock;
+    if (b && b.active) {
+      if (b.submitted) {
+        return qblockFormatClock((b.results && b.results.secondsUsed) || 0) + " used";
+      }
+      if (b.deadline) {
+        const now = b.suspended && b.pausedAt ? b.pausedAt : Date.now();
+        return qblockFormatClock(Math.max(0, Math.ceil((b.deadline - now) / 1000))) + " left";
+      }
+      return qblockFormatClock(qbankBlockElapsedSec(b)) + " elapsed";
+    }
+    if (!window.__qbankSessionStartedAt) return "00:00";
+    return qblockFormatClock(qbankFreeSessionElapsedMs() / 1000);
+  }
+
+  function qbankChromeAnsweredCount() {
+    const b = window.__qbankBlock;
+    if (b && b.active) return qblockAnsweredCount();
+    const progress = qbankProgressMap();
+    return currentQuestions.reduce((n, q) => {
+      const p = progress[q.id];
+      return n + (p && p.correct !== undefined ? 1 : 0);
+    }, 0);
+  }
+
+  function qbankChromeProgressText() {
+    const answered = qbankChromeAnsweredCount();
+    const total = currentQuestions.length;
+    if (!total) return "0 answered";
+    return `${answered}/${total} answered`;
+  }
+
+  function qbankChromeSuspendState() {
+    const b = window.__qbankBlock;
+    if (b && b.active) {
+      if (b.submitted) return { disabled: true, paused: false, label: "Suspend", title: "This test is complete" };
+      return {
+        disabled: false,
+        paused: !!b.suspended,
+        label: b.suspended ? "Resume" : "Suspend",
+        title: b.suspended ? "Resume the test clock and timer" : "Pause the test clock and timer",
+      };
+    }
+    const paused = !!window.__qbankPausedAt;
+    return {
+      disabled: !window.__qbankSessionStartedAt,
+      paused,
+      label: paused ? "Resume" : "Suspend",
+      title: paused ? "Resume the session clock and timer" : "Pause the session clock and timer",
+    };
+  }
+
+  function qbankRenderChrome() {
+    const q = currentQuestions[currentIndex];
+    const progress = qbankProgressMap();
+    const p = q ? (progress[q.id] || {}) : {};
+    const b = window.__qbankBlock;
+    const blockActive = !!(b && b.active);
+    const blockSubmitted = !!(blockActive && b.submitted);
+    const blockExam = !!(blockActive && !blockSubmitted && b.mode === "exam");
+
+    const itemInfo = document.getElementById("qbank-item-info");
+    if (itemInfo) {
+      itemInfo.textContent = q
+        ? `Item ${currentIndex + 1} of ${currentQuestions.length}`
+        : "Item —";
+    }
+
+    const codeEl = document.getElementById("qbank-question-code");
+    if (codeEl) {
+      let code = "";
+      if (q) {
+        const data = q.data || {};
+        code = data.code ? String(data.code) : ("Q-" + String(q.id || "").substring(0, 5).toUpperCase());
+      }
+      codeEl.textContent = `Question Id: ${code || "—"}`;
+    }
+
+    const data = q && q.data ? q.data : {};
+    const correctIndices = Array.isArray(data.correctIndices)
+      ? data.correctIndices
+      : (data.correctOptionIndex !== undefined ? [data.correctOptionIndex] : []);
+    const isMultiple = correctIndices.length > 1 || (correctIndices.length === 0 && data.multi === true);
+    const qtype = document.getElementById("qbank-qtype-badge");
+    if (qtype) qtype.textContent = isMultiple ? "QCM" : "QCS";
+
+    const markBtn = document.getElementById("qbank-mark-btn");
+    const markLabel = document.getElementById("qbank-mark-label");
+    if (markBtn) {
+      const marked = !!p.marked;
+      markBtn.classList.toggle("is-on", marked);
+      markBtn.title = marked ? "Remove this question from your marked list" : "Mark this question for review";
+      const icon = markBtn.querySelector("i");
+      if (icon) icon.className = marked ? "fa-solid fa-bookmark" : "fa-regular fa-bookmark";
+    }
+    if (markLabel) markLabel.textContent = p.marked ? "Marked" : "Mark";
+
+    const noteBtn = document.getElementById("qbank-note-btn");
+    if (noteBtn) {
+      const hasNote = !!p.note;
+      noteBtn.classList.toggle("is-on", hasNote);
+      noteBtn.title = hasNote ? "Edit your note for this question" : "Add a note to this question";
+    }
+
+    const highBtn = document.getElementById("qbank-highlighter-top-btn");
+    if (highBtn) highBtn.classList.toggle("is-on", !!window.qbankHighlighterActive);
+
+    const prevBtn = document.getElementById("qbank-prev-btn");
+    if (prevBtn) prevBtn.disabled = currentIndex <= 0;
+
+    const timedToggle = document.getElementById("qbank-timed-toggle");
+    const tutorToggle = document.getElementById("qbank-tutor-toggle");
+    if (timedToggle && tutorToggle) {
+      if (blockActive) {
+        timedToggle.checked = !!b.timeLimitSec;
+        tutorToggle.checked = b.mode === "tutor";
+        timedToggle.disabled = true;
+        tutorToggle.disabled = true;
+        timedToggle.title = "The mode is locked while a test is in progress";
+        tutorToggle.title = "The mode is locked while a test is in progress";
+      } else {
+        const prefs = qbankGetChromePrefs();
+        timedToggle.checked = prefs.mode === "exam" && prefs.timed;
+        tutorToggle.checked = prefs.mode === "tutor";
+        timedToggle.disabled = false;
+        tutorToggle.disabled = false;
+        timedToggle.title = "Timed tests in the next session";
+        tutorToggle.title = "Tutor tests in the next session";
+      }
+    }
+
+    const endLabel = document.getElementById("qbank-end-label");
+    if (endLabel) {
+      endLabel.textContent = blockActive && !blockSubmitted ? "End test" : "End Session";
+    }
+
+    const adminEl = document.getElementById("qbank-admin-actions");
+    if (adminEl) {
+      if (window.isQBankAdmin && q) {
+        adminEl.innerHTML = `
+          <button type="button" class="qbank-uw-tool" onclick="window.qbankAdminEdit('${q.id}')" title="Edit this question">
+            <i class="fa-solid fa-pen"></i><span>Edit</span>
+          </button>
+          <button type="button" class="qbank-uw-tool qbank-uw-tool-end" onclick="window.qbankAdminDelete('${q.id}')" title="Delete this question">
+            <i class="fa-solid fa-trash"></i><span>Delete</span>
+          </button>`;
+      } else {
+        adminEl.innerHTML = "";
+      }
+    }
+
+    qbankUpdateChromeLive();
+    qblockRenderFooterBar();
+    qbankApplyTextZoom();
+    qbankStartChromeTicker();
+  }
+
+  function qbankUpdateChromeLive() {
+    const clock = document.getElementById("qbank-block-time");
+    if (clock) {
+      clock.innerHTML = `<i class="fa-regular fa-clock"></i> Test Time: ${qbankChromeClockText()}`;
+    }
+
+    const progress = document.getElementById("qbank-progress-info");
+    if (progress) progress.textContent = qbankChromeProgressText();
+
+    const state = qbankChromeSuspendState();
+    const suspendBtn = document.getElementById("qbank-suspend-btn");
+    const suspendLabel = document.getElementById("qbank-suspend-label");
+    if (suspendBtn) {
+      suspendBtn.disabled = state.disabled;
+      suspendBtn.classList.toggle("is-active", state.paused);
+      suspendBtn.title = state.title;
+      const icon = suspendBtn.querySelector("i");
+      if (icon) icon.className = state.paused ? "fa-solid fa-play" : "fa-solid fa-pause";
+    }
+    if (suspendLabel) suspendLabel.textContent = state.label;
+  }
+
+  function qbankStartChromeTicker() {
+    if (qbankChromeTicker) return;
+    qbankChromeTicker = setInterval(() => {
+      if (!document.getElementById("qbank-block-time")) return;
+      qbankUpdateChromeLive();
+    }, 1000);
+  }
+
+  window.qbankRenderChrome = qbankRenderChrome;
+  window.qbankUpdateBlockTime = qbankUpdateChromeLive;
+
+  window.startQBankBlockClock = function (startedAt) {
+    window.__qbankSessionStartedAt = Number(startedAt) || Date.now();
+    window.__qbankPausedMs = 0;
+    window.__qbankPausedAt = 0;
+    qbankUpdateChromeLive();
+  };
+
+  window.qbankResetSessionClock = function () {
+    window.__qbankSessionStartedAt = 0;
+    window.__qbankPausedMs = 0;
+    window.__qbankPausedAt = 0;
+    qbankUpdateChromeLive();
+  };
+
+  window.qbankPrev = function () {
+    const b = window.__qbankBlock;
+    if (b && b.active) {
+      window.qbankBlockPrev();
+      return;
+    }
+    if (currentIndex <= 0) return;
+    stopTimer();
+    currentIndex--;
+    window.currentIndex = currentIndex;
+    window.qbankRenderSidebar();
+    window.qbankRenderCurrent();
+  };
+
+  window.qbankCycleTextZoom = function () {
+    const next = (qbankTextZoomIndex() + 1) % QBANK_TEXT_ZOOMS.length;
+    try { localStorage.setItem(QBANK_TEXT_ZOOM_KEY, String(next)); } catch (_) {}
+    qbankApplyTextZoom();
+    qbankToastSafe("Question text size: " + QBANK_TEXT_ZOOMS[next].label);
+  };
+
+  window.qbankToggleChromeMode = function (kind, checked) {
+    const prefs = qbankGetChromePrefs();
+    const b = window.__qbankBlock;
+    if (b && b.active && !b.submitted) {
+      qbankToastSafe("Timed / Tutor can't change while a test is in progress.", true);
+      qbankRenderChrome();
+      return;
+    }
+    if (kind === "timed") {
+      prefs.mode = "exam";
+      prefs.timed = !!checked;
+    } else if (kind === "tutor") {
+      if (checked) {
+        prefs.mode = "tutor";
+        prefs.timed = false;
+      } else {
+        prefs.mode = "exam";
+        prefs.timed = true;
+      }
+    }
+    qbankSaveChromePrefs(prefs);
+    qbankRenderChrome();
+  };
+
+  window.qbankToggleSuspend = function () {
+    const b = window.__qbankBlock;
+    if (b && b.active) {
+      if (b.submitted) return;
+      if (!b.suspended) {
+        b.suspended = true;
+        b.pausedAt = Date.now();
+        qblockTrackTime();
+        qblockStopTimer();
+        stopTimer();
+      } else {
+        const delta = Math.max(0, Date.now() - (b.pausedAt || Date.now()));
+        b.startedAt += delta;
+        if (b.deadline) b.deadline += delta;
+        b.questionStartedAt = Date.now();
+        b.suspended = false;
+        b.pausedAt = 0;
+        qblockStartTimer();
+        startTimer(true);
+      }
+      qbankUpdateChromeLive();
+      return;
+    }
+    if (!window.__qbankSessionStartedAt) return;
+    if (!window.__qbankPausedAt) {
+      window.__qbankPausedAt = Date.now();
+      stopTimer();
+    } else {
+      const delta = Math.max(0, Date.now() - window.__qbankPausedAt);
+      window.__qbankPausedMs = (Number(window.__qbankPausedMs) || 0) + delta;
+      window.__qbankPausedAt = 0;
+      questionStartTime += delta;
+      startTimer(true);
+    }
+    qbankUpdateChromeLive();
+  };
+
+  window.qbankChromeExam = function () {
+    const prefs = qbankGetChromePrefs();
+    return window.qbankOpenBlockBuilder({ mode: prefs.mode, timed: prefs.timed });
+  };
+
+  window.qbankChromeFlashcard = function () {
+    const q = currentQuestions[currentIndex];
+    if (!q) return;
+    return window.generateAIFlashcard(q.id);
+  };
+
+  window.qbankChromeFeedback = function () {
+    const q = currentQuestions[currentIndex];
+    if (!q) return;
+    return window.qbankReportQuestion(q.id);
+  };
+
+  window.qbankChromeEndBlock = function () {
+    const b = window.__qbankBlock;
+    if (b && b.active && !b.submitted) {
+      window.qbankSubmitBlock(false);
+      return;
+    }
+    window.qbankEndSession();
+  };
+
+  // -------------------------- Calculator --------------------------
+  function qbankCalcState() {
+    if (!window.__qbankCalcState) {
+      window.__qbankCalcState = { display: "0", prev: null, op: null, waiting: false };
+    }
+    return window.__qbankCalcState;
+  }
+
+  function qbankCalcCompute(a, z, op) {
+    if (op === "+") return a + z;
+    if (op === "-") return a - z;
+    if (op === "*") return a * z;
+    if (op === "/") return z === 0 ? NaN : a / z;
+    return z;
+  }
+
+  function qbankCalcPaint() {
+    const s = qbankCalcState();
+    const el = document.getElementById("qbank-calc-display");
+    if (el) el.textContent = s.display;
+  }
+
+  window.qbankCalcKey = function (key) {
+    const s = qbankCalcState();
+    const current = parseFloat(s.display) || 0;
+    if (key === "C") {
+      s.display = "0";
+      s.prev = null;
+      s.op = null;
+      s.waiting = false;
+      return qbankCalcPaint();
+    }
+    if (key === "back") {
+      if (s.waiting) return;
+      s.display = s.display.length > 1 ? s.display.slice(0, -1) : "0";
+      if (s.display === "-") s.display = "0";
+      return qbankCalcPaint();
+    }
+    if (key === "%") {
+      s.display = String(current / 100);
+      s.waiting = false;
+      return qbankCalcPaint();
+    }
+    if (key === "±") {
+      if (current === 0) return;
+      s.display = String(-current);
+      return qbankCalcPaint();
+    }
+    if (key === ".") {
+      if (s.waiting) {
+        s.display = "0.";
+        s.waiting = false;
+      } else if (!s.display.includes(".")) {
+        s.display += ".";
+      }
+      return qbankCalcPaint();
+    }
+    if (key === "+" || key === "-" || key === "*" || key === "/") {
+      if (s.op && !s.waiting) {
+        const out = qbankCalcCompute(s.prev, current, s.op);
+        s.display = Number.isFinite(out) ? String(Math.round(out * 1e10) / 1e10) : "Error";
+      }
+      s.prev = parseFloat(s.display);
+      s.op = key;
+      s.waiting = true;
+      if (s.display === "Error") {
+        s.display = "0";
+        s.prev = 0;
+      }
+      return qbankCalcPaint();
+    }
+    if (key === "=") {
+      if (!s.op) return qbankCalcPaint();
+      const out = qbankCalcCompute(s.prev, current, s.op);
+      s.display = Number.isFinite(out) ? String(Math.round(out * 1e10) / 1e10) : "Error";
+      s.prev = null;
+      s.op = null;
+      s.waiting = true;
+      return qbankCalcPaint();
+    }
+    if (/^[0-9]$/.test(key)) {
+      if (s.waiting || s.display === "0" || s.display === "Error") {
+        s.display = key;
+        s.waiting = false;
+      } else if (s.display.replace(/[-.]/g, "").length < 14) {
+        s.display += key;
+      }
+      return qbankCalcPaint();
+    }
+  };
+
+  window.qbankCalcClose = function () {
+    const modal = document.getElementById("qbank-calculator-modal");
+    if (modal) modal.classList.remove("is-open");
+  };
+
+  window.qbankOpenCalculator = function () {
+    let modal = document.getElementById("qbank-calculator-modal");
+    if (!modal) {
+      modal = document.createElement("div");
+      modal.id = "qbank-calculator-modal";
+      const keys = [
+        { k: "C", label: "C", cls: "qbank-calc-clear" },
+        { k: "back", label: "âŒ«", cls: "qbank-calc-clear" },
+        { k: "%", label: "%", cls: "qbank-calc-op" },
+        { k: "/", label: "Ã·", cls: "qbank-calc-op" },
+        { k: "7", label: "7" }, { k: "8", label: "8" }, { k: "9", label: "9" },
+        { k: "*", label: "Ã—", cls: "qbank-calc-op" },
+        { k: "4", label: "4" }, { k: "5", label: "5" }, { k: "6", label: "6" },
+        { k: "-", label: "âˆ’", cls: "qbank-calc-op" },
+        { k: "1", label: "1" }, { k: "2", label: "2" }, { k: "3", label: "3" },
+        { k: "+", label: "+", cls: "qbank-calc-op" },
+        { k: "±", label: "±" }, { k: "0", label: "0" }, { k: ".", label: "." },
+        { k: "=", label: "=", cls: "qbank-calc-eq" },
+      ];
+      modal.innerHTML = `
+        <div class="qbank-calc-card" role="dialog" aria-label="Calculator">
+          <div class="qbank-calc-head">
+            <strong><i class="fa-solid fa-calculator"></i> Calculator</strong>
+            <button type="button" class="qbank-calc-close" onclick="window.qbankCalcClose()" title="Close calculator">Ã—</button>
+          </div>
+          <div class="qbank-calc-display" id="qbank-calc-display">0</div>
+          <div class="qbank-calc-keys">
+            ${keys.map(k => `<button type="button" class="${k.cls || ""}" onclick="window.qbankCalcKey('${k.k}')">${k.label}</button>`).join("")}
+          </div>
+        </div>`;
+      modal.addEventListener("mousedown", (e) => {
+        if (e.target === modal) window.qbankCalcClose();
+      });
+      document.body.appendChild(modal);
+    }
+    modal.classList.add("is-open");
+    qbankCalcPaint();
+    document.addEventListener("keydown", function calcEsc(e) {
+      if (e.key === "Escape") {
+        window.qbankCalcClose();
+        document.removeEventListener("keydown", calcEsc);
+      }
+    });
+  };
 
   window.preloadQBank = function() {
     if (!preloadPromise) {
@@ -465,13 +1088,14 @@
       major: bundle.profileMajor || "",
       college: bundle.profileCollege || "",
       collegeId: bundle.collegeId || "",
+      paidUntil: Number(bundle.paidUntil || 0),
       mainIds: Array.isArray(bundle.mainIds) ? bundle.mainIds : [],
       prepIds: Array.isArray(bundle.prepIds) ? bundle.prepIds : [],
       grants: Array.isArray(bundle.grants) ? bundle.grants : [],
-      legacy: !!bundle.legacy,
+      legacy: false,
     };
     const a = window.db.access;
-    const isAllowed = (id) => a.legacy || a.grants.includes(id) || a.mainIds.includes(id);
+    const isAllowed = (id) => a.legacy || a.grants.includes(id) || a.mainIds.includes(id) || a.prepIds.includes(id);
     if (window.db.selectedQBankId && !isAllowed(window.db.selectedQBankId)) {
       window.db.selectedQBankId = null;
     }
@@ -481,13 +1105,11 @@
     try {
       const banksBtn = document.getElementById("qbank-banks-btn");
       if (banksBtn) {
-        banksBtn.innerHTML = `<i class="fa-solid fa-layer-group text-[14px]"></i> ${a.legacy ? "All Banks" : "My banks"}`;
-        banksBtn.title = a.legacy ? "Browse all banks and request access" : "Banks linked to your academic profile";
+        banksBtn.innerHTML = `<i class="fa-solid fa-layer-group text-[14px]"></i> My banks`;
+        banksBtn.title = "Switch QBank";
       }
     } catch (_) {}
     if (typeof saveDb === "function") saveDb();
-    // Seed the bootstrap memo so later bootstrapAccess() calls within
-    // 5 min cost 0 HTTP.
     window.__bootstrapPromise = Promise.resolve(a);
     window.__bootstrapCacheTime = Date.now();
     return a;
@@ -499,8 +1121,80 @@
     return a.grants.includes(bankId) || a.mainIds.includes(bankId) || a.prepIds.includes(bankId);
   };
 
+  window.qbankPaidActive = function() {
+    const a = window.db && window.db.access;
+    return !!(a && Number(a.paidUntil || 0) > Date.now());
+  };
+
+  window.qbankEnterLicense = function(bankId, bankName) {
+    ensureRaStyles();
+    const old = document.getElementById("license-modal");
+    if (old) old.remove();
+    const ov = document.createElement("div");
+    ov.id = "license-modal";
+    ov.innerHTML = `
+      <div class="ra-box">
+        <div class="ra-head">
+          <div>
+            <div class="ra-title">Enter License</div>
+            <div class="ra-sub">${window.escapeHtml ? window.escapeHtml(bankName || "CuraQ paid banks") : (bankName || "CuraQ paid banks")}</div>
+          </div>
+          <button type="button" class="ra-close">×</button>
+        </div>
+        <label class="ra-label">License code</label>
+        <input id="license-code-input" class="login-input" style="font-family:monospace;" placeholder="CQ-XXXX-XXXX-XXXX" autocomplete="off" />
+        <div class="ra-status" id="license-status"></div>
+        <div class="ra-foot">
+          <button type="button" class="btn-dark-pill ra-cancel">Cancel</button>
+          <button type="button" id="license-send" class="btn-action primary">Activate</button>
+        </div>
+      </div>`;
+    document.body.appendChild(ov);
+    document.body.style.overflow = "hidden";
+    setTimeout(() => ov.querySelector("#license-code-input").focus(), 60);
+
+    const close = () => { ov.remove(); document.body.style.overflow = ""; };
+    ov.querySelector(".ra-close").addEventListener("click", close);
+    ov.querySelector(".ra-cancel").addEventListener("click", close);
+    ov.addEventListener("mousedown", e => { if (e.target === ov) close(); });
+
+    ov.querySelector("#license-send").addEventListener("click", async () => {
+      const code = (ov.querySelector("#license-code-input").value || "").trim();
+      const statusEl = ov.querySelector("#license-status");
+      const sendBtn = ov.querySelector("#license-send");
+      if (code.length < 8) {
+        statusEl.textContent = "Enter the full license code.";
+        return;
+      }
+      sendBtn.disabled = true;
+      sendBtn.textContent = "Activating…";
+      try {
+        const token = await firebase.auth().currentUser.getIdToken();
+        const res = await fetch("/api/qbank", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ action: "redeem_license", code }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || ("HTTP " + res.status));
+        if (data.access) window.applyAccessBundle(data.access);
+        else await window.bootstrapAccess(true);
+        close();
+        if (typeof window.openQBankSelection === "function") await window.openQBankSelection();
+        else if (typeof window.openQBank === "function") await window.openQBank();
+        alert("License activated.");
+      } catch (err) {
+        statusEl.textContent = "";
+        sendBtn.disabled = false;
+        sendBtn.textContent = "Activate";
+        alert("License failed: " + (err.message || err));
+      }
+    });
+  };
+
   window.qbankRequestAccess = function(bankId, bankName) {
     // Styled modal (native prompt() can be suppressed by extensions/embeds)
+    ensureRaStyles();
     const old = document.getElementById("req-access-modal");
     if (old) old.remove();
 
@@ -522,8 +1216,7 @@
           <button type="button" class="btn-dark-pill ra-cancel">Cancel</button>
           <button type="button" id="ra-send" class="btn-action primary">Send Request</button>
         </div>
-      </div>
-      <style>${RA_CSS}</style>`;
+      </div>`;
     document.body.appendChild(ov);
     document.body.style.overflow = "hidden";
     setTimeout(() => ov.querySelector("#ra-reason").focus(), 60);
@@ -571,7 +1264,7 @@
   };
 
   const RA_CSS = `
-  #req-access-modal { position: fixed; inset: 0; z-index: 999999; background: rgba(6,25,31,0.72);
+  #req-access-modal, #license-modal { position: fixed; inset: 0; z-index: 999999; background: rgba(6,25,31,0.72);
     backdrop-filter: blur(5px); display: flex; align-items: center; justify-content: center; padding: 24px;
     font-family: 'Figtree', sans-serif; }
   .ra-box { width: min(480px, 100%); background: var(--bg-elevated, #16232a); color: var(--text-primary, #fff);
@@ -592,12 +1285,20 @@
   .ra-status { min-height: 18px; font-size: 0.82rem; color: #facc15; margin-top: 8px; }
   .ra-foot { display: flex; justify-content: flex-end; gap: 10px; margin-top: 10px; }
 
-  body.app-light-mode #req-access-modal { background: rgba(10,61,74,0.45); }
+  body.app-light-mode #req-access-modal, body.app-light-mode #license-modal { background: rgba(10,61,74,0.45); }
   body.app-light-mode .ra-box { background: #fff; border-color: #dbe3e7; color: #0a3d4a; }
   body.app-light-mode .ra-title { color: #0a3d4a; }
   body.app-light-mode .ra-sub { color: #6b7f88; }
   body.app-light-mode .ra-box textarea { background: #fff; border-color: #dbe3e7; color: #0a3d4a; }
   `;
+
+  function ensureRaStyles() {
+    if (document.getElementById("cq-ra-styles")) return;
+    const st = document.createElement("style");
+    st.id = "cq-ra-styles";
+    st.textContent = RA_CSS;
+    document.head.appendChild(st);
+  }
 
   // --- QBank Selection ---
   window.selectQBank = async function(qbankId) {
@@ -609,7 +1310,7 @@
       try {
         if (typeof window.qbankCanOpen === "function" && window.db.access && !window.qbankCanOpen(qbankId)) {
           const meta = (cachedCategories || []).find(c => c.id === qbankId);
-          window.qbankRequestAccess(qbankId, (meta && meta.name) || qbankId);
+          window.qbankEnterLicense(qbankId, (meta && meta.name) || qbankId);
           return;
         }
       } catch (_) { /* fall through to the normal flow */ }
@@ -622,11 +1323,21 @@
       try {
         if (typeof window.saveDb === "function") window.saveDb();
       } catch (_) {}
+      try {
+        const token = await firebase.auth().currentUser.getIdToken();
+        fetch("/api/qbank", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ action: "set_active_qbank", qbankId }),
+        }).catch(() => {});
+      } catch (_) {}
       await window.openQBank();
   };
 
   window.openQBankSelection = async function() {
     const myNav = nextNavToken();
+    if (window.setQBankNav) window.setQBankNav("banks");
+    if (typeof window.toggleQBankNav === "function") window.toggleQBankNav(false);
     const area = document.getElementById("qbank-home-content");
     if (!area) { if (window.hideGlobalLoader) window.hideGlobalLoader(); return; }
     
@@ -676,73 +1387,44 @@
       }
       if (navStale(myNav)) return;
 
-      // Only banks linked to the student's academic profile (college
-      // attachments or explicit grants) are offered. Foreign banks are not
-      // listed at all.
+      // Only banks included in the current access bundle are offered.
       const accSel = (window.db && window.db.access) || null;
-      const profileScoped = !!(accSel && !accSel.legacy);
-      if (profileScoped) {
-        const mainIds = Array.isArray(accSel.mainIds) ? accSel.mainIds : [];
-        const grants = Array.isArray(accSel.grants) ? accSel.grants : [];
-        qbanks = qbanks.filter(q => mainIds.includes(q.id) || grants.includes(q.id));
-      }
-
-      // Banks already requested (pending review) render as "Pending" so a
-      // repeat tap can never file a duplicate request.
-      let pendingAccess = new Set();
-      try {
-        const pr = await apiGet("my_access_requests");
-        if (pr && Array.isArray(pr.pendingIds)) pendingAccess = new Set(pr.pendingIds);
-      } catch (_) {}
-      window.__pendingAccess = pendingAccess;
-
-      // Flip a selection-page row to "Pending" in place after a request is
-      // filed (also used by the request modal on success). No-op elsewhere.
-      window.__markAccessPending = function(bankId) {
-        try {
-          if (window.__pendingAccess instanceof Set) window.__pendingAccess.add(bankId);
-          document.querySelectorAll(`[data-cta-bank="${bankId}"]`).forEach(el => {
-            el.innerHTML = `<button disabled style="background:#F1F5F9; color:#64748B; border:none; padding:9px 18px; border-radius:6px; font-weight:700; font-size:13px; cursor:default; display:inline-flex; align-items:center; gap:8px; flex-shrink:0;"><i data-lucide="clock" style="width:14px;height:14px;"></i><span>Pending</span></button>`;
-          });
-          document.querySelectorAll(`[data-lock-pill="${bankId}"]`).forEach(el => {
-            el.textContent = "PENDING";
-            el.style.color = "#92400E";
-            el.style.background = "#FEF3C7";
-          });
-          if (typeof window.__epRefresh === "function") window.__epRefresh();
-          if (window.lucide && window.lucide.createIcons) window.lucide.createIcons();
-        } catch (_) {}
-      };
+      const allowedIds = accSel
+        ? new Set([...(accSel.mainIds || []), ...(accSel.prepIds || []), ...(accSel.grants || [])])
+        : new Set();
+      const tierById = new Map(qbanks.map(q => [q.id, q.accessTier === "paid" ? "paid" : "free"]));
+      const paidActive = window.qbankPaidActive ? window.qbankPaidActive() : false;
 
       if (qbanks.length === 0) {
-        const emptyMsg = profileScoped
-          ? "No banks are linked to your academic profile yet. Ask your admin to attach a bank to your college."
-          : "No QBanks available yet. Admins can create them in the Admin Panel.";
-        area.innerHTML = `<div style="max-width:1000px; margin:0 auto; padding:32px 24px; font-family:Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;"><div style="border:1px solid #F1F5F9; border-radius:6px; background:#FAFAFA; color:#64748B; text-align:center; padding:16px 12px; font-size:12px;">${emptyMsg}</div></div>`;
+        area.innerHTML = `<div style="max-width:1000px; margin:0 auto; padding:32px 24px; font-family:Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
+          <div style="border:1px solid #F1F5F9; border-radius:6px; background:#FAFAFA; color:#64748B; text-align:center; padding:18px 14px; font-size:13px;">No QBanks are available on your account yet. Contact support or enter a license.</div>
+        </div>`;
         if (window.hideGlobalLoader) window.hideGlobalLoader();
         return;
       }
       if (typeof window.__epEnsureRowStyle === "function") window.__epEnsureRowStyle();
 
       let html = `<div style="max-width:1000px; margin:0 auto; padding:32px 24px; font-family:Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
-        <div style="margin-bottom:20px;">
-          <h2 style="margin:0; font-size:1.5rem; font-weight:700; color:#0F172A;">${profileScoped ? "Your banks" : "All Banks"}</h2>
-          <p style="margin:6px 0 0 0; font-size:0.9rem; color:#64748B;">${profileScoped ? "Banks linked to your academic profile." : "Your college banks are ready to open."}</p>
+        <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:14px; margin-bottom:20px;">
+          <div>
+            <h2 style="margin:0; font-size:1.5rem; font-weight:700; color:#0F172A;">My banks</h2>
+            <p style="margin:6px 0 0 0; font-size:0.9rem; color:#64748B;">One bank is active at a time. Select another bank to switch instantly.</p>
+          </div>
+          <button class="btn-action primary" style="white-space:nowrap;" onclick="window.qbankEnterLicense()">Enter license</button>
         </div>
-        <div style="font-size:12px; font-weight:700; letter-spacing:0.06em; text-transform:uppercase; color:#64748B; margin:0 0 10px 0;">${profileScoped ? "Linked to your academic profile" : "Available banks"}</div>
+        <div style="font-size:12px; font-weight:700; letter-spacing:0.06em; text-transform:uppercase; color:#64748B; margin:0 0 10px 0;">Available banks</div>
         <div class="ep-card-rows" style="background:#fff; border:1px solid #E2E8F0; border-radius:6px; padding:6px 16px;">`;
 
       const flagMap = { usa: "us", uk: "gb", australia: "au", canada: "ca", india: "in", europe: "eu", tunisia: "tn", algeria: "dz", egypt: "eg", morocco: "ma", saudi: "sa", global: null };
       const countryLabels = { usa: "USA", uk: "UK", australia: "Australia", canada: "Canada", india: "India", europe: "Europe", tunisia: "Tunisia", algeria: "Algeria", egypt: "Egypt", morocco: "Morocco", saudi: "Saudi Arabia", global: "International" };
       const escQ = (s) => window.escapeHtml ? window.escapeHtml(s) : s;
       const acc = (window.db && window.db.access) || null;
-      const isAllowedMain = (id) => !acc || acc.legacy || !acc.country || acc.grants.includes(id) || acc.mainIds.includes(id);
 
       for (const q of qbanks) {
         const countryCode = flagMap[q.country];
         const flagHtml = countryCode
            ? `<img src="https://flagcdn.com/${countryCode}.svg" alt="" style="width:28px; height:auto; border-radius:3px; box-shadow:0 1px 3px rgba(0,0,0,0.1);">`
-           : `<span style="font-size:20px; line-height:1;">🌍</span>`;
+           : `<span style="font-size:20px; line-height:1;">ðŸŒ</span>`;
 
         const cached = cachedQBanks[q.id];
         const qCount = cached ? (cached.questions || []).length : 0;
@@ -750,37 +1432,36 @@
           ? `${escQ(countryLabels[q.country] || q.country || "")} · ${qCount.toLocaleString()} questions`
           : escQ(countryLabels[q.country] || q.country || "");
 
-        const allowed = isAllowedMain(q.id);
-        const pending = !allowed && pendingAccess.has(q.id);
+        const allowed = accSel ? allowedIds.has(q.id) : true;
+        const tier = tierById.get(q.id) || "free";
+        const locked = !allowed;
+        const active = allowed && (window.db && window.db.selectedQBankId) === q.id;
         const safeQName = String(q.name || "").replace(/\\/g, "\\\\").replace(/'/g, "\\'");
 
-        const clickAttr = allowed
-          ? `onclick="window.selectQBank('${q.id}')"`
-          : (pending ? "" : `onclick="window.qbankRequestAccess('${q.id}','${safeQName}')"`);
-        const rowCursor = allowed || pending ? (pending ? "cursor:default;" : "cursor:pointer;") : "cursor:pointer;";
+        const clickAttr = locked
+          ? `onclick="window.qbankEnterLicense('${q.id}','${safeQName}')"`
+          : `onclick="window.selectQBank('${q.id}')"`;
+        const rowCursor = active ? "cursor:default;" : "cursor:pointer;";
 
-        const cta = allowed
-          ? `<button style="background:#007a7a; color:#fff; border:none; padding:9px 18px; border-radius:6px; font-weight:700; font-size:13px; cursor:pointer; display:inline-flex; align-items:center; gap:8px; flex-shrink:0;" onmouseover="this.style.background='#006666'" onmouseout="this.style.background='#007a7a'" onclick="event.stopPropagation(); window.selectQBank('${q.id}')">
+        const cta = active
+          ? `<span style="background:#e6f2f2; color:#007a7a; border:none; padding:9px 16px; border-radius:6px; font-weight:800; font-size:13px; display:inline-flex; align-items:center; gap:8px; flex-shrink:0;">
+               <i data-lucide="check-circle-2" style="width:14px;height:14px;"></i> Active
+             </span>`
+          : locked
+          ? `<button style="background:#FEF3C7; color:#B45309; border:none; padding:9px 18px; border-radius:6px; font-weight:800; font-size:13px; cursor:pointer; display:inline-flex; align-items:center; gap:8px; flex-shrink:0;" onclick="event.stopPropagation(); window.qbankEnterLicense('${q.id}','${safeQName}')">
+               <i data-lucide="key-round" style="width:14px;height:14px;"></i>
+               <span>Enter license</span>
+             </button>`
+          : `<button style="background:#007a7a; color:#fff; border:none; padding:9px 18px; border-radius:6px; font-weight:700; font-size:13px; cursor:pointer; display:inline-flex; align-items:center; gap:8px; flex-shrink:0;" onmouseover="this.style.background='#006666'" onmouseout="this.style.background='#007a7a'" onclick="event.stopPropagation(); window.selectQBank('${q.id}')">
                <span>Select</span>
                <i data-lucide="arrow-right" style="width:14px;height:14px;"></i>
-             </button>`
-          : (pending
-            ? `<button disabled style="background:#F1F5F9; color:#64748B; border:none; padding:9px 18px; border-radius:6px; font-weight:700; font-size:13px; cursor:default; display:inline-flex; align-items:center; gap:8px; flex-shrink:0;">
-                 <i data-lucide="clock" style="width:14px;height:14px;"></i>
-                 <span>Pending</span>
-               </button>`
-            : `<button style="background:#FBEAEA; color:#C62828; border:none; padding:9px 18px; border-radius:6px; font-weight:700; font-size:13px; cursor:pointer; flex-shrink:0;" onclick="event.stopPropagation(); window.qbankRequestAccess('${q.id}','${safeQName}')">
-                 <i data-lucide="lock" style="width:14px;height:14px;"></i>
-                 <span>Request Access</span>
-               </button>`);
-        const pill = allowed
-          ? ""
-          : (pending
-            ? `<span data-lock-pill="${q.id}" style="font-size:11px; font-weight:700; color:#92400E; background:#FEF3C7; padding:2px 9px; border-radius:999px; white-space:nowrap;">PENDING</span>`
-            : `<span data-lock-pill="${q.id}" style="font-size:11px; font-weight:700; color:#C62828; background:#FBEAEA; padding:2px 9px; border-radius:999px; white-space:nowrap;">LOCKED</span>`);
+             </button>`;
+        const pill = locked
+          ? `<button style="font-size:11px; font-weight:800; color:#B45309; background:#FEF3C7; padding:2px 9px; border-radius:999px; border:0; cursor:pointer;" onclick="event.stopPropagation(); window.qbankEnterLicense('${q.id}','${safeQName}')">PAID · LICENSE</button>`
+          : `<span style="font-size:11px; font-weight:700; color:${tier === "paid" ? "#0F766E" : "#64748B"}; background:${tier === "paid" ? "#CCFBF1" : "#F1F5F9"}; padding:2px 9px; border-radius:999px;">${tier === "paid" ? "PAID" : "FREE"}</span>`;
 
         html += `
-          <div class="qbank-select-card" style="display:flex; align-items:center; gap:10px; padding:10px 6px; margin:0 -6px; border-bottom:1px solid #F1F5F9; border-radius:4px; ${rowCursor} opacity:${allowed ? "1" : "0.65"};" ${clickAttr} onmouseover="this.style.background='#F8FAFC'" onmouseout="this.style.background='transparent'">
+          <div class="qbank-select-card" style="display:flex; align-items:center; gap:10px; padding:10px 6px; margin:0 -6px; border-bottom:1px solid #F1F5F9; border-radius:4px; ${rowCursor} background:${active ? "#F8FDFA" : "transparent"};" ${clickAttr} onmouseover="if(!${active ? "true" : "false"}) this.style.background='#F8FAFC'" onmouseout="if(!${active ? "true" : "false"}) this.style.background='${active ? "#F8FDFA" : "transparent"}'">
              <div style="flex-shrink:0; display:flex; align-items:center; justify-content:center; width:40px; height:40px; background:#e6f2f2; border-radius:6px; overflow:hidden;">
                ${flagHtml}
              </div>
@@ -1037,7 +1718,7 @@
     .qbb-mode .qbb-mode-ic { width: 32px; height: 32px; border-radius: 9px; background: #E6F2F2; color: #007A7A; display: inline-flex; align-items: center; justify-content: center; margin-bottom: 3px; }
     .qbb-mode .qbb-mode-ic svg { width: 17px; height: 17px; }
     .qbb-mode.on { border-color: #007A7A; background: #F2FAFA; box-shadow: 0 0 0 1px #007A7A inset; }
-    .qbb-mode.on::after { content: "✓"; position: absolute; top: 10px; right: 11px; width: 20px; height: 20px; border-radius: 50%; background: #007A7A; color: #fff; font-size: 12px; line-height: 20px; text-align: center; font-weight: 800; }
+    .qbb-mode.on::after { content: "âœ“"; position: absolute; top: 10px; right: 11px; width: 20px; height: 20px; border-radius: 50%; background: #007A7A; color: #fff; font-size: 12px; line-height: 20px; text-align: center; font-weight: 800; }
     .qbb-pills { display: flex; gap: 7px; flex-wrap: wrap; margin-bottom: 10px; }
     .qbb-pill { min-height: 40px; padding: 0 13px; border: 1px solid var(--qb-line); border-radius: 9px; background: var(--qb-card); color: var(--qb-ink); font: inherit; font-size: 13px; font-weight: 800; cursor: pointer; }
     .qbb-pill.on { background: #007A7A; border-color: #007A7A; color: #FFFFFF; }
@@ -1110,11 +1791,229 @@
     html.dark .qbr-score, body.dark-exam .qbr-score { background: #123A3F; color: #7ADDE4; }
   `;
 
+  // Block builder / block history. Kept separate from the legacy builder
+  // styles above so the new screen has its own scoped design language.
+  const QBLOCK_BUILDER_CSS = `
+    .qbc-page, .qbh-page { --qbc-ink: var(--text-primary, #0F172A); --qbc-muted: var(--text-muted, #64748B); --qbc-line: var(--border-color, #DCE7E7); --qbc-card: var(--surface-color, #FFFFFF); --qbc-teal: #007A7A; --qbc-teal-dark: #005F5F; --qbc-teal-soft: #E6F2F2; --qbc-canvas: #F5FAFA; width: 100%; max-width: 1000px; margin: 0 auto; padding: 26px 20px 80px; color: var(--qbc-ink); font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; box-sizing: border-box; }
+    #qbank-home-view:has(> #qbank-home-content > .qbc-page), #qbank-home-view:has(> #qbank-home-content > .qbh-page) { background: #F5FAFA; align-items: flex-start; }
+    html.dark #qbank-home-view:has(> #qbank-home-content > .qbc-page), html.dark #qbank-home-view:has(> #qbank-home-content > .qbh-page), body.dark-exam #qbank-home-view:has(> #qbank-home-content > .qbc-page), body.dark-exam #qbank-home-view:has(> #qbank-home-content > .qbh-page) { background: #0B1416; }
+    .qbc-page *, .qbc-page *::before, .qbc-page *::after, .qbh-page *, .qbh-page *::before, .qbh-page *::after { box-sizing: border-box; }
+    .qbc-top, .qbh-top { display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap; margin-bottom: 16px; }
+    .qbc-back, .qbh-back { min-height: 40px; padding: 0 13px; border: 1px solid var(--qbc-line); border-radius: 9px; background: var(--qbc-card); color: var(--qbc-ink); font: inherit; font-size: 12.5px; font-weight: 700; display: inline-flex; align-items: center; gap: 7px; cursor: pointer; }
+    .qbc-back svg, .qbh-back svg { width: 15px; height: 15px; }
+    .qbc-kicker, .qbh-kicker { font-size: 10.5px; font-weight: 800; letter-spacing: 0.14em; text-transform: uppercase; color: var(--qbc-teal); }
+    .qbc-heading, .qbh-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; flex-wrap: wrap; margin-bottom: 18px; }
+    .qbc-title, .qbh-title { margin: 0 0 5px; font-size: clamp(25px, 3.4vw, 32px); line-height: 1.08; letter-spacing: -0.025em; font-weight: 800; color: var(--qbc-ink); }
+    .qbc-sub, .qbh-sub { margin: 0; max-width: 60ch; font-size: 13.5px; line-height: 1.55; color: var(--qbc-muted); }
+    .qbc-source-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .qbc-source-field { display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 4px 6px 4px 12px; border: 1px solid var(--qbc-line); border-radius: 10px; background: var(--qbc-card); }
+    .qbc-source-field span { font-size: 10px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: var(--qbc-muted); white-space: nowrap; }
+    .qbc-source-select { max-width: 280px; min-height: 34px; padding: 0 26px 0 7px; border: 0; background: transparent; color: var(--qbc-ink); font: inherit; font-size: 12.5px; font-weight: 700; cursor: pointer; }
+    .qbc-source-select:focus { outline: 2px solid var(--qbc-teal); outline-offset: 2px; border-radius: 5px; }
+    .qbc-source-meta { font-size: 11.5px; color: var(--qbc-muted); }
+    .qbc-objective-select, .qbc-filter-input { width: 100%; min-height: 38px; padding: 0 34px 0 10px; border: 1px solid var(--qbc-line); border-radius: 9px; background: var(--qbc-card); color: var(--qbc-ink); font: inherit; font-size: 12px; font-weight: 700; }
+    .qbc-objective-select:focus, .qbc-filter-input:focus { outline: 2px solid var(--qbc-teal); outline-offset: 2px; }
+    .qbc-objective-meta { display: flex; align-items: center; margin-top: 8px; min-height: 20px; }
+    .qbc-filter-input { max-width: 280px; min-height: 31px; padding: 0 10px; border-radius: 8px; font-size: 11px; }
+    .qbc-clickable-grid, .qbc-subtopic-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2px 14px; max-height: 280px; }
+    .qbc-subtopic-grid { max-height: 240px; }
+    .qbt-tabs { display: flex; align-items: center; gap: 4px; border-bottom: 1px solid var(--qbc-line); margin: 0 0 16px; }
+    .qbt-tab { min-height: 44px; padding: 0 14px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--qbc-muted); font: inherit; font-size: 13px; font-weight: 700; display: inline-flex; align-items: center; gap: 7px; cursor: pointer; margin-bottom: -1px; }
+    .qbt-tab.is-active { color: var(--qbc-teal); border-bottom-color: var(--qbc-teal); }
+    .qbt-count { min-width: 20px; height: 20px; padding: 0 6px; border-radius: 999px; background: var(--qbc-teal-soft); color: var(--qbc-teal); display: inline-flex; align-items: center; justify-content: center; font-size: 10.5px; font-weight: 800; line-height: 1; }
+    .qbc-panel { background: var(--qbc-card); border: 1px solid var(--qbc-line); border-radius: 16px; overflow: hidden; box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04), 0 18px 40px -34px rgba(15, 23, 42, 0.22); }
+    .qbc-row { display: grid; grid-template-columns: 190px minmax(0, 1fr); gap: 26px; padding: 22px 24px; border-bottom: 1px solid var(--qbc-line); }
+    .qbc-row-head h2 { margin: 0 0 4px; font-size: 14.5px; line-height: 1.25; font-weight: 800; color: var(--qbc-ink); }
+    .qbc-row-help { margin: 0; font-size: 11.5px; line-height: 1.5; color: var(--qbc-muted); }
+    .qbc-row-body { min-width: 0; }
+    .qbc-row-tools { display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+    .qbc-tool { min-height: 30px; padding: 0 9px; border: 1px solid var(--qbc-line); border-radius: 7px; background: var(--qbc-card); color: var(--qbc-muted); font: inherit; font-size: 10.5px; font-weight: 800; cursor: pointer; }
+    .qbc-tool:hover { border-color: var(--qbc-teal); color: var(--qbc-teal); }
+    .qbc-mode-seg { display: inline-flex; padding: 3px; border: 1px solid var(--qbc-line); border-radius: 10px; background: #F7FAFA; gap: 3px; }
+    .qbc-mode-btn { min-height: 38px; min-width: 104px; padding: 0 16px; border: 0; border-radius: 7px; background: transparent; color: var(--qbc-muted); font: inherit; font-size: 12.5px; font-weight: 800; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 7px; }
+    .qbc-mode-btn svg { width: 15px; height: 15px; }
+    .qbc-mode-btn.is-on { background: var(--qbc-card); color: var(--qbc-teal); box-shadow: 0 1px 3px rgba(15, 23, 42, 0.14); }
+    .qbc-hint { margin: 9px 0 0; font-size: 11.5px; line-height: 1.45; color: var(--qbc-muted); }
+    .qbc-mode-list { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+    .qbc-mode-card { position: relative; display: flex; align-items: center; gap: 8px; min-height: 52px; padding: 9px 10px; border: 1px solid var(--qbc-line); border-radius: 9px; background: var(--qbc-card); color: var(--qbc-ink); cursor: pointer; transition: border-color 0.15s ease, background 0.15s ease; }
+    .qbc-mode-card.is-on { border-color: var(--qbc-teal); background: var(--qbc-teal-soft); }
+    .qbc-mode-card.is-disabled { opacity: 0.45; cursor: not-allowed; }
+    .qbc-mode-card input, .qbc-check input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+    .qbc-box { width: 18px; height: 18px; flex: 0 0 auto; border: 1.5px solid #B7CCCC; border-radius: 4px; background: var(--qbc-card); display: inline-flex; align-items: center; justify-content: center; transition: background 0.15s ease, border-color 0.15s ease; }
+    .qbc-box::after { content: ""; width: 8px; height: 4px; border-left: 2px solid #FFFFFF; border-bottom: 2px solid #FFFFFF; transform: rotate(-45deg) translateY(-1px) scale(0); transition: transform 0.12s ease; }
+    .qbc-mode-card input:checked + .qbc-box, .qbc-check input:checked + .qbc-box { background: var(--qbc-teal); border-color: var(--qbc-teal); }
+    .qbc-mode-card input:checked + .qbc-box::after, .qbc-check input:checked + .qbc-box::after { transform: rotate(-45deg) translateY(-1px) scale(1); }
+    .qbc-mode-card:focus-within, .qbc-check:focus-within { outline: 3px solid rgba(0, 122, 122, 0.22); outline-offset: 2px; }
+    .qbc-mode-name { min-width: 0; font-size: 11.5px; line-height: 1.2; font-weight: 800; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .qbc-mode-count { margin-left: auto; min-width: 26px; padding: 2px 5px; border-radius: 999px; background: #F0F5F5; color: var(--qbc-muted); font-size: 9.5px; font-weight: 800; line-height: 1.35; text-align: center; }
+    .qbc-mode-card.is-on .qbc-mode-count { background: rgba(0, 122, 122, 0.14); color: var(--qbc-teal); }
+    .qbc-check-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2px 14px; }
+    .qbc-check { position: relative; display: flex; align-items: center; gap: 9px; min-height: 42px; padding: 6px 8px; border: 1px solid transparent; border-radius: 8px; color: var(--qbc-ink); cursor: pointer; }
+    .qbc-check:hover { background: rgba(0, 122, 122, 0.055); }
+    .qbc-check.is-on { background: var(--qbc-teal-soft); border-color: #BFE0E0; }
+    .qbc-check.is-empty { opacity: 0.45; }
+    .qbc-check-label { min-width: 0; font-size: 12.5px; line-height: 1.35; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .qbc-check-count { margin-left: auto; color: var(--qbc-muted); font-size: 10.5px; font-weight: 800; white-space: nowrap; }
+    .qbc-check.is-on .qbc-check-count { color: var(--qbc-teal); }
+    .qbc-systems { max-height: 320px; overflow-y: auto; padding-right: 4px; scrollbar-width: thin; }
+    .qbc-taxonomy-block { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2px 14px; }
+    .qbc-taxonomy-group { grid-column: 1 / -1; display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin: 6px 0 4px; padding: 7px 9px; border-top: 1px solid var(--qbc-line); color: var(--qbc-ink); }
+    .qbc-taxonomy-group:first-child { border-top: 0; margin-top: 0; padding-top: 2px; }
+    .qbc-taxonomy-group span { font-size: 10.5px; font-weight: 900; letter-spacing: 0.08em; text-transform: uppercase; color: var(--qbc-teal); }
+    .qbc-taxonomy-group small { color: var(--qbc-muted); font-size: 10px; font-weight: 600; text-align: right; }
+    .qbc-check.is-subspecialty { min-height: 36px; padding-left: 20px; }
+    .qbc-check.is-subspecialty .qbc-check-label { font-weight: 500; }
+    .qbc-systems.is-expanded { max-height: none; overflow: visible; }
+    .qbc-systems::-webkit-scrollbar { width: 8px; }
+    .qbc-systems::-webkit-scrollbar-thumb { background: #C7DCDC; border-radius: 999px; }
+    .qbc-empty-inline { margin: 8px 0 0; color: var(--qbc-muted); font-size: 11.5px; }
+    .qbc-activefilters { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; margin: 0 0 14px; padding: 9px 11px; border: 1px solid #CBE3E3; border-radius: 9px; background: #F3FAFA; }
+    .qbc-activefilters > span { font-size: 10px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: var(--qbc-teal); }
+    .qbc-filter-chip { display: inline-flex; align-items: center; gap: 6px; min-height: 27px; padding: 0 8px; border: 1px solid #BFE0E0; border-radius: 7px; background: var(--qbc-card); color: var(--qbc-ink); font-size: 10.5px; font-weight: 700; }
+    .qbc-filter-chip button { width: 17px; height: 17px; padding: 0; border: 0; border-radius: 4px; background: transparent; color: var(--qbc-muted); font: inherit; font-size: 13px; line-height: 1; cursor: pointer; }
+    .qbc-filter-chip button:hover { background: #FEE2E2; color: #BE123C; }
+    .qbc-count-line { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+    .qbc-count-input { width: 118px; height: 52px; padding: 0 12px; border: 1.5px solid var(--qbc-line); border-radius: 9px; background: var(--qbc-card); color: var(--qbc-ink); font: inherit; font-size: 21px; font-weight: 800; text-align: center; font-variant-numeric: tabular-nums; }
+    .qbc-count-input:focus { outline: 3px solid rgba(0, 122, 122, 0.18); border-color: var(--qbc-teal); }
+    .qbc-count-note { font-size: 12px; line-height: 1.45; color: var(--qbc-muted); }
+    .qbc-count-note b { color: var(--qbc-ink); }
+    .qbc-available { margin: 9px 0 0; font-size: 11.5px; color: var(--qbc-muted); }
+    .qbc-available b { color: var(--qbc-ink); }
+    .qbc-actionbar { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 18px 24px; background: linear-gradient(180deg, #FAFDFD 0%, #F2F9F9 100%); }
+    .qbc-summary b { display: block; font-size: 15px; line-height: 1.25; color: var(--qbc-ink); }
+    .qbc-summary span { display: block; margin-top: 3px; font-size: 11.5px; line-height: 1.4; color: var(--qbc-muted); }
+    .qbc-generate { min-height: 50px; padding: 0 25px; border: 1px solid var(--qbc-teal); border-radius: 9px; background: var(--qbc-teal); color: #FFFFFF; font: inherit; font-size: 14px; font-weight: 800; display: inline-flex; align-items: center; justify-content: center; gap: 8px; cursor: pointer; white-space: nowrap; }
+    .qbc-generate svg { width: 16px; height: 16px; }
+    .qbc-generate:disabled { opacity: 0.5; cursor: not-allowed; }
+    .qbc-foot { margin: 15px 0 0; text-align: center; font-size: 11px; line-height: 1.45; color: var(--qbc-muted); }
+    .qbc-loading, .qbc-error { padding: 36px 24px; text-align: center; color: var(--qbc-muted); font-size: 13px; }
+    .qbc-error h2 { margin: 0 0 7px; color: var(--qbc-ink); font-size: 18px; }
+    .qbc-error p { margin: 0 0 16px; }
+
+    .qbh-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-bottom: 14px; }
+    .qbh-stat { padding: 13px 15px; border: 1px solid var(--qbc-line); border-radius: 11px; background: var(--qbc-card); box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04); }
+    .qbh-stat b { display: block; font-size: 22px; line-height: 1.1; letter-spacing: -0.02em; color: var(--qbc-ink); }
+    .qbh-stat small { display: block; margin-top: 3px; font-size: 10.5px; color: var(--qbc-muted); }
+    .qbh-filterbar { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: 0 0 12px; }
+    .qbh-filter { min-height: 34px; padding: 0 12px; border: 1px solid var(--qbc-line); border-radius: 8px; background: var(--qbc-card); color: var(--qbc-muted); font: inherit; font-size: 11.5px; font-weight: 700; cursor: pointer; }
+    .qbh-filter.is-on { border-color: var(--qbc-teal); background: var(--qbc-teal-soft); color: var(--qbc-teal); }
+    .qbh-list { display: flex; flex-direction: column; gap: 10px; }
+    .qbh-card { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 14px; align-items: center; padding: 15px 16px; border: 1px solid var(--qbc-line); border-radius: 13px; background: var(--qbc-card); box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04); }
+    .qbh-score { width: 62px; height: 62px; border-radius: 12px; background: var(--qbc-teal-soft); color: var(--qbc-teal); display: flex; flex-direction: column; align-items: center; justify-content: center; flex-shrink: 0; }
+    .qbh-score b { font-size: 19px; line-height: 1.1; letter-spacing: -0.02em; }
+    .qbh-score small { margin-top: 1px; font-size: 8px; line-height: 1; letter-spacing: 0.1em; text-transform: uppercase; font-weight: 800; opacity: 0.75; }
+    .qbh-score.is-mid { background: #FFF7E6; color: #B45309; }
+    .qbh-score.is-low { background: #FFF0F3; color: #BE123C; }
+    .qbh-score.is-progress { background: #EFF6FF; color: #1D4ED8; }
+    .qbh-main { min-width: 0; }
+    .qbh-title-row { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; margin-bottom: 3px; }
+    .qbh-title-row h2 { margin: 0; font-size: 14.5px; line-height: 1.3; font-weight: 800; color: var(--qbc-ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .qbh-pill { display: inline-flex; align-items: center; min-height: 20px; padding: 0 7px; border-radius: 999px; background: #F0F5F5; color: var(--qbc-muted); font-size: 9px; font-weight: 800; letter-spacing: 0.05em; text-transform: uppercase; white-space: nowrap; }
+    .qbh-pill.is-progress { background: #EFF6FF; color: #1D4ED8; }
+    .qbh-pill.is-complete { background: var(--qbc-teal-soft); color: var(--qbc-teal); }
+    .qbh-meta { display: flex; align-items: center; gap: 5px 8px; flex-wrap: wrap; font-size: 11px; line-height: 1.4; color: var(--qbc-muted); }
+    .qbh-meta b { color: var(--qbc-ink); font-weight: 700; }
+    .qbh-meta-sep { opacity: 0.45; }
+    .qbh-progress { height: 6px; margin-top: 8px; border-radius: 999px; background: #EDF3F3; overflow: hidden; max-width: 320px; }
+    .qbh-progress span { display: block; height: 100%; border-radius: 999px; background: var(--qbc-teal); }
+    .qbh-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+    .qbh-btn { min-height: 36px; padding: 0 11px; border: 1px solid var(--qbc-line); border-radius: 7px; background: var(--qbc-card); color: var(--qbc-ink); font: inherit; font-size: 11px; font-weight: 800; cursor: pointer; display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+    .qbh-btn svg { width: 13px; height: 13px; }
+    .qbh-btn.primary { border-color: var(--qbc-teal); background: var(--qbc-teal); color: #FFFFFF; }
+    .qbh-btn.danger { color: #BE123C; }
+    .qbh-btn.danger:hover { border-color: #FCA5A5; background: #FFF1F2; }
+    .qbh-empty { padding: 42px 24px; text-align: center; border: 1px dashed #BFD8D8; border-radius: 14px; background: var(--qbc-card); }
+    .qbh-empty-ic { width: 56px; height: 56px; margin: 0 auto 12px; border-radius: 14px; background: var(--qbc-teal-soft); color: var(--qbc-teal); display: flex; align-items: center; justify-content: center; }
+    .qbh-empty-ic svg { width: 25px; height: 25px; }
+    .qbh-empty h2 { margin: 0 0 5px; font-size: 18px; font-weight: 800; color: var(--qbc-ink); }
+    .qbh-empty p { margin: 0 0 16px; font-size: 12.5px; color: var(--qbc-muted); }
+    .qbn-list { display: flex; flex-direction: column; gap: 10px; padding: 14px; }
+    .qbn-note { padding: 13px 15px; border: 1px solid var(--qbc-line); border-radius: 12px; background: var(--qbc-card); box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04); }
+    .qbn-note-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 7px; }
+    .qbn-code { min-height: 22px; padding: 0 8px; display: inline-flex; align-items: center; border-radius: 999px; background: var(--qbc-teal-soft); color: var(--qbc-teal); font-size: 10.5px; font-weight: 800; letter-spacing: 0.04em; }
+    .qbn-meta { font-size: 11px; color: var(--qbc-muted); }
+    .qbn-note-text { font-size: 13px; line-height: 1.55; color: var(--qbc-ink); white-space: pre-wrap; }
+    .qbc-page button:focus-visible, .qbc-page input:focus-visible, .qbh-page button:focus-visible { outline: 3px solid rgba(0, 122, 122, 0.35); outline-offset: 2px; }
+    @media (hover: hover) {
+      .qbc-back:hover, .qbh-back:hover, .qbc-tool:hover, .qbh-btn:hover { border-color: var(--qbc-teal); color: var(--qbc-teal); }
+      .qbc-generate:hover, .qbh-btn.primary:hover { background: var(--qbc-teal-dark); border-color: var(--qbc-teal-dark); }
+      .qbc-mode-btn:hover { color: var(--qbc-teal); }
+      .qbc-check:hover { border-color: #CBE3E3; }
+    }
+    html.dark .qbc-page, body.dark-exam .qbc-page, html.dark .qbh-page, body.dark-exam .qbh-page { --qbc-ink: #EAF2F4; --qbc-muted: #9FB3B8; --qbc-line: #1F2E33; --qbc-card: #10191C; --qbc-teal: #45C9D2; --qbc-teal-dark: #7ADDE4; --qbc-teal-soft: #123A3F; }
+    html.dark .qbc-panel, body.dark-exam .qbc-panel, html.dark .qbh-card, body.dark-exam .qbh-card, html.dark .qbh-stat, body.dark-exam .qbh-stat { box-shadow: none; }
+    html.dark .qbc-mode-seg, body.dark-exam .qbc-mode-seg { background: #0B1416; }
+    html.dark .qbc-mode-btn.is-on, body.dark-exam .qbc-mode-btn.is-on { background: #10191C; color: #7ADDE4; box-shadow: none; }
+    html.dark .qbc-box, body.dark-exam .qbc-box { border-color: #3A5A60; background: #0B1416; }
+    html.dark .qbc-mode-card input:checked + .qbc-box, body.dark-exam .qbc-mode-card input:checked + .qbc-box, html.dark .qbc-check input:checked + .qbc-box, body.dark-exam .qbc-check input:checked + .qbc-box { background: #45C9D2; border-color: #45C9D2; }
+    html.dark .qbc-mode-count, body.dark-exam .qbc-mode-count { background: #17272B; color: #9FB3B8; }
+    html.dark .qbc-mode-card.is-on .qbc-mode-count, body.dark-exam .qbc-mode-card.is-on .qbc-mode-count { background: rgba(69, 201, 210, 0.16); color: #7ADDE4; }
+    html.dark .qbc-check:hover, body.dark-exam .qbc-check:hover { background: rgba(69, 201, 210, 0.08); }
+    html.dark .qbc-check.is-on, body.dark-exam .qbc-check.is-on { border-color: #2E6478; background: #123A3F; }
+    html.dark .qbc-systems::-webkit-scrollbar-thumb, body.dark-exam .qbc-systems::-webkit-scrollbar-thumb { background: #2E4B51; }
+    html.dark .qbc-activefilters, body.dark-exam .qbc-activefilters { background: #0D2326; border-color: #2E6478; }
+    html.dark .qbc-filter-chip, body.dark-exam .qbc-filter-chip { border-color: #2E6478; }
+    html.dark .qbc-actionbar, body.dark-exam .qbc-actionbar { background: linear-gradient(180deg, #0E1B1E 0%, #102426 100%); }
+    html.dark .qbc-generate, body.dark-exam .qbc-generate, html.dark .qbh-btn.primary, body.dark-exam .qbh-btn.primary { color: #071A1D; }
+    html.dark .qbc-filter-chip button:hover, body.dark-exam .qbc-filter-chip button:hover { background: #3B121A; color: #FDA4AF; }
+    html.dark .qbh-pill, body.dark-exam .qbh-pill { background: #17272B; color: #9FB3B8; }
+    html.dark .qbh-pill.is-complete, body.dark-exam .qbh-pill.is-complete { background: #123A3F; color: #7ADDE4; }
+    html.dark .qbh-pill.is-progress, body.dark-exam .qbh-pill.is-progress { background: #102A3A; color: #7CC4E8; }
+    html.dark .qbh-score.is-mid, body.dark-exam .qbh-score.is-mid { background: #3B2A12; color: #F0B429; }
+    html.dark .qbh-score.is-low, body.dark-exam .qbh-score.is-low { background: #3B121A; color: #FDA4AF; }
+    html.dark .qbh-score.is-progress, body.dark-exam .qbh-score.is-progress { background: #102A3A; color: #7CC4E8; }
+    html.dark .qbh-progress, body.dark-exam .qbh-progress { background: #17272B; }
+    html.dark .qbh-btn.danger, body.dark-exam .qbh-btn.danger { color: #FDA4AF; }
+    html.dark .qbh-btn.danger:hover, body.dark-exam .qbh-btn.danger:hover { background: #3B121A; border-color: #7F1D1D; }
+    html.dark .qbh-empty, body.dark-exam .qbh-empty { border-color: #2E4B51; }
+    @media (max-width: 1000px) {
+      .qbc-row { grid-template-columns: 1fr; gap: 11px; padding: 20px; }
+      .qbc-mode-list { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    }
+    @media (max-width: 880px) {
+      .qbh-stats { grid-template-columns: 1fr 1fr; }
+      .qbh-card { grid-template-columns: auto minmax(0, 1fr); }
+      .qbh-actions { grid-column: 1 / -1; justify-content: flex-start; padding-top: 3px; }
+    }
+    @media (max-width: 760px) {
+      .qbc-mode-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .qbc-check-grid, .qbc-clickable-grid, .qbc-subtopic-grid { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 620px) {
+      .qbc-page, .qbh-page { padding: 18px 14px 70px; }
+      .qbc-heading, .qbh-heading { align-items: flex-start; flex-direction: column; gap: 12px; }
+      .qbc-source-row { width: 100%; }
+      .qbc-source-field { width: 100%; }
+      .qbc-source-select { max-width: calc(100% - 76px); flex: 1; }
+      .qbc-row { padding: 18px 15px; }
+      .qbc-mode-list { grid-template-columns: 1fr 1fr; }
+      .qbc-check-grid, .qbc-clickable-grid, .qbc-subtopic-grid { grid-template-columns: 1fr; }
+      .qbc-actionbar { align-items: stretch; flex-direction: column; padding: 16px 15px; }
+      .qbc-generate { width: 100%; }
+      .qbt-tabs { overflow-x: auto; }
+      .qbt-tab { white-space: nowrap; padding: 0 11px; }
+      .qbh-stats { gap: 8px; }
+      .qbh-card { grid-template-columns: auto minmax(0, 1fr); padding: 13px; }
+      .qbh-score { width: 54px; height: 54px; border-radius: 10px; }
+      .qbh-score b { font-size: 17px; }
+      .qbh-actions .qbh-btn { flex: 1 1 auto; justify-content: center; }
+      .qbh-title-row h2 { white-space: normal; }
+    }
+    @media (max-width: 390px) {
+      .qbc-mode-list { grid-template-columns: 1fr; }
+      .qbh-stats { grid-template-columns: 1fr; }
+      .qbh-card { grid-template-columns: 1fr; }
+      .qbh-score { width: 100%; height: 44px; flex-direction: row; gap: 6px; }
+      .qbh-actions { grid-column: auto; }
+    }
+    @media (prefers-reduced-motion: reduce) { .qbc-page *, .qbc-page *::before, .qbc-page *::after, .qbh-page *, .qbh-page *::before, .qbh-page *::after { transition: none !important; } }
+  `;
+
   function qblockEnsureStyles() {
     if (document.getElementById("qblock-styles")) return;
     const style = document.createElement("style");
     style.id = "qblock-styles";
-    style.textContent = QBLOCK_CSS;
+    style.textContent = QBLOCK_CSS + QBLOCK_BUILDER_CSS;
     document.head.appendChild(style);
   }
 
@@ -1135,8 +2034,44 @@
 
   function qblockSubjectOf(q) {
     const data = (q && q.data) || {};
-    return data.subject || data.subcategory || "Uncategorized";
+    return data.organSystem || data.organ_system || data.subject || data.subcategory || "Uncategorized";
   }
+
+  function qblockTaxonomyClean(value) {
+    return String(value == null ? "" : value).replace(/\s+/g, " ").trim();
+  }
+
+  function qblockTaxonomyPathFromQuestion(q) {
+    const data = (q && q.data) || {};
+    const objective = qblockTaxonomyClean(data.objective) || "General educational objective";
+    const organSystem0 = qblockTaxonomyClean(data.organSystem || data.organ_system || data.subject || data.subcategory);
+    const organSystem = organSystem0 || "Uncategorized";
+    const clinicalSpecialty0 = qblockTaxonomyClean(data.clinicalSpecialty || data.clinical_specialty || data.specialty || data.chapter);
+    const clinicalSpecialty = clinicalSpecialty0 || "Uncategorized";
+    const subTopic0 = qblockTaxonomyClean(data.subTopic || data.subtopic || data.sub_topic || data.topic || data.part);
+    const subTopic = subTopic0 || "Unspecified sub-topic";
+    const raw = Array.isArray(data.taxonomyPath) ? data.taxonomyPath.map(qblockTaxonomyClean).filter(Boolean) : [];
+    let path = [];
+    if (raw.length >= 4 && raw[0].toLowerCase() === objective.toLowerCase()) path = raw.slice(0, 4);
+    else if (raw.length === 3) path = [objective, ...raw];
+    else if (raw.length === 2) path = [objective, ...raw, clinicalSpecialty, subTopic].slice(0, 4);
+    else if (raw.length === 1) path = [objective, raw[0], clinicalSpecialty, subTopic].slice(0, 4);
+    else path = [objective, organSystem, clinicalSpecialty, subTopic];
+    if (path.length < 4) {
+      if (path.length === 1) path.push(organSystem);
+      if (path.length === 2) path.push(clinicalSpecialty);
+      if (path.length === 3) path.push(subTopic);
+    }
+    while (path.length < 4) path.push(subTopic);
+    return path.slice(0, 4).map((segment, index) => segment || [objective, organSystem, clinicalSpecialty, subTopic][index] || "Unspecified");
+  }
+
+  function qblockObjectiveOf(q) { return qblockTaxonomyPathFromQuestion(q)[0] || "General educational objective"; }
+  function qblockOrganSystemOf(q) { return qblockTaxonomyPathFromQuestion(q)[1] || "Uncategorized"; }
+  function qblockClinicalSpecialtyOf(q) { return qblockTaxonomyPathFromQuestion(q)[2] || "Uncategorized"; }
+  function qblockSubTopicOf(q) { return qblockTaxonomyPathFromQuestion(q)[3] || "Unspecified sub-topic"; }
+
+  function qblockSystemOf(q) { return qblockClinicalSpecialtyOf(q); }
 
   function qblockTagNames(q) {
     const data = (q && q.data) || {};
@@ -1160,9 +2095,9 @@
     return out;
   }
 
-  function qblockSubjectCounts() {
+  function qblockSubjectCounts(questions = qblockActiveQuestions()) {
     const map = {};
-    qblockActiveQuestions().forEach(q => {
+    (questions || []).forEach(q => {
       const sub = qblockSubjectOf(q);
       map[sub] = (map[sub] || 0) + 1;
     });
@@ -1170,18 +2105,7 @@
   }
 
   function qblockTaxonomyPath(q) {
-    const data = (q && q.data) || {};
-    const raw = data.taxonomyPath;
-    const path = Array.isArray(raw) ? raw.map(s => String(s == null ? "" : s).trim()).filter(Boolean) : [];
-    const subject = String(data.subject || data.subcategory || "").trim();
-    const chapter = String(data.chapter || "").trim();
-    const part = String(data.part || "").trim();
-    const staleRoot = path.length > 0 && subject && String(path[0]).toLowerCase() !== subject.toLowerCase();
-    const yearSegment = path.some((segment, index) => index > 0 && /^(19|20)\d{2}$/.test(segment));
-    if (subject && chapter && (!path.length || path.length < 3 || staleRoot || yearSegment)) {
-      return [subject, chapter, part].filter(Boolean);
-    }
-    return path;
+    return qblockTaxonomyPathFromQuestion(q);
   }
 
   function qblockTopicKey(path) {
@@ -1317,7 +2241,6 @@
   function qblockPrepAllowed(id) {
     const acc = window.db && window.db.access;
     if (!acc) return true;
-    if (acc.legacy || (!acc.collegeId && !acc.country)) return true;
     const grants = Array.isArray(acc.grants) ? acc.grants : [];
     const prepIds = Array.isArray(acc.prepIds) ? acc.prepIds : [];
     return grants.includes(id) || prepIds.includes(id);
@@ -1335,7 +2258,7 @@
       });
     }
     const acc = window.db && window.db.access;
-    const mainAllowed = (id) => !acc || acc.legacy
+    const mainAllowed = (id) => !acc
       || (Array.isArray(acc.mainIds) && acc.mainIds.includes(id))
       || (Array.isArray(acc.grants) && acc.grants.includes(id));
     return {
@@ -1399,7 +2322,7 @@
       }
     }
     if (!bankId) {
-      if (window.qbankToast) window.qbankToast("Choose a QBank before building a block.", true);
+      if (window.qbankToast) window.qbankToast("Choose a QBank before creating a test.", true);
       return;
     }
 
@@ -1442,9 +2365,9 @@
     const topicTree = qblockTopicTree(qblockActiveQuestions());
     const defaultCount = total > 0 ? Math.min(40, total) : 40;
     window.__qbankBuilder = {
-      mode: "exam",
+      mode: opts.mode === "tutor" ? "tutor" : "exam",
       count: defaultCount,
-      timed: true,
+      timed: opts.mode === "tutor" ? false : (opts.timed !== false),
       minutes: Math.max(1, Math.ceil(defaultCount * 1.5)),
       subjects: preset,
       topics: [],
@@ -1464,7 +2387,7 @@
     const topicSection = topicTree.length ? `
           <section class="qbb-card wide">
             <h2>5. Parts</h2>
-            <p class="qbb-help">Optional filter. Pick a Part inside a Chapter to focus your block. Selecting a chapter includes all of its Parts.</p>
+            <p class="qbb-help">Optional filter. Pick a Sub-topic / Disease inside a Clinical Specialty to focus your test. Selecting a specialty includes all of its sub-topics.</p>
             <div class="qbb-topic-toolbar">
               <button type="button" class="qbb-topic-clear" onclick="window.qbankBuilderSelectAllTopics()">Clear parts</button>
               <span id="qbb-topic-selected">No part filter</span>
@@ -1482,10 +2405,10 @@
       <div class="qbb-page">
         <div class="qbb-top">
           <button type="button" class="qbb-back" onclick="window.openQBank()"><i data-lucide="arrow-left"></i> Back to home</button>
-          <span class="qbb-kicker">${isPrep ? "Past-exam blocks" : "USMLE-style blocks"}</span>
+          <span class="qbb-kicker">${isPrep ? "Past-exam tests" : "USMLE-style tests"}</span>
         </div>
-        <h1 class="qbb-title">${isPrep ? "Build an exam-prep block" : "Build a study block"}</h1>
-        <p class="qbb-sub">Pick your mode, length, and subjects. Timed blocks hide answers until you submit; tutor blocks explain each answer as you go.</p>
+        <h1 class="qbb-title">${isPrep ? "Create an exam-prep test" : "Create a study test"}</h1>
+        <p class="qbb-sub">Pick your mode, length, and subjects. Timed tests hide answers until you submit; tutor tests explain each answer as you go.</p>
 
         <div class="qbb-layout">
           <section class="qbb-card wide">
@@ -1514,7 +2437,7 @@
 
           <section class="qbb-card">
             <h2>2. Questions</h2>
-            <p class="qbb-help">Standard USMLE block is 40 questions. Use any number you like.</p>
+            <p class="qbb-help">Standard USMLE test is 40 questions. Use any number you like.</p>
             <div class="qbb-pills">
               ${[10, 20, 40, 60].map(n => `<button type="button" class="qbb-pill" data-count="${n}" onclick="window.qbankBuilderSetCount(${n})">${n}</button>`).join("")}
             </div>
@@ -1541,7 +2464,7 @@
 
           <section class="qbb-card wide">
             <h2>4. Subjects / systems</h2>
-            <p class="qbb-help">Leave “All subjects” selected for a mixed block, or choose specific organ systems and disciplines.</p>
+            <p class="qbb-help">Leave “All subjects” selected for a mixed test, or choose specific organ systems and disciplines.</p>
             <div class="qbb-chips" id="qbb-chips">
               <button type="button" class="qbb-chip" data-sub="" onclick="window.qbankBuilderSelectAll()">All subjects <span>${total}</span></button>
               ${chips}
@@ -1555,7 +2478,7 @@
             <b id="qbb-summary-count">${b.count} questions</b>
             <span id="qbb-summary-detail"></span>
           </div>
-          <button type="button" class="qbb-start" id="qbb-start" onclick="window.qbankBuilderStart()">Start block</button>
+          <button type="button" class="qbb-start" id="qbb-start" onclick="window.qbankBuilderStart()">Start test</button>
         </div>
       </div>`;
     if (window.lucide && window.lucide.createIcons) window.lucide.createIcons();
@@ -1716,7 +2639,7 @@
     const startEl = document.getElementById("qbb-start");
     if (startEl) {
       startEl.disabled = pool.length === 0;
-      startEl.textContent = pool.length === 0 ? "No questions available" : `Start ${count}-question block`;
+      startEl.textContent = pool.length === 0 ? "No questions available" : `Start ${count}-question test`;
     }
     if (total && !b.total) b.total = total;
   };
@@ -1743,11 +2666,1220 @@
     });
   };
 
+  // --- Block-only practice: builder, saved blocks, and history ---
+  const QBLOCK_MAX_QUESTIONS = 40;
+  const QBLOCK_SECONDS_PER_QUESTION = 90;
+  const QBLOCK_HISTORY_PREFIX = "omnote_qbank_blocks:v1:";
+  const QBLOCK_FILTER_MODES = ["unused", "incorrect", "marked", "omitted", "correct"];
+  const QBLOCK_FILTER_MODE_LABELS = {
+    unused: "Unused",
+    incorrect: "Incorrect",
+    marked: "Marked",
+    omitted: "Omitted",
+    correct: "Correct",
+  };
+
+  function qblockCurrentUid() {
+    try {
+      const user = window.firebase && window.firebase.auth && window.firebase.auth().currentUser;
+      if (user && user.uid) return user.uid;
+    } catch (_) {}
+    return "local";
+  }
+
+  function qblockHistoryKey() {
+    return QBLOCK_HISTORY_PREFIX + qblockCurrentUid();
+  }
+
+  function qblockReadHistory() {
+    try {
+      const list = JSON.parse(localStorage.getItem(qblockHistoryKey()) || "[]");
+      return Array.isArray(list) ? list.filter(record => record && record.id) : [];
+    } catch (_) {
+      return [];
+    }
+  }
+
+  function qblockWriteHistory(records) {
+    try {
+      localStorage.setItem(qblockHistoryKey(), JSON.stringify((records || []).slice(0, 100)));
+    } catch (_) {}
+  }
+
+  function qblockNewRecordId() {
+    return "blk_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 8);
+  }
+
+  function qblockFindRecord(recordId) {
+    return qblockReadHistory().find(record => record.id === recordId) || null;
+  }
+
+  function qblockSaveRecord(record) {
+    if (!record || !record.id) return;
+    const list = qblockReadHistory();
+    const index = list.findIndex(item => item.id === record.id);
+    if (index >= 0) list[index] = record;
+    else list.unshift(record);
+    list.sort((a, b) => (Number(b.updatedAt) || 0) - (Number(a.updatedAt) || 0));
+    qblockWriteHistory(list);
+  }
+
+  function qblockDeleteRecord(recordId) {
+    qblockWriteHistory(qblockReadHistory().filter(record => record.id !== recordId));
+  }
+
+  function qblockSnapshot(b) {
+    if (!b || !b.active || !b.recordId) return null;
+    const now = Date.now();
+    const questionIds = Array.isArray(b.questionIds)
+      ? [...b.questionIds]
+      : currentQuestions.map(question => question.id).filter(Boolean);
+    const completed = !!b.submitted;
+    const result = b.results ? {
+      total: Number(b.results.total) || 0,
+      answered: Number(b.results.answered) || 0,
+      correct: Number(b.results.correct) || 0,
+      incorrect: Number(b.results.incorrect) || 0,
+      partial: Number(b.results.partial) || 0,
+      unanswered: Number(b.results.unanswered) || 0,
+      score: Number(b.results.score) || 0,
+      secondsUsed: Number(b.results.secondsUsed) || 0,
+      byId: b.results.byId || null,
+    } : null;
+    return {
+      id: b.recordId,
+      bankId: b.bankId,
+      bankName: b.bankName,
+      mode: b.mode,
+      timeLimitSec: b.timeLimitSec || null,
+      startedAt: b.startedAt,
+      updatedAt: now,
+      completedAt: completed ? (b.completedAt || now) : null,
+      status: completed ? "completed" : "in_progress",
+      questionIds,
+      questionCount: questionIds.length,
+      answers: JSON.parse(JSON.stringify(b.answers || {})),
+      timeByQ: JSON.parse(JSON.stringify(b.timeByQ || {})),
+      currentIndex,
+      elapsedSec: result ? result.secondsUsed : Math.max(0, Math.round((now - b.startedAt) / 1000)),
+      remainingSec: b.deadline ? Math.max(0, Math.ceil((b.deadline - now) / 1000)) : null,
+      results: result,
+      filters: b.filters || {},
+    };
+  }
+
+  function qblockPersistActive() {
+    const b = window.__qbankBlock;
+    if (!b || !b.active || !b.recordId) return;
+    const record = qblockSnapshot(b);
+    if (record) qblockSaveRecord(record);
+  }
+
+  function qblockSystemCounts(questions) {
+    const map = {};
+    (questions || []).forEach(q => {
+      const system = qblockClinicalSpecialtyOf(q);
+      if (!system) return;
+      map[system] = (map[system] || 0) + 1;
+    });
+    return Object.keys(map)
+      .sort((a, b) => a.localeCompare(b))
+      .map(name => ({ kind: "clinical-specialty", name, count: map[name], parent: "" }));
+  }
+
+  function qblockSubTopicCounts(questions) {
+    const map = {};
+    (questions || []).forEach(q => {
+      const subtopic = qblockSubTopicOf(q);
+      if (!subtopic) return;
+      map[subtopic] = (map[subtopic] || 0) + 1;
+    });
+    return Object.keys(map)
+      .sort((a, b) => a.localeCompare(b))
+      .map(name => ({ name, count: map[name] }));
+  }
+
+  function qblockObjectiveCounts(questions) {
+    const map = {};
+    (questions || []).forEach(q => {
+      const objective = qblockObjectiveOf(q);
+      if (!objective) return;
+      map[objective] = (map[objective] || 0) + 1;
+    });
+    return Object.keys(map)
+      .sort((a, b) => a.localeCompare(b))
+      .map(name => ({ name, count: map[name] }));
+  }
+
+  function qblockModeMatch(progress, mode) {
+    const p = progress || {};
+    const answered = p.correct !== undefined;
+    if (mode === "unused") return !answered && !p.omitted;
+    if (mode === "incorrect") return p.correct === false;
+    if (mode === "marked") return !!p.marked;
+    if (mode === "omitted") return !!p.omitted && !answered;
+    if (mode === "correct") return p.correct === true;
+    return false;
+  }
+
+  function qblockMatchesModes(progress, modes) {
+    if (!Array.isArray(modes) || modes.length === 0) return true;
+    return modes.some(mode => qblockModeMatch(progress, mode));
+  }
+
+  function qblockModeLabelList(modes) {
+    return (modes || []).map(mode => QBLOCK_FILTER_MODE_LABELS[mode]).filter(Boolean).join(", ");
+  }
+
+  function qblockRecordModeLabel(record) {
+    if (!record) return "Test";
+    if (record.mode === "tutor") return "Tutor";
+    return record.timeLimitSec ? "Timed" : "Exam";
+  }
+
+  function qblockRecordTitle(record) {
+    const filters = (record && record.filters) || {};
+    const subjects = Array.isArray(filters.subjects) ? filters.subjects : [];
+    const systems = Array.isArray(filters.systems) ? filters.systems : [];
+    const subTopics = Array.isArray(filters.subTopics) ? filters.subTopics : [];
+    if (subjects.length === 1) return subjects[0];
+    if (subjects.length > 1) return subjects[0] + " +" + (subjects.length - 1);
+    if (systems.length === 1) return systems[0];
+    if (systems.length > 1) return systems[0] + " +" + (systems.length - 1);
+    if (subTopics.length === 1) return subTopics[0];
+    if (subTopics.length > 1) return subTopics[0] + " +" + (subTopics.length - 1);
+    return filters.objective ? String(filters.objective).slice(0, 80) : "Mixed test";
+  }
+
+  function qblockRecordWhen(timestamp) {
+    if (!timestamp) return "—";
+    try {
+      const date = new Date(timestamp);
+      return date.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })
+        + " · " + date.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+    } catch (_) {
+      return "—";
+    }
+  }
+
+  function qblockRecordAnswered(record) {
+    if (!record) return 0;
+    if (record.results && record.results.answered !== undefined) return Number(record.results.answered) || 0;
+    const answers = record.answers || {};
+    return (record.questionIds || []).reduce((count, id) => {
+      return count + (Array.isArray(answers[id]) && answers[id].length ? 1 : 0);
+    }, 0);
+  }
+
+  function qblockRecordScore(record) {
+    if (!record || !record.results) return null;
+    return Math.max(0, Math.min(100, Number(record.results.score) || 0));
+  }
+
+  function qblockLatestInProgress() {
+    return qblockReadHistory().find(record => record.status === "in_progress") || null;
+  }
+
+  function qblockCanonicalName(names, value) {
+    const wanted = String(value == null ? "" : value).trim().toLowerCase();
+    if (!wanted) return "";
+    return (names || []).find(name => String(name).trim().toLowerCase() === wanted) || "";
+  }
+
+  function qblockParseCombinedSubject(subject, chapter, topicPath) {
+    let nextSubject = subject || "";
+    let nextChapter = chapter || "";
+    let nextTopic = Array.isArray(topicPath) ? [...topicPath] : [];
+    if (nextSubject && !nextChapter && !nextTopic.length && nextSubject.includes(" - ")) {
+      const pieces = nextSubject.split(" - ");
+      nextSubject = pieces[0] || "";
+      nextChapter = pieces.slice(1).join(" - ");
+    }
+    if (!nextChapter && nextTopic.length > 1) nextChapter = nextTopic[1];
+    return { subject: nextSubject, chapter: nextChapter, topicPath: nextTopic };
+  }
+
+  function qblockShowHomeShell() {
+    if (window.hideAllMainViews) window.hideAllMainViews();
+    const view = document.getElementById("qbank-home-view");
+    if (view) view.style.display = "flex";
+    const modal = document.getElementById("qbank-modal");
+    if (modal) modal.style.display = "none";
+  }
+
+  function qblockConfirmLeaveActive() {
+    const b = window.__qbankBlock;
+    if (!b || !b.active || b.submitted) return true;
+    return window.confirm("Leave this test? Your answers will be saved so you can resume it from Previous tests.");
+  }
+
+  function qblockBuilderData() {
+    const state = window.__qblockBuilderV2;
+    if (!state) return { modeCounts: {}, subjectCounts: {}, systemCounts: {}, subTopicCounts: {}, objectiveCounts: {}, subjectNames: [], systemNames: [], subTopicNames: [], pool: [], available: 0 };
+    const base = qblockActiveQuestions();
+    const progress = qbankProgressMap();
+    const selectedObjective = String(state.objective || "");
+    const selectedSubjects = Array.isArray(state.subjects) ? state.subjects : [];
+    const selectedSystems = Array.isArray(state.systems) ? state.systems : [];
+    const selectedSubTopics = Array.isArray(state.subTopics) ? state.subTopics : [];
+    const selectedModes = Array.isArray(state.modes) ? state.modes : [];
+
+    const byObjective = selectedObjective ? base.filter(q => qblockObjectiveOf(q) === selectedObjective) : base;
+    const bySubject = selectedSubjects.length ? byObjective.filter(q => selectedSubjects.includes(qblockSubjectOf(q))) : byObjective;
+    const bySystem = selectedSystems.length ? byObjective.filter(q => selectedSystems.includes(qblockClinicalSpecialtyOf(q))) : byObjective;
+    const bySubTopic = selectedSubTopics.length ? byObjective.filter(q => selectedSubTopics.includes(qblockSubTopicOf(q))) : byObjective;
+    const byBoth = byObjective.filter(q => {
+      if (selectedSubjects.length && !selectedSubjects.includes(qblockSubjectOf(q))) return false;
+      if (selectedSystems.length && !selectedSystems.includes(qblockClinicalSpecialtyOf(q))) return false;
+      if (selectedSubTopics.length && !selectedSubTopics.includes(qblockSubTopicOf(q))) return false;
+      return true;
+    });
+
+    const modeCounts = {};
+    QBLOCK_FILTER_MODES.forEach(mode => {
+      modeCounts[mode] = byBoth.reduce((count, q) => count + (qblockModeMatch(progress[q.id], mode) ? 1 : 0), 0);
+    });
+
+    const subjectCounts = {};
+    const subjectValid = {};
+    byObjective.forEach(q => subjectValid[qblockSubjectOf(q)] = true);
+    selectedSystems.length || selectedSubTopics.length
+      ? bySubTopic.filter(q => !selectedSystems.length || selectedSystems.includes(qblockClinicalSpecialtyOf(q))).forEach(q => {
+          if (!qblockMatchesModes(progress[q.id], selectedModes)) return;
+          const subject = qblockSubjectOf(q);
+          subjectCounts[subject] = (subjectCounts[subject] || 0) + 1;
+        })
+      : byObjective.forEach(q => {
+          if (!qblockMatchesModes(progress[q.id], selectedModes)) return;
+          const subject = qblockSubjectOf(q);
+          subjectCounts[subject] = (subjectCounts[subject] || 0) + 1;
+        });
+
+    const systemCounts = {};
+    const validSystemCounts = {};
+    bySubject.forEach(q => {
+      if (selectedSubTopics.length && !selectedSubTopics.includes(qblockSubTopicOf(q))) return;
+      const system = qblockClinicalSpecialtyOf(q);
+      validSystemCounts[system] = (validSystemCounts[system] || 0) + 1;
+      if (!qblockMatchesModes(progress[q.id], selectedModes)) return;
+      systemCounts[system] = (systemCounts[system] || 0) + 1;
+    });
+
+    const subTopicCounts = {};
+    const validSubTopicCounts = {};
+    const bySpecialtyScope = bySubject.filter(q => !selectedSystems.length || selectedSystems.includes(qblockClinicalSpecialtyOf(q)));
+    bySpecialtyScope.forEach(q => {
+      const subTopic = qblockSubTopicOf(q);
+      validSubTopicCounts[subTopic] = (validSubTopicCounts[subTopic] || 0) + 1;
+      if (!qblockMatchesModes(progress[q.id], selectedModes)) return;
+      subTopicCounts[subTopic] = (subTopicCounts[subTopic] || 0) + 1;
+    });
+
+    const subjectNames = Object.keys(subjectValid).sort((a, b) => a.localeCompare(b));
+    const systemNames = Object.keys(validSystemCounts).sort((a, b) => a.localeCompare(b));
+    const subTopicNames = Object.keys(validSubTopicCounts).sort((a, b) => a.localeCompare(b));
+
+    let pool = byBoth.filter(q => qblockMatchesModes(progress[q.id], selectedModes));
+    if (Array.isArray(state.topicPath) && state.topicPath.length) {
+      pool = pool.filter(q => qblockTopicMatches(qblockTaxonomyPath(q), state.topicPath));
+    }
+    if (state.tag) {
+      const wantedTag = String(state.tag).trim().toLowerCase();
+      pool = pool.filter(q => qblockTagNames(q).some(name => String(name).trim().toLowerCase() === wantedTag));
+    }
+
+    return { modeCounts, subjectCounts, systemCounts, subTopicCounts, objectiveCounts: qblockObjectiveCounts(base), subjectNames, systemNames, subTopicNames, pool, available: pool.length };
+  }
+
+  function qblockTabsHtml(active) {
+    const count = qblockReadHistory().length;
+    return `<div class="qbt-tabs" role="tablist" aria-label="QBank tests">
+      <button type="button" class="qbt-tab ${active === "builder" ? "is-active" : ""}" role="tab" aria-selected="${active === "builder"}" onclick="window.qbankBlockBuilderTab('builder')">
+        <i data-lucide="layers" aria-hidden="true"></i> Create test
+      </button>
+      <button type="button" class="qbt-tab ${active === "history" ? "is-active" : ""}" role="tab" aria-selected="${active === "history"}" onclick="window.qbankBlockBuilderTab('history')">
+        <i data-lucide="history" aria-hidden="true"></i> Previous tests <span class="qbt-count" id="qbt-history-count">${count}</span>
+      </button>
+    </div>`;
+  }
+
+  function qblockBuilderSourceOptions(state) {
+    const sources = qblockSourceBanks();
+    const main = [...sources.main];
+    if (state && state.bankId && !main.some(bank => bank.id === state.bankId) && !sources.prep.some(bank => bank.id === state.bankId)) {
+      main.unshift({ id: state.bankId, name: qblockBankName() });
+    }
+    return [
+      main.length ? `<optgroup label="Regular QBanks">${main.map(bank => `<option value="${cqEsc(bank.id)}" ${bank.id === state.bankId ? "selected" : ""}>${cqEsc(bank.name || bank.id)}</option>`).join("")}</optgroup>` : "",
+      sources.prep.length ? `<optgroup label="Exam prep">${sources.prep.map(bank => `<option value="${cqEsc(bank.id)}" ${bank.id === state.bankId ? "selected" : ""}>${cqEsc(qblockSourceBankLabel(bank))}</option>`).join("")}</optgroup>` : "",
+    ].join("");
+  }
+
+  function qblockRenderBuilder() {
+    const state = window.__qblockBuilderV2;
+    const area = document.getElementById("qbank-home-content");
+    if (!state || !area) return;
+    window.setQBankNav && window.setQBankNav("blocks");
+
+    const base = qblockActiveQuestions();
+    const objectiveOptions = qblockObjectiveCounts(base);
+    const selectedObjective = String(state.objective || "");
+    const objectiveQuestions = selectedObjective ? base.filter(q => qblockObjectiveOf(q) === selectedObjective) : base;
+    const selectedSubjects = Array.isArray(state.subjects) ? state.subjects : [];
+    const bySubject = selectedSubjects.length ? objectiveQuestions.filter(q => selectedSubjects.includes(qblockSubjectOf(q))) : objectiveQuestions;
+    const selectedSubTopics = Array.isArray(state.subTopics) ? state.subTopics : [];
+    const systemScope = bySubject.filter(q => !selectedSubTopics.length || selectedSubTopics.includes(qblockSubTopicOf(q)));
+    const systems = qblockSystemCounts(systemScope);
+    const selectedSystems = Array.isArray(state.systems) ? state.systems : [];
+    const subTopicScope = bySubject.filter(q => !selectedSystems.length || selectedSystems.includes(qblockClinicalSpecialtyOf(q)));
+    const subTopics = qblockSubTopicCounts(subTopicScope);
+    const subjects = qblockSubjectCounts(objectiveQuestions);
+    const sourceMeta = (cachedCategories || []).find(bank => bank.id === state.bankId) || {};
+    const isPrep = sourceMeta.kind === "exam_prep";
+    const modeDescription = state.mode === "tutor"
+      ? "Answers and explanations appear as you go. No clock."
+      : `${QBLOCK_SECONDS_PER_QUESTION} seconds per question. Answers stay hidden until you submit.`;
+
+    const optionHtml = `<option value="">All educational objectives</option>${objectiveOptions.map(option => `<option value="${cqEsc(option.name)}" ${option.name === selectedObjective ? "selected" : ""}>${cqEsc(option.name)} · ${option.count}</option>`).join("")}`;
+    const objectiveNote = selectedObjective
+      ? `<span class="qbc-source-meta">Objective: ${cqEsc(selectedObjective)}</span>`
+      : `<span class="qbc-source-meta">All objectives</span>`;
+
+    const modeCards = QBLOCK_FILTER_MODES.map(mode => `
+      <label class="qbc-mode-card ${state.modes.includes(mode) ? "is-on" : ""}" data-mode="${mode}">
+        <input type="checkbox" ${state.modes.includes(mode) ? "checked" : ""} onchange="window.qbcToggleMode('${mode}', this.checked)">
+        <span class="qbc-box" aria-hidden="true"></span>
+        <span class="qbc-mode-name">${QBLOCK_FILTER_MODE_LABELS[mode]}</span>
+        <span class="qbc-mode-count" data-mode-count="${mode}">0</span>
+      </label>`).join("");
+
+    const rowFor = (value, attrs, count) => `<label class="qbc-check ${state[attrs.stateKey] && state[attrs.stateKey].includes(value.name) ? "is-on" : ""}" ${attrs.data}="${cqEsc(value.name)}" title="${cqEsc(value.name)}">
+        <input type="checkbox" ${state[attrs.stateKey] && state[attrs.stateKey].includes(value.name) ? "checked" : ""} onchange="${attrs.toggle}(this)">
+        <span class="qbc-box" aria-hidden="true"></span>
+        <span class="qbc-check-label" title="${cqEsc(value.name)}">${cqEsc(value.name)}</span>
+        <span class="qbc-check-count" ${attrs.countAttr}="${cqEsc(value.name)}">${value.count}</span>
+      </label>`;
+
+    const subjectRows = subjects.map(subject => rowFor(subject, { data: "data-subject", stateKey: "subjects", toggle: "window.qbcToggleSubject", countAttr: "data-subject-count" })).join("") || `<p class="qbc-empty-inline">No organ systems match this objective.</p>`;
+    const systemRows = systems.map(system => rowFor(system, { data: "data-system", stateKey: "systems", toggle: "window.qbcToggleSystem", countAttr: "data-system-count" })).join("") || `<p class="qbc-empty-inline">No clinical specialties match these filters.</p>`;
+    const subTopicRows = subTopics.map(subtopic => rowFor(subtopic, { data: "data-subtopic", stateKey: "subTopics", toggle: "window.qbcToggleSubTopic", countAttr: "data-subtopic-count" })).join("") || `<p class="qbc-empty-inline">No sub-topics match these filters.</p>`;
+
+    const presetChips = [
+      state.topicPath && state.topicPath.length ? `<span class="qbc-filter-chip">Topic path: ${cqEsc(state.topicPath.join(" > "))} <button type="button" aria-label="Clear topic filter" onclick="window.qbcClearPreset('topic')">Ã—</button></span>` : "",
+      state.tag ? `<span class="qbc-filter-chip">Tag: ${cqEsc(state.tag)} <button type="button" aria-label="Clear tag filter" onclick="window.qbcClearPreset('tag')">Ã—</button></span>` : "",
+    ].filter(Boolean).join("");
+
+    area.innerHTML = `
+      <div class="qbc-page">
+        <div class="qbc-top">
+          <button type="button" class="qbc-back" onclick="window.openQBank()"><i data-lucide="arrow-left" aria-hidden="true"></i> Back to home</button>
+          <span class="qbc-kicker">${isPrep ? "Past-exam tests" : "QBank tests"}</span>
+        </div>
+        <div class="qbc-heading">
+          <div>
+            <h1 class="qbc-title">Create test</h1>
+            <p class="qbc-sub">Choose a test mode and a path from ${cqEsc(sourceMeta.name || qblockBankName())}.</p>
+          </div>
+          <div class="qbc-source-row">
+            <label class="qbc-source-field" for="qbc-source">
+              <span>Question bank</span>
+              <select id="qbc-source" class="qbc-source-select" onchange="window.qbcSourceChange(this.value)">
+                ${qblockBuilderSourceOptions(state)}
+              </select>
+            </label>
+          </div>
+        </div>
+        ${qblockTabsHtml("builder")}
+        <div class="qbc-panel">
+          <section class="qbc-row">
+            <div class="qbc-row-head">
+              <h2>Test Mode</h2>
+              <p class="qbc-row-help">Choose how this test behaves.</p>
+            </div>
+            <div class="qbc-row-body">
+              <div class="qbc-mode-seg" role="group" aria-label="Test mode">
+                <button type="button" class="qbc-mode-btn ${state.mode === "tutor" ? "is-on" : ""}" data-mode="tutor" onclick="window.qbcSetMode('tutor')"><i data-lucide="lightbulb" aria-hidden="true"></i> Tutor</button>
+                <button type="button" class="qbc-mode-btn ${state.mode === "exam" ? "is-on" : ""}" data-mode="exam" onclick="window.qbcSetMode('exam')"><i data-lucide="clock" aria-hidden="true"></i> Timed</button>
+              </div>
+              <p class="qbc-hint" id="qbc-mode-hint">${modeDescription}</p>
+            </div>
+          </section>
+
+          <section class="qbc-row">
+            <div class="qbc-row-head">
+              <h2>Question Mode</h2>
+              <p class="qbc-row-help">Pick one or more states. Counts follow the objective and taxonomy filters.</p>
+            </div>
+            <div class="qbc-row-body">
+              <div class="qbc-mode-list" id="qbc-modes">${modeCards}</div>
+              <p class="qbc-hint">Unused questions have not been answered or omitted. Selecting no mode includes the whole pool.</p>
+            </div>
+          </section>
+
+          <section class="qbc-row">
+            <div class="qbc-row-head">
+              <h2>Educational Objective</h2>
+              <p class="qbc-row-help">Optional scope. Objective → Organ System → Clinical Specialty → Sub-topic / Disease.</p>
+            </div>
+            <div class="qbc-row-body">
+              <select id="qbc-objective" class="qbc-objective-select" aria-label="Educational objective" onchange="window.qbcObjectiveChange(this.value)">
+                ${optionHtml}
+              </select>
+              <div class="qbc-objective-meta" id="qbc-objective-meta">${objectiveNote}</div>
+            </div>
+          </section>
+
+          <section class="qbc-row">
+            <div class="qbc-row-head">
+              <h2>Organ Systems</h2>
+              <p class="qbc-row-help">Leave everything unchecked for a mixed test.</p>
+            </div>
+            <div class="qbc-row-body">
+              <div class="qbc-row-tools">
+                <button type="button" class="qbc-tool" onclick="window.qbcAllSubjects()">Select all</button>
+                <button type="button" class="qbc-tool" onclick="window.qbcClearSubjects()">Clear</button>
+              </div>
+              <div class="qbc-check-grid" id="qbc-subjects">${subjectRows}</div>
+            </div>
+          </section>
+
+          <section class="qbc-row">
+            <div class="qbc-row-head">
+              <h2>Clinical Specialties</h2>
+              <p class="qbc-row-help">Specialties inside the selected organ systems.</p>
+            </div>
+            <div class="qbc-row-body">
+              <div class="qbc-row-tools">
+                <input class="qbc-filter-input" id="qbc-clinical-filter" type="search" placeholder="Filter clinical specialties..." aria-label="Filter clinical specialties" oninput="window.qbcFilterList('system', this.value)">
+                <span class="qbc-source-meta" id="qbc-system-selected">${state.systems.length ? `${state.systems.length} selected` : "All systems"}</span>
+                <button type="button" class="qbc-tool" onclick="window.qbcAllSystems()">Select all</button>
+                <button type="button" class="qbc-tool" onclick="window.qbcClearSystems()">Clear</button>
+              </div>
+              <div class="qbc-systems qbc-clickable-grid" id="qbc-systems">${systemRows}</div>
+            </div>
+          </section>
+
+          <section class="qbc-row">
+            <div class="qbc-row-head">
+              <h2>Sub-topics / Diseases</h2>
+              <p class="qbc-row-help">Optional diseases and leaf-level topics.</p>
+            </div>
+            <div class="qbc-row-body">
+              <div class="qbc-row-tools">
+                <input class="qbc-filter-input" id="qbc-subtopic-filter" type="search" placeholder="Filter sub-topics / diseases..." aria-label="Filter sub-topics and diseases" oninput="window.qbcFilterList('subtopic', this.value)">
+                <span class="qbc-source-meta" id="qbc-subtopic-selected">${state.subTopics.length ? `${state.subTopics.length} selected` : "All sub-topics"}</span>
+                <button type="button" class="qbc-tool" onclick="window.qbcClearSubTopics()">Clear</button>
+              </div>
+              <div class="qbc-systems qbc-subtopic-grid" id="qbc-subtopics">${subTopicRows}</div>
+            </div>
+          </section>
+
+          <section class="qbc-row">
+            <div class="qbc-row-head">
+              <h2>No. of Questions</h2>
+              <p class="qbc-row-help">Maximum ${QBLOCK_MAX_QUESTIONS} questions per test.</p>
+            </div>
+            <div class="qbc-row-body">
+              <div class="qbc-count-line">
+                <input id="qbc-count" class="qbc-count-input" type="number" inputmode="numeric" min="1" max="${QBLOCK_MAX_QUESTIONS}" value="${state.count}" oninput="window.qbcCountInput(this)" onblur="window.qbcSync()" aria-label="Number of questions">
+                <span class="qbc-count-note">Maximum <b>${QBLOCK_MAX_QUESTIONS}</b> per test</span>
+              </div>
+              <p class="qbc-available" id="qbc-available"></p>
+              ${presetChips ? `<div class="qbc-activefilters" id="qbc-preset-filters"><span>Topic path</span>${presetChips}</div>` : ""}
+            </div>
+          </section>
+
+          <div class="qbc-actionbar">
+            <div class="qbc-summary">
+              <b id="qbc-summary">—</b>
+              <span id="qbc-summary-detail"></span>
+            </div>
+            <button type="button" class="qbc-generate" id="qbc-generate" onclick="window.qbcGenerate()">
+              <i data-lucide="play" aria-hidden="true"></i> <span id="qbc-generate-label">Generate test</span>
+            </button>
+          </div>
+        </div>
+        <p class="qbc-foot">Your test is saved automatically. Resume it from Previous tests any time.</p>
+      </div>`;
+    if (window.lucide && window.lucide.createIcons) window.lucide.createIcons();
+    window.qbcSync();
+  }
+
+  function qblockPruneBuilderFilters(state) {
+    if (!state) return;
+    const base = qblockActiveQuestions();
+    const objective = String(state.objective || "");
+    const byObjective = objective ? base.filter(q => qblockObjectiveOf(q) === objective) : base;
+    const subjectSet = new Set(byObjective.map(qblockSubjectOf));
+    state.subjects = (Array.isArray(state.subjects) ? state.subjects : []).filter(name => subjectSet.has(name));
+
+    const bySubject = state.subjects.length ? byObjective.filter(q => state.subjects.includes(qblockSubjectOf(q))) : byObjective;
+    const systemSet = new Set(bySubject.map(qblockClinicalSpecialtyOf));
+    state.systems = (Array.isArray(state.systems) ? state.systems : []).filter(name => systemSet.has(name));
+
+    const bySystem = state.systems.length ? bySubject.filter(q => state.systems.includes(qblockClinicalSpecialtyOf(q))) : bySubject;
+    const subTopicSet = new Set(bySystem.map(qblockSubTopicOf));
+    state.subTopics = (Array.isArray(state.subTopics) ? state.subTopics : []).filter(name => subTopicSet.has(name));
+  }
+
+  window.qbcObjectiveChange = function(value) {
+    const state = window.__qblockBuilderV2;
+    if (!state) return;
+    state.objective = String(value || "");
+    qblockPruneBuilderFilters(state);
+    window.qbcSync();
+  };
+
+  window.qbcFilterList = function(kind, value) {
+    const wanted = String(value || "").toLowerCase().replace(/\s+/g, " ").trim();
+    const selector = kind === "subtopic" ? ".qbc-check[data-subtopic]" : ".qbc-check[data-system]";
+    document.querySelectorAll(selector).forEach(row => {
+      row.style.display = !wanted || String(row.dataset[kind === "subtopic" ? "subtopic" : "system"] || "").toLowerCase().includes(wanted) ? "" : "none";
+    });
+  };
+
+  window.qbcSync = function(skipInputs) {
+    const state = window.__qblockBuilderV2;
+    if (!state) return;
+    const data = qblockBuilderData();
+    const available = data.available;
+
+    const objectiveSelect = document.getElementById("qbc-objective");
+    if (objectiveSelect) objectiveSelect.value = String(state.objective || "");
+    const objectiveMeta = document.getElementById("qbc-objective-meta");
+    if (objectiveMeta) {
+      objectiveMeta.innerHTML = state.objective
+        ? `<span class="qbc-source-meta">Objective: ${cqEsc(state.objective)}</span>`
+        : `<span class="qbc-source-meta">All objectives</span>`;
+    }
+
+    document.querySelectorAll(".qbc-mode-btn[data-mode]").forEach(button => {
+      button.classList.toggle("is-on", button.dataset.mode === state.mode);
+      button.setAttribute("aria-pressed", button.dataset.mode === state.mode ? "true" : "false");
+    });
+    document.querySelectorAll(".qbc-mode-card[data-mode]").forEach(card => {
+      const mode = card.dataset.mode;
+      const on = state.modes.includes(mode);
+      card.classList.toggle("is-on", on);
+      card.classList.toggle("is-disabled", (data.modeCounts[mode] || 0) === 0);
+      const input = card.querySelector("input");
+      if (input) {
+        input.checked = on;
+        input.disabled = (data.modeCounts[mode] || 0) === 0 && !on;
+      }
+      const count = card.querySelector(".qbc-mode-count");
+      if (count) count.textContent = String(data.modeCounts[mode] || 0);
+    });
+
+    const setRows = (selector, countMap, enabledNames, stateList, countAttr) => {
+      document.querySelectorAll(selector).forEach(row => {
+        const name = row.dataset[selector === ".qbc-check[data-subject]" ? "subject" : selector === ".qbc-check[data-system]" ? "system" : "subtopic"];
+        const count = countMap[name] || 0;
+        const visible = enabledNames.includes(name);
+        row.style.display = visible ? "" : "none";
+        const on = stateList.includes(name);
+        row.classList.toggle("is-on", on);
+        row.classList.toggle("is-empty", count === 0);
+        const input = row.querySelector("input");
+        if (input) {
+          input.checked = on;
+          input.disabled = count === 0 && !on;
+        }
+        const countEl = row.querySelector("[" + countAttr + "]");
+        if (countEl) countEl.textContent = String(count);
+      });
+    };
+    setRows(".qbc-check[data-subject]", data.subjectCounts, data.subjectNames || [], state.subjects || [], "data-subject-count");
+    setRows(".qbc-check[data-system]", data.systemCounts, data.systemNames || [], state.systems || [], "data-system-count");
+    setRows(".qbc-check[data-subtopic]", data.subTopicCounts, data.subTopicNames || [], state.subTopics || [], "data-subtopic-count");
+
+    const systemSelected = document.getElementById("qbc-system-selected");
+    if (systemSelected) {
+      systemSelected.textContent = state.systems.length
+        ? `${state.systems.length} clinical ${state.systems.length === 1 ? "specialty" : "specialties"} selected`
+        : "All specialties";
+    }
+    const subTopicSelected = document.getElementById("qbc-subtopic-selected");
+    if (subTopicSelected) {
+      subTopicSelected.textContent = state.subTopics.length
+        ? `${state.subTopics.length} sub-topic${state.subTopics.length === 1 ? "" : "s"} selected`
+        : "All sub-topics";
+    }
+
+    const summary = document.getElementById("qbc-summary");
+    const detail = document.getElementById("qbc-summary-detail");
+    const availableEl = document.getElementById("qbc-available");
+    const countInput = document.getElementById("qbc-count");
+    const count = Math.max(1, Math.min(QBLOCK_MAX_QUESTIONS, Number(state.count) || QBLOCK_MAX_QUESTIONS));
+    if (availableEl) availableEl.textContent = `${available.toLocaleString()} question${available === 1 ? "" : "s"} match these filters.`;
+    if (summary) summary.textContent = `${Math.min(count, available || count)} question${Math.min(count, available || count) === 1 ? "" : "s"} · ${state.mode === "tutor" ? "Tutor" : "Timed"}`;
+    if (detail) {
+      const bits = [];
+      bits.push(state.modes.length ? QBLOCK_FILTER_MODES.filter(mode => state.modes.includes(mode)).map(mode => QBLOCK_FILTER_MODE_LABELS[mode]).join(", ") : "All questions");
+      if (state.objective) bits.push(`Objective`);
+      if (state.subjects.length) bits.push(state.subjects.length === 1 ? state.subjects[0] : `${state.subjects[0]} +${state.subjects.length - 1}`);
+      else bits.push("All organ systems");
+      if (state.systems.length) bits.push(state.systems.length === 1 ? state.systems[0] : `${state.systems[0]} +${state.systems.length - 1}`);
+      else bits.push("All clinical specialties");
+      if (state.subTopics.length) bits.push(state.subTopics.length === 1 ? state.subTopics[0] : `${state.subTopics[0]} +${state.subTopics.length - 1}`);
+      if (state.mode === "exam") bits.push(`${Math.ceil((Number(state.blockTimeSec) || QBLOCK_SECONDS_PER_QUESTION * count) / 60)} min`);
+      detail.textContent = bits.join(" · ");
+    }
+    if (countInput) countInput.value = String(count);
+    const generate = document.getElementById("qbc-generate");
+    if (generate) generate.disabled = available <= 0;
+  };
+
+  window.qbcSetMode = function(mode) {
+    const state = window.__qblockBuilderV2;
+    if (!state || !["tutor", "exam"].includes(mode)) return;
+    state.mode = mode;
+    window.qbcSync();
+  };
+
+  window.qbcToggleMode = function(mode, checked) {
+    const state = window.__qblockBuilderV2;
+    if (!state || !QBLOCK_FILTER_MODES.includes(mode)) return;
+    const has = state.modes.includes(mode);
+    if (checked && !has) state.modes = [...state.modes, mode];
+    if (!checked && has) state.modes = state.modes.filter(item => item !== mode);
+    window.qbcSync();
+  };
+
+  window.qbcToggleSubject = function(input) {
+    const state = window.__qblockBuilderV2;
+    if (!state || !input) return;
+    const row = input.closest("[data-subject]");
+    const name = row ? row.dataset.subject : "";
+    if (!name) return;
+    if (input.checked) {
+      if (!state.subjects.includes(name)) state.subjects = [...state.subjects, name];
+    } else {
+      state.subjects = state.subjects.filter(item => item !== name);
+    }
+    qblockPruneBuilderFilters(state);
+    window.qbcSync();
+  };
+
+  window.qbcAllSubjects = function() {
+    const state = window.__qblockBuilderV2;
+    if (!state) return;
+    const base = qblockActiveQuestions();
+    const objective = String(state.objective || "");
+    const scoped = objective ? base.filter(q => qblockObjectiveOf(q) === objective) : base;
+    state.subjects = qblockSubjectCounts(scoped).map(subject => subject.name);
+    qblockPruneBuilderFilters(state);
+    window.qbcSync();
+  };
+
+  window.qbcClearSubjects = function() {
+    const state = window.__qblockBuilderV2;
+    if (!state) return;
+    state.subjects = [];
+    qblockPruneBuilderFilters(state);
+    window.qbcSync();
+  };
+
+  window.qbcToggleSystem = function(input) {
+    const state = window.__qblockBuilderV2;
+    if (!state || !input) return;
+    const row = input.closest("[data-system]");
+    const name = row ? row.dataset.system : "";
+    if (!name) return;
+    if (input.checked) {
+      if (!state.systems.includes(name)) state.systems = [...state.systems, name];
+    } else {
+      state.systems = state.systems.filter(item => item !== name);
+    }
+    qblockPruneBuilderFilters(state);
+    window.qbcSync();
+  };
+
+  window.qbcAllSystems = function() {
+    const state = window.__qblockBuilderV2;
+    if (!state) return;
+    const base = qblockActiveQuestions();
+    const objective = String(state.objective || "");
+    const scoped = objective ? base.filter(q => qblockObjectiveOf(q) === objective) : base;
+    const bySubject = state.subjects.length ? scoped.filter(q => state.subjects.includes(qblockSubjectOf(q))) : scoped;
+    state.systems = qblockSystemCounts(bySubject).map(system => system.name);
+    qblockPruneBuilderFilters(state);
+    window.qbcSync();
+  };
+
+  window.qbcClearSystems = function() {
+    const state = window.__qblockBuilderV2;
+    if (!state) return;
+    state.systems = [];
+    qblockPruneBuilderFilters(state);
+    window.qbcSync();
+  };
+
+  window.qbcToggleSubTopic = function(input) {
+    const state = window.__qblockBuilderV2;
+    if (!state || !input) return;
+    const row = input.closest("[data-subtopic]");
+    const name = row ? row.dataset.subtopic : "";
+    if (!name) return;
+    if (input.checked) {
+      if (!state.subTopics.includes(name)) state.subTopics = [...state.subTopics, name];
+    } else {
+      state.subTopics = state.subTopics.filter(item => item !== name);
+    }
+    window.qbcSync();
+  };
+
+  window.qbcClearSubTopics = function() {
+    const state = window.__qblockBuilderV2;
+    if (!state) return;
+    state.subTopics = [];
+    window.qbcSync();
+  };
+
+
+  window.qbcCountInput = function(input) {
+    const state = window.__qblockBuilderV2;
+    if (!state || !input) return;
+    const raw = String(input.value || "").replace(/[^\d]/g, "");
+    if (raw !== input.value) input.value = raw;
+    const parsed = parseInt(raw, 10);
+    if (Number.isFinite(parsed)) state.count = Math.max(1, Math.min(QBLOCK_MAX_QUESTIONS, parsed));
+    window.qbcSync(true);
+  };
+
+  window.qbcClearPreset = function(kind) {
+    const state = window.__qblockBuilderV2;
+    if (!state) return;
+    if (kind === "topic") state.topicPath = [];
+    if (kind === "tag") state.tag = "";
+    qblockRenderBuilder();
+  };
+
+  function qblockBuilderPath(path) {
+    if (!Array.isArray(path) || !path.length) return [];
+    const cleaned = path.map(qblockTaxonomyClean).filter(Boolean);
+    return cleaned.length === 3 ? ["General educational objective", ...cleaned] : cleaned.slice(0, 4);
+  }
+
+  window.qbcChooseObjective = function(objective) {
+    const state = window.__qblockBuilderV2;
+    if (!state) return;
+    state.objective = objective || "";
+    qblockPruneBuilderFilters(state);
+    window.qbcSync();
+  };
+
+  window.qbcSourceChange = function(bankId) {
+    if (!bankId) return;
+    const state = window.__qblockBuilderV2;
+    return qblockOpenBuilderScreen({
+      bankId,
+      mode: state ? state.mode : "exam",
+      modes: state ? state.modes : ["unused"],
+      objective: state ? state.objective : "",
+      subjects: state ? [...state.subjects] : [],
+      systems: state ? [...state.systems] : [],
+      subTopics: state ? [...state.subTopics] : [],
+      count: state ? state.count : QBLOCK_MAX_QUESTIONS,
+    });
+  };
+
+  window.qbcGenerate = function() {
+    const state = window.__qblockBuilderV2;
+    if (!state) return;
+    const data = qblockBuilderData();
+    if (!data.pool.length) {
+      if (window.qbankToast) window.qbankToast("No questions match these filters.", true);
+      return;
+    }
+    const count = Math.max(1, Math.min(state.count, QBLOCK_MAX_QUESTIONS, data.pool.length));
+    const questions = qblockShuffle(data.pool).slice(0, count);
+    const timeLimitSec = state.mode === "exam" ? count * QBLOCK_SECONDS_PER_QUESTION : null;
+    window.qbankStartBlock({
+      bankId: state.bankId,
+      bankName: qblockBankName(),
+      mode: state.mode,
+      questions,
+      timeLimitSec,
+      filters: {
+        subjects: [...state.subjects],
+        systems: [...state.systems],
+        subTopics: [...(state.subTopics || [])],
+        objective: state.objective || "",
+        modes: [...state.modes],
+        topicPath: Array.isArray(state.topicPath) ? [...state.topicPath] : [],
+        tag: state.tag || "",
+        random: true,
+        requestedCount: count,
+      },
+    });
+  };
+
+  async function qblockOpenBuilderScreen(opts = {}) {
+    qblockEnsureStyles();
+    const area = document.getElementById("qbank-home-content");
+    if (!area) return;
+    if (!qblockConfirmLeaveActive()) return;
+    if (window.__qbankBlock && window.__qbankBlock.active) qblockCleanup();
+    qblockShowHomeShell();
+
+    if (opts.tab === "history") {
+      window.setQBankNav && window.setQBankNav("past-blocks");
+      qblockRenderHistory();
+      return;
+    }
+
+    let bankId = opts.bankId || currentQBankId || (window.db && window.db.selectedQBankId);
+    if (opts.pickExamPrep && !opts.bankId) {
+      const sources = qblockSourceBanks();
+      const saved = window.cqGetSavedCollege ? window.cqGetSavedCollege() : null;
+      const preferred = saved
+        ? sources.prep.filter(bank => (bank.country || "global") === saved.country && (bank.college || "General") === saved.college)
+        : [];
+      bankId = (preferred[0] || sources.prep[0] || {}).id || "";
+      if (!bankId) {
+        if (window.qbankToast) window.qbankToast("No exam-prep banks are available yet.", true);
+        return;
+      }
+    }
+    if (!bankId) {
+      try { await window.bootstrapAccess(true); } catch (_) {}
+      bankId = currentQBankId || (window.db && window.db.selectedQBankId);
+    }
+    if (!bankId) {
+      if (window.qbankToast) window.qbankToast("Choose a QBank before creating a test.", true);
+      return;
+    }
+
+    window.setQBankNav && window.setQBankNav("blocks");
+    area.innerHTML = `<div class="qbc-page"><div class="qbc-panel"><div class="qbc-loading">Loading your test builder…</div></div></div>`;
+    try {
+      await qblockLoadBankQuestions(bankId);
+    } catch (error) {
+      area.innerHTML = `<div class="qbc-page"><div class="qbc-panel qbc-error">
+        <h2>Could not load this bank</h2>
+        <p>${cqEsc((error && error.message) || "Please try again.")}</p>
+        <button type="button" class="qbc-back" onclick="window.qbankOpenBlockBuilder()">Try again</button>
+      </div></div>`;
+      if (window.lucide && window.lucide.createIcons) window.lucide.createIcons();
+      return;
+    }
+
+    currentQBankId = bankId;
+    const entry = cachedQBanks[bankId] || {};
+    allQuestions = Array.isArray(entry.questions) ? entry.questions : [];
+    if (entry.progress) window.qbankProgress = entry.progress;
+    const nameEl = document.getElementById("qbank-active-name");
+    const meta = (cachedCategories || []).find(bank => bank.id === bankId);
+    if (nameEl && meta && meta.name) nameEl.textContent = meta.name;
+
+    const baseQuestions = qblockActiveQuestions();
+    const allObjectiveNames = qblockObjectiveCounts(baseQuestions).map(item => item.name);
+    const subjectNames = qblockSubjectCounts(baseQuestions).map(subject => subject.name);
+    const systemNames = qblockSystemCounts(baseQuestions).map(system => system.name);
+    const subTopicNames = qblockSubTopicCounts(baseQuestions).map(subtopic => subtopic.name);
+    const path = qblockBuilderPath(opts.topicPath || []);
+
+    let objective = String(
+      opts.objective !== undefined
+        ? opts.objective
+        : (path.length ? path[0] : "")
+    ).trim();
+    const canonicalObjective = qblockCanonicalName(allObjectiveNames, objective);
+    if (canonicalObjective) objective = canonicalObjective;
+
+    let subjects = Array.isArray(opts.subjects) ? [...opts.subjects] : [];
+    if (!subjects.length && path.length > 1) subjects = [path[1]];
+    if (opts.subject) subjects.push(opts.subject);
+    const canonicalSubject = path.length > 1 ? qblockCanonicalName(subjectNames, path[1]) : qblockCanonicalName(subjectNames, opts.organSystem || opts.chapter || "");
+    subjects = subjects.map(name => {
+      const canonical = qblockCanonicalName(subjectNames, name);
+      return canonical || String(name || "").trim();
+    }).filter(Boolean);
+
+    let systems = Array.isArray(opts.systems) ? [...opts.systems] : [];
+    if (!systems.length && path.length > 2) systems = [path[2]];
+    if (opts.system) systems.push(opts.system);
+    systems = systems.map(name => {
+      const canonical = qblockCanonicalName(systemNames, name);
+      return canonical || String(name || "").trim();
+    }).filter(Boolean);
+
+    let subTopics = Array.isArray(opts.subTopics) ? [...opts.subTopics] : [];
+    if (!subTopics.length && path.length > 3) subTopics = [path[3]];
+    if (opts.subTopic) subTopics.push(opts.subTopic);
+    subTopics = subTopics.map(name => {
+      const canonical = qblockCanonicalName(subTopicNames, name);
+      return canonical || String(name || "").trim();
+    }).filter(Boolean);
+
+    let modes = Array.isArray(opts.modes) ? opts.modes.filter(mode => QBLOCK_FILTER_MODES.includes(mode)) : [];
+    if (!modes.length && opts.reviewIncorrectsOnly) modes = ["incorrect", "marked"];
+    if (!modes.length) modes = ["unused"];
+
+    const total = qblockActiveQuestions().length;
+    const count = Math.max(1, Math.min(QBLOCK_MAX_QUESTIONS, parseInt(opts.count, 10) || Math.min(QBLOCK_MAX_QUESTIONS, total || QBLOCK_MAX_QUESTIONS)));
+    window.__qblockBuilderV2 = {
+      bankId,
+      mode: opts.mode === "tutor" ? "tutor" : "exam",
+      count,
+      modes,
+      objective,
+      subjects,
+      systems,
+      subTopics,
+      topicPath: [],
+      tag: opts.tag || "",
+      expandedSystems: false,
+    };
+    qblockRenderBuilder();
+  }
+
+  function qblockHistoryCard(record) {
+    const total = Number(record.questionCount) || (Array.isArray(record.questionIds) ? record.questionIds.length : 0);
+    const answered = qblockRecordAnswered(record);
+    const completed = record.status === "completed";
+    const score = qblockRecordScore(record);
+    const tone = !completed ? "is-progress" : score >= 80 ? "" : score >= 60 ? "is-mid" : "is-low";
+    const statusPill = completed
+      ? `<span class="qbh-pill is-complete">Completed</span>`
+      : `<span class="qbh-pill is-progress">In progress</span>`;
+    const scoreMarkup = completed
+      ? `<b>${score}%</b><small>score</small>`
+      : `<b>${answered}/${total}</b><small>done</small>`;
+    const progressPct = total ? Math.max(0, Math.min(100, Math.round((answered / total) * 100))) : 0;
+    const filters = record.filters || {};
+    const subjectLabel = Array.isArray(filters.subjects) && filters.subjects.length
+      ? (filters.subjects.length === 1 ? filters.subjects[0] : `${filters.subjects[0]} +${filters.subjects.length - 1}`)
+      : "All organ systems";
+    const systemLabel = Array.isArray(filters.systems) && filters.systems.length
+      ? (filters.systems.length === 1 ? filters.systems[0] : `${filters.systems[0]} +${filters.systems.length - 1}`)
+      : "All clinical specialties";
+    const subTopicLabel = Array.isArray(filters.subTopics) && filters.subTopics.length
+      ? (filters.subTopics.length === 1 ? filters.subTopics[0] : `${filters.subTopics[0]} +${filters.subTopics.length - 1}`)
+      : "";
+    const objectiveLabel = filters.objective ? String(filters.objective).slice(0, 120) : "";
+    const modesLabel = qblockModeLabelList(filters.modes) || "All questions";
+    const actions = completed
+      ? `<button type="button" class="qbh-btn primary" onclick="window.qbankBlockHistoryAction('review','${cqJsArg(record.id)}')"><i data-lucide="book-open" aria-hidden="true"></i> Review</button>
+         <button type="button" class="qbh-btn" onclick="window.qbankBlockHistoryAction('retake','${cqJsArg(record.id)}')"><i data-lucide="rotate-ccw" aria-hidden="true"></i> Retake</button>
+         <button type="button" class="qbh-btn danger" onclick="window.qbankBlockHistoryAction('delete','${cqJsArg(record.id)}')"><i data-lucide="trash-2" aria-hidden="true"></i> Delete</button>`
+      : `<button type="button" class="qbh-btn primary" onclick="window.qbankBlockHistoryAction('resume','${cqJsArg(record.id)}')"><i data-lucide="play" aria-hidden="true"></i> Resume</button>
+         <button type="button" class="qbh-btn danger" onclick="window.qbankBlockHistoryAction('delete','${cqJsArg(record.id)}')"><i data-lucide="trash-2" aria-hidden="true"></i> Delete</button>`;
+    return `<article class="qbh-card">
+      <div class="qbh-score ${tone}">${scoreMarkup}</div>
+      <div class="qbh-main">
+        <div class="qbh-title-row">
+          <h2>${cqEsc(qblockRecordTitle(record))}</h2>
+          ${statusPill}
+          <span class="qbh-pill">${qblockRecordModeLabel(record)}</span>
+        </div>
+        <div class="qbh-meta">
+          <span><b>${total}</b> questions</span><span class="qbh-meta-sep">·</span>
+          <span>${cqEsc(subjectLabel)}</span><span class="qbh-meta-sep">·</span>
+          <span>${cqEsc(systemLabel)}</span>
+          ${subTopicLabel ? `<span class="qbh-meta-sep">·</span><span>${cqEsc(subTopicLabel)}</span>` : ""}
+          <span class="qbh-meta-sep">·</span>
+          <span>${cqEsc(modesLabel)}</span>
+        </div>
+        ${objectiveLabel ? `<div class="qbh-meta" style="margin-top:3px;"><span>${cqEsc(objectiveLabel)}</span></div>` : ""}
+        <div class="qbh-meta" style="margin-top:3px;">
+          <span>${qblockRecordWhen(record.completedAt || record.updatedAt || record.startedAt)}</span>
+          <span class="qbh-meta-sep">·</span>
+          <span>${cqEsc(record.bankName || "QBank")}</span>
+          ${record.timeLimitSec ? `<span class="qbh-meta-sep">·</span><span>${Math.round(record.timeLimitSec / 60)} min limit</span>` : ""}
+        </div>
+        ${completed ? "" : `<div class="qbh-progress" aria-hidden="true"><span style="width:${progressPct}%"></span></div>`}
+      </div>
+      <div class="qbh-actions">${actions}</div>
+    </article>`;
+  }
+
+  function qblockRenderHistory() {
+    qblockEnsureStyles();
+    const area = document.getElementById("qbank-home-content");
+    if (!area) return;
+    qblockShowHomeShell();
+    window.setQBankNav && window.setQBankNav("past-blocks");
+
+    const records = qblockReadHistory();
+    const completed = records.filter(record => record.status === "completed");
+    const scored = completed.map(record => qblockRecordScore(record)).filter(score => score !== null);
+    const average = scored.length ? Math.round(scored.reduce((sum, score) => sum + score, 0) / scored.length) : null;
+    const totalQuestions = records.reduce((sum, record) => sum + (Number(record.questionCount) || (record.questionIds || []).length), 0);
+    const filter = window.__qblockHistoryFilter || "all";
+    const filtered = records.filter(record => {
+      if (filter === "in_progress") return record.status === "in_progress";
+      if (filter === "completed") return record.status === "completed";
+      return true;
+    });
+
+    let list = "";
+    if (filtered.length) {
+      list = `<div class="qbh-list">${filtered.map(qblockHistoryCard).join("")}</div>`;
+    } else if (!records.length) {
+      list = `<div class="qbh-empty">
+        <div class="qbh-empty-ic"><i data-lucide="layers" aria-hidden="true"></i></div>
+        <h2>No previous tests yet</h2>
+        <p>Create your first test and it will appear here automatically.</p>
+        <button type="button" class="qbh-btn primary" onclick="window.qbankOpenBlockBuilder()"><i data-lucide="plus" aria-hidden="true"></i> Create test</button>
+      </div>`;
+    } else {
+      list = `<div class="qbh-empty">
+        <div class="qbh-empty-ic"><i data-lucide="filter" aria-hidden="true"></i></div>
+        <h2>No tests match this filter</h2>
+        <p>Try another status filter to see your saved tests.</p>
+        <button type="button" class="qbh-btn" onclick="window.qbcHistoryFilter('all')">Show all tests</button>
+      </div>`;
+    }
+
+    area.innerHTML = `<div class="qbh-page">
+      <div class="qbh-top">
+        <button type="button" class="qbh-back" onclick="window.openQBank()"><i data-lucide="arrow-left" aria-hidden="true"></i> Back to home</button>
+        <span class="qbh-kicker">QBank history</span>
+      </div>
+      <div class="qbh-heading">
+        <div>
+          <h1 class="qbh-title">Previous tests</h1>
+          <p class="qbh-sub">Resume unfinished tests, review completed tests, or retake a test with the same filters.</p>
+        </div>
+        <button type="button" class="qbh-btn primary" onclick="window.qbankOpenBlockBuilder()"><i data-lucide="plus" aria-hidden="true"></i> Create test</button>
+      </div>
+      ${qblockTabsHtml("history")}
+      <div class="qbh-stats">
+        <div class="qbh-stat"><b>${records.length}</b><small>total tests</small></div>
+        <div class="qbh-stat"><b>${completed.length}</b><small>completed</small></div>
+        <div class="qbh-stat"><b>${average === null ? "—" : average + "%"}</b><small>average score</small></div>
+        <div class="qbh-stat"><b>${totalQuestions.toLocaleString()}</b><small>questions practised</small></div>
+      </div>
+      <div class="qbh-filterbar" role="group" aria-label="Filter previous tests">
+        <button type="button" class="qbh-filter ${filter === "all" ? "is-on" : ""}" onclick="window.qbcHistoryFilter('all')">All tests</button>
+        <button type="button" class="qbh-filter ${filter === "in_progress" ? "is-on" : ""}" onclick="window.qbcHistoryFilter('in_progress')">In progress</button>
+        <button type="button" class="qbh-filter ${filter === "completed" ? "is-on" : ""}" onclick="window.qbcHistoryFilter('completed')">Completed</button>
+      </div>
+      ${list}
+    </div>`;
+    if (window.lucide && window.lucide.createIcons) window.lucide.createIcons();
+  }
+
+  window.qbcHistoryFilter = function(filter) {
+    window.__qblockHistoryFilter = ["all", "in_progress", "completed"].includes(filter) ? filter : "all";
+    qblockRenderHistory();
+  };
+
+  window.qbankBlockBuilderTab = function(tab) {
+    if (tab === "history") {
+      qblockRenderHistory();
+      return;
+    }
+    if (!window.__qblockBuilderV2) return window.qbankOpenBlockBuilder();
+    window.setQBankNav && window.setQBankNav("blocks");
+    qblockRenderBuilder();
+  };
+
+  async function qblockOpenSavedBlock(record, action) {
+    if (!record) return;
+    qblockEnsureStyles();
+    const area = document.getElementById("qbank-home-content");
+    if (!area) return;
+    if (!qblockConfirmLeaveActive()) return;
+    if (window.__qbankBlock && window.__qbankBlock.active) qblockCleanup();
+    qblockShowHomeShell();
+    area.innerHTML = `<div class="qbc-page"><div class="qbc-panel"><div class="qbc-loading">${action === "retake" ? "Rebuilding your test…" : "Loading your test…"}</div></div></div>`;
+    try {
+      await qblockLoadBankQuestions(record.bankId);
+    } catch (error) {
+      if (window.qbankToast) window.qbankToast("Could not load this block's questions.", true);
+      qblockRenderHistory();
+      return;
+    }
+    currentQBankId = record.bankId;
+    const entry = cachedQBanks[record.bankId] || {};
+    allQuestions = Array.isArray(entry.questions) ? entry.questions : [];
+    if (entry.progress) window.qbankProgress = entry.progress;
+    const byId = {};
+    allQuestions.forEach(question => { if (question && question.id) byId[question.id] = question; });
+    const questionIds = Array.isArray(record.questionIds) ? record.questionIds : [];
+    const questions = questionIds.map(id => byId[id]).filter(Boolean);
+    if (!questions.length) {
+      if (window.qbankToast) window.qbankToast("The questions in this block are no longer available.", true);
+      qblockRenderHistory();
+      return;
+    }
+
+    const common = {
+      bankId: record.bankId,
+      bankName: record.bankName || qblockBankName(),
+      mode: record.mode === "tutor" ? "tutor" : "exam",
+      questions,
+      filters: record.filters || {},
+    };
+
+    if (action === "retake") {
+      window.qbankStartBlock({
+        ...common,
+        timeLimitSec: record.timeLimitSec ? questions.length * QBLOCK_SECONDS_PER_QUESTION : null,
+      });
+      return;
+    }
+
+    if (action === "review" && record.results) {
+      window.qbankStartBlock({
+        ...common,
+        answers: record.answers || {},
+        timeByQ: record.timeByQ || {},
+        timeLimitSec: record.timeLimitSec || null,
+        startedAt: record.startedAt,
+        submitted: true,
+        results: record.results,
+        completedAt: record.completedAt,
+        recordId: record.id,
+      });
+      window.qbankBlockReview();
+      return;
+    }
+
+    const elapsedSec = Math.max(0, Number(record.elapsedSec) || 0);
+    const remainingSec = record.remainingSec === null || record.remainingSec === undefined
+      ? null
+      : Math.max(0, Number(record.remainingSec) || 0);
+    window.qbankStartBlock({
+      ...common,
+      answers: record.answers || {},
+      timeByQ: record.timeByQ || {},
+      timeLimitSec: record.timeLimitSec || null,
+      startedAt: Date.now() - elapsedSec * 1000,
+      deadline: remainingSec === null ? null : Date.now() + remainingSec * 1000,
+      currentIndex: Math.max(0, Number(record.currentIndex) || 0),
+      recordId: record.id,
+    });
+  }
+
+  window.qbankBlockHistoryAction = async function(action, recordId) {
+    const record = qblockFindRecord(recordId);
+    if (!record) {
+      qblockRenderHistory();
+      return;
+    }
+    if (action === "delete") {
+      const ok = window.confirm("Delete this block from your history? This cannot be undone.");
+      if (!ok) return;
+      qblockDeleteRecord(record.id);
+      qblockRenderHistory();
+      return;
+    }
+    if (action === "resume" || action === "review" || action === "retake") {
+      return qblockOpenSavedBlock(record, action);
+    }
+  };
+
   function qblockUpdateEndButton(label) {
     const btn = document.getElementById("qbank-end-btn");
     if (!btn) return;
     const text = label || "End Session";
-    btn.innerHTML = `<i class="fa-solid fa-times"></i> ${text}`;
+    const span = btn.querySelector("#qbank-end-label");
+    if (span) span.textContent = text;
+    else btn.innerHTML = `<i class="fa-solid fa-circle-stop"></i> ${text}`;
   }
 
   function qblockStopTimer() {
@@ -1768,6 +3900,10 @@
   function qblockTick() {
     const b = window.__qbankBlock;
     if (!b || !b.active || b.submitted) return;
+    if (b.suspended) {
+      qblockStopTimer();
+      return;
+    }
     const text = qblockClockText();
     const clock = document.getElementById("qbank-block-clock");
     if (clock) {
@@ -1778,6 +3914,7 @@
       const header = document.getElementById("qbank-timer-display");
       if (header) header.innerHTML = `<i class="fa-regular fa-clock" style="width:14px;height:14px;vertical-align:-2px;"></i> ${text}`;
     }
+    if (window.qbankUpdateBlockTime) window.qbankUpdateBlockTime();
     if (b.deadline && Date.now() >= b.deadline) {
       window.qbankSubmitBlock(true);
     }
@@ -1786,7 +3923,7 @@
   function qblockStartTimer() {
     qblockStopTimer();
     const b = window.__qbankBlock;
-    if (!b || !b.active) return;
+    if (!b || !b.active || b.suspended) return;
     qblockTick();
     b.timerId = setInterval(qblockTick, 1000);
   }
@@ -1811,35 +3948,50 @@
   function qblockCleanup() {
     const b = window.__qbankBlock;
     if (!b) return;
+    qblockPersistActive();
     qblockStopTimer();
     b.active = false;
     window.__qbankBlock = null;
+    qblockRenderFooterBar();
     qblockUpdateEndButton("End Session");
     const sidebar = document.getElementById("qbank-sidebar");
     if (sidebar) sidebar.style.display = "none";
+    window.qbankUpdateBlockTime && window.qbankUpdateBlockTime();
   }
   window.qbankBlockCleanup = qblockCleanup;
 
   window.qbankStartBlock = function(config) {
     qblockEnsureStyles();
     qblockCleanup();
+    const questions = Array.isArray(config.questions) ? config.questions : [];
+    const timeLimitSec = config.timeLimitSec || null;
+    const startedAt = Number(config.startedAt) || Date.now();
+    const submitted = !!(config.submitted && config.results);
+    const deadlineProvided = Object.prototype.hasOwnProperty.call(config, "deadline");
     const block = {
       active: true,
+      recordId: config.recordId || qblockNewRecordId(),
       mode: config.mode === "tutor" ? "tutor" : "exam",
-      submitted: false,
+      submitted,
       reviewing: false,
       submitting: false,
-      results: null,
-      answers: {},
-      timeByQ: {},
-      startedAt: Date.now(),
-      deadline: config.timeLimitSec ? Date.now() + config.timeLimitSec * 1000 : null,
-      timeLimitSec: config.timeLimitSec || null,
+      results: submitted ? config.results : null,
+      answers: config.answers && typeof config.answers === "object" ? JSON.parse(JSON.stringify(config.answers)) : {},
+      timeByQ: config.timeByQ && typeof config.timeByQ === "object" ? JSON.parse(JSON.stringify(config.timeByQ)) : {},
+      startedAt,
+      completedAt: config.completedAt || (submitted ? Date.now() : null),
+      deadline: deadlineProvided
+        ? (config.deadline ? Number(config.deadline) : null)
+        : (timeLimitSec ? Date.now() + timeLimitSec * 1000 : null),
+      timeLimitSec,
       questionStartedAt: Date.now(),
       timerId: null,
+      suspended: false,
+      pausedAt: 0,
       bankId: config.bankId || currentQBankId || (window.db && window.db.selectedQBankId),
       bankName: config.bankName || qblockBankName(),
-      filters: config.filters || { subjects: [], random: true },
+      filters: config.filters || { subjects: [], systems: [], modes: [], random: true },
+      questionIds: questions.map(question => question.id).filter(Boolean),
     };
     window.__qbankBlock = block;
 
@@ -1847,25 +3999,28 @@
     allQuestions = qblockActiveQuestions();
     const entry = block.bankId ? cachedQBanks[block.bankId] : null;
     if (entry && entry.progress) window.qbankProgress = entry.progress;
-    currentQuestions = config.questions || [];
-    currentIndex = 0;
+    currentQuestions = questions;
+    currentIndex = Math.max(0, Math.min(parseInt(config.currentIndex, 10) || 0, Math.max(0, currentQuestions.length - 1)));
     window.currentQuestions = currentQuestions;
     window.currentIndex = currentIndex;
     currentSelectedIndices = [];
 
-    const title = block.mode === "exam" ? "Timed exam block" : "Tutor block";
+    const title = submitted ? "Test review" : (block.mode === "exam" ? "Timed test" : "Tutor test");
     const activeNameEl = document.getElementById("qbank-active-name");
     if (activeNameEl) activeNameEl.textContent = `${block.bankName} · ${title}`;
     if (window.hideAllMainViews) window.hideAllMainViews();
+    window.setQBankNav && window.setQBankNav("blocks");
     const view = document.getElementById("qbank-home-view");
     if (view) view.style.display = "flex";
     const modal = document.getElementById("qbank-modal");
     if (modal) modal.style.display = "flex";
     const sidebar = document.getElementById("qbank-sidebar");
     if (sidebar) sidebar.style.display = "flex";
-    qblockUpdateEndButton("End Block");
+    qblockUpdateEndButton(submitted ? "End Session" : "End test");
+    window.startQBankBlockClock(block.startedAt);
     window.qbankRenderCurrent();
-    qblockStartTimer();
+    if (!submitted) qblockStartTimer();
+    qblockPersistActive();
   };
 
   window.qbankBlockPick = function(index) {
@@ -1898,6 +4053,8 @@
     if (hintEl) hintEl.textContent = selected.length
       ? "Answer saved. Correct answers and explanations unlock after you submit."
       : (isMultiple ? "Select all that apply. Answers unlock after you submit." : "Select one answer. Answers unlock after you submit.");
+    window.qbankUpdateBlockTime && window.qbankUpdateBlockTime();
+    qblockPersistActive();
   };
 
   window.qbankBlockNext = function() {
@@ -1913,6 +4070,7 @@
     window.currentIndex = currentIndex;
     window.qbankRenderSidebar();
     window.qbankRenderCurrent();
+    qblockPersistActive();
   };
 
   window.qbankBlockPrev = function() {
@@ -1933,6 +4091,7 @@
     window.currentIndex = currentIndex;
     window.qbankRenderSidebar();
     window.qbankRenderCurrent();
+    qblockPersistActive();
   };
 
   function qblockBarHtml() {
@@ -1966,11 +4125,24 @@
       <div class="qb-block-right">
         <button type="button" class="qb-block-btn" onclick="window.qbankBlockPrev()" ${atStart ? "disabled" : ""}><i data-lucide="chevron-left"></i> Previous</button>
         <button type="button" class="qb-block-btn" onclick="window.qbankBlockNext()">${nextLabel} <i data-lucide="chevron-right"></i></button>
-        <button type="button" class="qb-block-btn primary" onclick="window.qbankSubmitBlock(false)">${b.mode === "exam" ? "Submit block" : "Finish block"}</button>
+        <button type="button" class="qb-block-btn primary" onclick="window.qbankSubmitBlock(false)">${b.mode === "exam" ? "Submit test" : "Finish test"}</button>
       </div>
     </div>`;
   }
   window.qbankBlockBarHtml = qblockBarHtml;
+
+  // The block bar lives in the green footer (not in the question canvas)
+  // so it stays tappable without covering the question in timed or tutor
+  // mode. The question area only receives the question itself.
+  function qblockRenderFooterBar() {
+    const slot = document.getElementById("qbank-block-bar-slot");
+    if (!slot) return;
+    const html = qblockBarHtml();
+    if (slot.innerHTML !== html) slot.innerHTML = html;
+    slot.style.display = html ? "flex" : "none";
+    if (html && window.lucide && window.lucide.createIcons) window.lucide.createIcons();
+  }
+  window.qblockRenderFooterBar = qblockRenderFooterBar;
 
   window.qbankSubmitBlock = async function(auto) {
     const b = window.__qbankBlock;
@@ -1979,7 +4151,7 @@
     const answered = qblockAnsweredCount();
     const missing = total - answered;
     if (!auto && missing > 0) {
-      const ok = window.confirm(`You still have ${missing} unanswered question${missing === 1 ? "" : "s"}. Submit this block anyway?`);
+      const ok = window.confirm(`You still have ${missing} unanswered question${missing === 1 ? "" : "s"}. Submit this test anyway?`);
       if (!ok) return;
     }
     b.submitting = true;
@@ -1989,7 +4161,7 @@
     if (area) {
       area.innerHTML = `<div style="padding:60px 20px;text-align:center;color:var(--text-muted);">
         <div class="press-wrapper" style="margin:0 auto 18px;display:flex;justify-content:center;"><div class="press"><div class="sheet"></div><div class="roll"></div><div class="sheet"></div><div class="roll"></div><div class="sheet"></div><div class="roll"></div><div class="sheet"></div><div class="sheet"></div><div class="sheet"></div><div class="sheet"></div><div class="sheet"></div><div class="roll"></div></div></div>
-        <div style="font-weight:700;color:var(--text-primary);">Scoring your block…</div>
+        <div style="font-weight:700;color:var(--text-primary);">Scoring your test…</div>
         <div style="font-size:12px;margin-top:4px;">Loading answers and explanations</div>
       </div>`;
     }
@@ -2011,6 +4183,20 @@
         let isPartial = false;
         if (!selected.length) {
           unanswered++;
+          const skipped = window.qbankProgress[q.id] || {};
+          if (skipped.correct === undefined && !skipped.omitted) {
+            skipped.omitted = true;
+            window.qbankProgress[q.id] = skipped;
+            if (currentQBankId) {
+              pushToSyncQueue({
+                qbankId: currentQBankId,
+                questionId: q.id,
+                omitted: true,
+                subject: (q.data && q.data.subject) || "",
+                chapter: (q.data && q.data.chapter) || "",
+              });
+            }
+          }
           byId[q.id] = { correct: false, partial: false, unanswered: true, selected: [] };
           return;
         }
@@ -2031,6 +4217,7 @@
           p.correct = isCorrect;
           p.partial = isPartial;
           p.timeTakenMs = timeMs;
+          p.omitted = false;
           window.qbankProgress[q.id] = p;
         }
         if (currentQBankId && !alreadyGraded) {
@@ -2039,6 +4226,7 @@
             questionId: q.id,
             correct: isCorrect,
             timeTakenMs: timeMs,
+            omitted: false,
             subject: (q.data && q.data.subject) || "",
             chapter: (q.data && q.data.chapter) || "",
           });
@@ -2061,8 +4249,11 @@
       b.submitted = true;
       b.reviewing = false;
       b.submitting = false;
+      b.completedAt = Date.now();
       qblockStopTimer();
       window.qbankRenderSidebar();
+      window.qbankUpdateBlockTime && window.qbankUpdateBlockTime();
+      qblockPersistActive();
       window.qbankBlockShowResults();
     } catch (e) {
       b.submitting = false;
@@ -2076,7 +4267,7 @@
     b.reviewing = false;
     qblockUpdateEndButton("End Session");
     const timerEl = document.getElementById("qbank-timer-display");
-    if (timerEl) timerEl.innerHTML = `<i class="fa-solid fa-circle-check" style="width:14px;height:14px;vertical-align:-2px;"></i> Block complete`;
+    if (timerEl) timerEl.innerHTML = `<i class="fa-solid fa-circle-check" style="width:14px;height:14px;vertical-align:-2px;"></i> Test complete`;
     const r = b.results;
     const area = document.getElementById("qbank-question-area");
     const sidebar = document.getElementById("qbank-sidebar");
@@ -2087,7 +4278,7 @@
       <div class="qbr-wrap">
         <div class="qbr-hero">
           <div class="qbr-score" style="color:${scoreColor};background:${r.score >= 80 ? "#E9F9EF" : (r.score >= 60 ? "#FFF7E6" : "#FFF0F3")};">${r.score}%</div>
-          <h2>Block complete</h2>
+          <h2>Test complete</h2>
           <p>${r.correct} of ${r.total} correct${r.partial ? ` · ${r.partial} partial` : ""} · ${b.timeLimitSec ? (b.mode === "exam" ? "Timed exam" : "Tutor, timed") : (b.mode === "exam" ? "Untimed exam" : "Tutor")} · ${qblockFormatClock(r.secondsUsed)} used</p>
         </div>
         <div class="qbr-grid">
@@ -2098,12 +4289,13 @@
         </div>
         <div class="qbr-actions">
           <button type="button" class="qbr-btn primary" onclick="window.qbankBlockReview()"><i data-lucide="book-open"></i> Review all answers</button>
-          <button type="button" class="qbr-btn" onclick="window.qbankBlockRetake()"><i data-lucide="rotate-ccw"></i> Retake this block</button>
+          <button type="button" class="qbr-btn" onclick="window.qbankBlockRetake()"><i data-lucide="rotate-ccw"></i> Retake this test</button>
           <button type="button" class="qbr-btn" onclick="window.qbankEndSession()"><i data-lucide="home"></i> Back to home</button>
         </div>
         <p style="margin:16px 0 0;text-align:center;font-size:11.5px;color:var(--text-muted,#64748B);">Scores and explanations are saved to your QBank progress.</p>
       </div>`;
     if (window.lucide && window.lucide.createIcons) window.lucide.createIcons();
+    window.qbankRenderChrome && window.qbankRenderChrome();
   };
 
   window.qbankBlockReview = function() {
@@ -2134,46 +4326,55 @@
   window.qbankBlockRetake = function() {
     const b = window.__qbankBlock;
     if (!b || !b.active) return;
+    b.recordId = qblockNewRecordId();
     b.submitted = false;
     b.reviewing = false;
     b.submitting = false;
     b.results = null;
+    b.completedAt = null;
     b.answers = {};
     b.timeByQ = {};
     b.startedAt = Date.now();
     b.deadline = b.timeLimitSec ? Date.now() + b.timeLimitSec * 1000 : null;
     b.questionStartedAt = Date.now();
+    b.suspended = false;
+    b.pausedAt = 0;
     currentIndex = 0;
     window.currentIndex = currentIndex;
     const sidebar = document.getElementById("qbank-sidebar");
     if (sidebar) sidebar.style.display = "flex";
-    qblockUpdateEndButton("End Block");
+    qblockUpdateEndButton("End test");
+    window.startQBankBlockClock(b.startedAt);
     window.qbankRenderSidebar();
     window.qbankRenderCurrent();
     qblockStartTimer();
+    qblockPersistActive();
   };
 
   window.qbankEndSession = function() {
     const b = window.__qbankBlock;
     if (b && b.active && !b.submitted) {
-      const ok = window.confirm("Leave this block? Your answers will not be scored.");
+      const ok = window.confirm("Leave this test? Your answers are saved and you can resume it from Previous tests.");
       if (!ok) return;
     }
     if (b) {
       qblockCleanup();
+      window.qbankResetSessionClock && window.qbankResetSessionClock();
       window.openQBank();
       return;
     }
+    window.qbankResetSessionClock && window.qbankResetSessionClock();
     if (window.closeFullscreen) window.closeFullscreen("qbank-modal");
   };
 
   // --- QBank Home Dashboard ---
   window.openQBank = async function () {
     if (window.__qbankBlock && window.__qbankBlock.active && !window.__qbankBlock.submitted) {
-      const ok = window.confirm("Leave this block? Your answers will not be scored.");
+      const ok = window.confirm("Leave this test? Your answers will not be scored.");
       if (!ok) return;
     }
     if (window.__qbankBlock && window.__qbankBlock.active) qblockCleanup();
+    window.qbankResetSessionClock && window.qbankResetSessionClock();
     const myNav = nextNavToken();
     const area = document.getElementById("qbank-home-content");
     if (!area) { if (window.hideGlobalLoader) window.hideGlobalLoader(); return; }
@@ -2371,6 +4572,8 @@
       
       const globalScore = totalAnswered > 0 ? Math.round((totalCorrect / totalAnswered) * 100) : 0;
       const lastSession = getLastSession();
+      const savedBlocks = qblockReadHistory();
+      const latestBlock = savedBlocks.find(record => record.status === "in_progress") || null;
 
       const hour = new Date().getHours();
       let greeting = "Good morning";
@@ -2385,19 +4588,14 @@
       }
 
       const streakVal = window.studyGoals && window.studyGoals.computeStreak ? window.studyGoals.computeStreak() : 0;
-      const savedCollege = window.cqGetSavedCollege ? window.cqGetSavedCollege() : null;
+      const accHome = (window.db && window.db.access) || null;
       const prepBanks = cqPrepBanks();
-      const savedCollegeBanks = savedCollege
-        ? prepBanks.filter(q => (q.country || "global") === savedCollege.country && (q.college || "General") === savedCollege.college)
-        : [];
-      const savedCollegeValid = !!(savedCollege && savedCollegeBanks.length > 0);
-      const prepCountryCount = new Set(prepBanks.map(q => q.country || "global")).size;
-      const countryName = savedCollege ? (CQ_COUNTRY_LABELS[savedCollege.country] || savedCollege.country) : "";
-      let prepFlag = "";
-      if (savedCollegeValid) {
-        const code = CQ_FLAG_CODES[savedCollege.country] || "un";
-        prepFlag = `<img src="https://flagcdn.com/${code}.svg" alt="" class="cq-flag">`;
-      }
+      const prepAllowed = (id) => !accHome
+        || (Array.isArray(accHome.prepIds) && accHome.prepIds.includes(id))
+        || (Array.isArray(accHome.grants) && accHome.grants.includes(id));
+      const prepAvailable = prepBanks.filter(q => prepAllowed(q.id));
+      const prepLocked = Math.max(0, prepBanks.length - prepAvailable.length);
+      const examHasAccess = prepAvailable.length > 0 || prepBanks.length === 0;
 
       const subjectCount = Object.keys(subjectStats).filter(s => s !== "Uncategorized").length;
       const progressPct = totalQuestions > 0 ? Math.round((totalAnswered / totalQuestions) * 100) : 0;
@@ -2412,7 +4610,24 @@
       }
 
       let continueBanner = "";
-      if (lastSession && lastSession.qbankId) {
+      if (latestBlock) {
+        const totalForResume = Number(latestBlock.questionCount) || (latestBlock.questionIds || []).length;
+        const answeredForResume = qblockRecordAnswered(latestBlock);
+        const resumePct = totalForResume > 0 ? Math.round((answeredForResume / totalForResume) * 100) : 0;
+        const resumeLabel = qblockRecordTitle(latestBlock);
+        const resumeBank = latestBlock.bankName || activeQBankName;
+        continueBanner = `
+          <section class="cq-resume" aria-label="Resume your unfinished test">
+            <div class="cq-resume-ic"><i data-lucide="clock-3"></i></div>
+            <div class="cq-resume-text">
+              <small>Test in progress</small>
+              <b>${cqEsc(resumeLabel)}</b>
+              <span><b>${cqEsc(resumeBank)}</b> · <b>${answeredForResume}</b> of <b>${totalForResume}</b> answered</span>
+            </div>
+            <div class="cq-resume-meter" aria-hidden="true"><span style="width:${resumePct}%"></span></div>
+            <button type="button" class="cq-btn cq-btn-ghost" onclick="window.qbankBlockHistoryAction('resume','${cqJsArg(latestBlock.id)}')">Resume test <i data-lucide="arrow-right"></i></button>
+          </section>`;
+      } else if (lastSession && lastSession.qbankId) {
         const lsSubject = lastSession.subject && lastSession.subject !== "All Subjects" ? lastSession.subject : null;
         const st = lsSubject ? subjectStats[lsSubject] : null;
         const totalForResume = st ? st.total : totalQuestions;
@@ -2434,29 +4649,23 @@
       }
 
       const examEmpty = prepBanks.length === 0;
-      const examSchoolBox = savedCollegeValid
-        ? `<div class="cq-school-box">
-             ${prepFlag}
+      const examSchoolBox = examEmpty
+        ? `<div class="cq-inline-empty">Exam prep banks will appear here as soon as they are published.</div>`
+        : `<div class="cq-school-box">
+             <span class="cq-flag cq-flag-fallback"><i data-lucide="graduation-cap"></i></span>
              <div class="cq-school-text">
-               <small>Your college</small>
-               <b>${cqEsc(savedCollege.college)}</b>
-               <span>${cqEsc(countryName)} <span class="cq-sep">·</span> <b>${savedCollegeBanks.length}</b> <span>${savedCollegeBanks.length === 1 ? "past exam" : "past exams"}</span></span>
+               <small>Exam prep access</small>
+               <b>${prepAvailable.length} of ${prepBanks.length} banks ready</b>
+               <span>${prepLocked ? `<b>${prepLocked}</b> paid ${prepLocked === 1 ? "bank needs" : "banks need"} a license` : "All exam prep banks are unlocked"}</span>
              </div>
-             <button type="button" class="cq-mini" onclick="window.cqOpenCollegePicker('${cqJsArg(savedCollege.country)}')">Change</button>
-           </div>`
-        : examEmpty
-          ? `<div class="cq-inline-empty">Past papers will appear here as soon as your college adds them.</div>`
-          : `<button type="button" id="cq-college-trigger" class="cq-setup" onclick="window.cqOpenCollegePicker()">
-               <span class="cq-setup-ic"><i data-lucide="map-pin"></i></span>
-               <span class="cq-school-text"><b>Choose your college</b><small>One-time setup · change anytime</small></span>
-               <i data-lucide="arrow-right" class="cq-setup-arrow"></i>
-             </button>`;
+             <button type="button" class="cq-mini" onclick="window.qbankEnterLicense()">License</button>
+           </div>`;
 
       const examCta = examEmpty
         ? `<button type="button" class="cq-btn cq-btn-exam" onclick="window.openExamPrepTab()">Open exam prep <i data-lucide="arrow-right"></i></button>`
-        : savedCollegeValid
-          ? `<button type="button" class="cq-btn cq-btn-exam" onclick="window.cqOpenSavedCollege()">Open my college exams <i data-lucide="arrow-right"></i></button>`
-          : `<button type="button" class="cq-btn cq-btn-exam" onclick="window.cqOpenCollegePicker()">Choose my college <i data-lucide="arrow-right"></i></button>`;
+        : examHasAccess
+          ? `<button type="button" class="cq-btn cq-btn-exam" onclick="window.openExamPrepTab()">Open exam prep <i data-lucide="arrow-right"></i></button>`
+          : `<button type="button" class="cq-btn cq-btn-exam" onclick="window.qbankEnterLicense()">Enter license <i data-lucide="arrow-right"></i></button>`;
 
       const quickSearchTerms = Object.keys(subjectStats)
         .filter(s => s !== "Uncategorized")
@@ -2466,9 +4675,9 @@
         .map(term => `<button type="button" class="cq-search-chip" data-term="${cqEsc(term)}" onclick="window.cqHomeSearchTerm(this.dataset.term)">${cqEsc(term)}</button>`)
         .join("");
       const reviewAction = totalIncorrect > 0
-        ? `<button type="button" class="cq-quick-card" onclick="window.startQBankSession('${cqJsArg(activeQBankId)}', '${cqJsArg(activeQBankName)}', null, true)">
+        ? `<button type="button" class="cq-quick-card" onclick="window.qbankOpenBlockBuilder({ reviewIncorrectsOnly: true })">
              <span class="cq-quick-icon is-rose"><i data-lucide="rotate-ccw"></i></span>
-             <span class="cq-quick-copy"><b>Review incorrects</b><small><b>${totalIncorrect.toLocaleString()}</b> to revisit</small></span>
+             <span class="cq-quick-copy"><b>Review incorrects</b><small><b>${totalIncorrect.toLocaleString()}</b> to revisit in a test</small></span>
              <i data-lucide="arrow-right" class="cq-quick-arrow"></i>
            </button>`
         : `<button type="button" class="cq-quick-card" disabled aria-disabled="true">
@@ -2727,7 +4936,7 @@
             <header class="cq-hero">
               <div>
                 <h1 class="cq-title"><span>${greeting}</span>, ${cqEsc(firstName)}</h1>
-                <p class="cq-sub">Search a topic, jump into a block, or continue where you left off.</p>
+                <p class="cq-sub">Search a topic, jump into a test, or continue where you left off.</p>
               </div>
               <div class="cq-streak" title="Study streak"><i data-lucide="flame"></i><b>${streakVal}</b> <span>${streakVal === 1 ? "day streak" : "days streak"}</span></div>
             </header>
@@ -2751,17 +4960,17 @@
             <section class="cq-quick" aria-labelledby="cq-quick-title">
               <div class="cq-quick-head">
                 <h2 id="cq-quick-title">Quick actions</h2>
-                <p>Start answering or build a timed block.</p>
+                <p>Build a test or revisit a previous test.</p>
               </div>
               <div class="cq-quick-grid">
-                <button type="button" class="cq-quick-card" onclick="window.showQBankSubjects()">
-                  <span class="cq-quick-icon"><i data-lucide="book-open"></i></span>
-                  <span class="cq-quick-copy"><b>Practice questions</b><small>Browse subjects and chapters</small></span>
+                <button type="button" class="cq-quick-card" onclick="window.qbankOpenBlockBuilder()">
+                  <span class="cq-quick-icon"><i data-lucide="clipboard-list"></i></span>
+                  <span class="cq-quick-copy"><b>Create test</b><small>Filter by mode, objective, system, and topic</small></span>
                   <i data-lucide="arrow-right" class="cq-quick-arrow"></i>
                 </button>
-                <button type="button" class="cq-quick-card" onclick="window.qbankOpenBlockBuilder()">
-                  <span class="cq-quick-icon is-blue"><i data-lucide="timer"></i></span>
-                  <span class="cq-quick-copy"><b>Build a block</b><small>40 questions · 60 minutes</small></span>
+                <button type="button" class="cq-quick-card" onclick="window.qbankOpenBlockHistory()">
+                  <span class="cq-quick-icon is-blue"><i data-lucide="history"></i></span>
+                  <span class="cq-quick-copy"><b>Previous tests</b><small><b>${savedBlocks.length}</b> saved ${savedBlocks.length === 1 ? "test" : "tests"}</small></span>
                   <i data-lucide="arrow-right" class="cq-quick-arrow"></i>
                 </button>
                 ${reviewAction}
@@ -2781,8 +4990,8 @@
                   <span class="cq-icon"><i data-lucide="book-open"></i></span>
                   <span class="cq-pill">Regular QBank</span>
                 </div>
-                <h2>Practice by subject</h2>
-                <p>Choose a subject or mix everything. Best for daily studying and building your base.</p>
+                <h2>Build tests by subject</h2>
+                <p>Mix everything or focus on one subject. Every question is answered inside a saved test.</p>
                 <div class="cq-bank-line">
                   ${bankFlag}
                   <div>
@@ -2795,7 +5004,8 @@
                   <div class="cq-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${progressPct}" aria-label="Bank progress"><div class="cq-fill" style="width:${progressPct}%"></div></div>
                 </div>
                 <div class="cq-actions">
-                  <button type="button" class="cq-btn cq-btn-primary" onclick="window.showQBankSubjects()">Start practicing <i data-lucide="arrow-right"></i></button>
+                  <button type="button" class="cq-btn cq-btn-primary" onclick="window.qbankOpenBlockBuilder()">Create test <i data-lucide="arrow-right"></i></button>
+                  <button type="button" class="cq-link" onclick="window.qbankOpenBlockHistory()">Previous tests</button>
                   <button type="button" class="cq-link" onclick="window.openQBankSelection()">Change bank</button>
                 </div>
               </article>
@@ -2805,12 +5015,12 @@
                   <span class="cq-icon cq-icon-exam"><i data-lucide="graduation-cap"></i></span>
                   <span class="cq-pill cq-pill-exam">Exam prep</span>
                 </div>
-                <h2>Past exams by college</h2>
-                <p>${examEmpty ? "Past papers will appear here as soon as your college adds them." : savedCollegeValid ? "Your college is saved. Open your past papers in one tap." : "Practise the exact style of exam your college sets. Choose your college once."}</p>
+                <h2>Exam prep</h2>
+                <p>${examEmpty ? "Exam prep banks will appear here as soon as they are published." : prepLocked ? `${prepLocked} paid ${prepLocked === 1 ? "bank is" : "banks are"} locked. Enter a license to unlock them.` : "All exam prep banks are ready. Open them in one tap."}</p>
                 ${examSchoolBox}
                 <div class="cq-actions">
                   ${examCta}
-                  ${prepBanks.length > 0 ? `<button type="button" class="cq-link" onclick="window.openExamPrepTab()">See all colleges</button>` : ""}
+                  ${prepBanks.length > 0 ? `<button type="button" class="cq-link" onclick="window.openExamPrepTab()">See all exam prep</button>` : ""}
                 </div>
               </article>
             </section>
@@ -2821,7 +5031,7 @@
               <div class="cq-stat"><i data-lucide="rotate-ccw"></i><div><span>${totalIncorrect.toLocaleString()}</span><small>questions to review</small></div></div>
             </section>
 
-            <p class="cq-foot">${prepBanks.length > 0 ? `<b>${prepCountryCount}</b> ${prepCountryCount === 1 ? "country of past exams available" : "countries of past exams available"}` : "Past exams will appear when your college adds them"} <span class="cq-foot-sep">·</span> <span>You can change your college anytime.</span></p>
+            <p class="cq-foot">${prepBanks.length > 0 ? `<b>${prepAvailable.length}</b> of <b>${prepBanks.length}</b> exam prep banks ready` : "Exam prep banks will appear when they are published"} <span class="cq-foot-sep">·</span> <span>Switch banks anytime from My banks.</span></p>
           </div>
           <div id="cq-college-modal" class="cq-modal" hidden onclick="if (event.target === this) window.cqCloseCollegePicker()">
             <div class="cq-modal-card" role="dialog" aria-modal="true" aria-labelledby="cq-college-title">
@@ -2877,7 +5087,7 @@
       const countryCode = flagMap[q.country];
       const flagHtml = countryCode 
          ? `<img src="https://flagcdn.com/w80/${countryCode}.png" alt="${countryCode}" style="width:64px; height:auto; border-radius:4px; margin-bottom:20px; box-shadow:0 1px 3px rgba(0,0,0,0.1);">`
-         : `<div style="font-size:4rem; margin-bottom:20px; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.1)); line-height:1;">🌍</div>`;
+         : `<div style="font-size:4rem; margin-bottom:20px; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.1)); line-height:1;">ðŸŒ</div>`;
          
       // Show question count if cached
       const cached = cachedQBanks[q.id];
@@ -3325,275 +5535,311 @@
     </div>`;
   }
 
-  window.showQBankParts = function(subject, chapter) {
-    const area = document.getElementById("qbank-home-content");
-    if (!area) return;
-    const stats = window.qbankCurrentSubjectStats || {};
-    const subjectStats = stats[subject] || { total: 0, answered: 0, correct: 0, chapters: {} };
-    const chapterStats = (subjectStats.chapters && subjectStats.chapters[chapter]) || { total: 0, answered: 0, correct: 0 };
-    const parts = qbankChapterParts(subject, chapter);
-    const activeQBankName = document.getElementById("qbank-active-name")?.textContent || "QBank";
-    const subArg = cqJsArg(subject);
-    const chArg = cqJsArg(chapter);
+  function qbankTaxonomyLoadBank(requestedQBankId) {
+    nextNavToken();
+    if (window.hideAllMainViews) window.hideAllMainViews();
+    const view = document.getElementById("qbank-home-view");
+    if (view) view.style.display = "flex";
+    if (window.setQBankNav) window.setQBankNav('browse');
 
-    let rows = cqBrowserRow({
-      title: "All Parts (Mix)",
-      searchText: `${chapter} all parts mix`,
-      meta: "Practice every question in this chapter",
-      total: chapterStats.total,
-      answered: chapterStats.answered,
-      correct: chapterStats.correct,
-      icon: "shuffle",
-      featured: true,
-      onclick: `window.startQBankFiltered('${subArg}', '${chArg}')`,
-      ariaLabel: `Practice all parts in ${chapter}. ${chapterStats.answered} of ${chapterStats.total} answered.`
-    });
-
-    parts.forEach(part => {
-      const design = window.getSubjectDesign(part.name);
-      window.__qbankPartRoutes = window.__qbankPartRoutes || {};
-      const routeId = "part_" + Math.random().toString(36).slice(2, 10);
-      window.__qbankPartRoutes[routeId] = { subject, chapter, path: part.path };
-      rows += cqBrowserRow({
-        title: part.name,
-        searchText: part.name,
-        meta: `Start part · ${part.total} question${part.total === 1 ? "" : "s"}`,
-        total: part.total,
-        answered: part.answered,
-        correct: part.correct,
-        color: design.color,
-        icon: design.icon,
-        onclick: `window.qbankStartPartRoute('${routeId}')`,
-        ariaLabel: `Open ${part.name}. ${part.answered} of ${part.total} answered.`
-      });
-    });
-
-    area.innerHTML = cqBrowserPage({
-      backLabel: "Back to Chapters",
-      backAction: `window.showQBankChapters('${subArg}')`,
-      crumb: `${cqEsc(activeQBankName)} &gt; ${cqEsc(subject)} &gt; ${cqEsc(chapter)}`,
-      kicker: activeQBankName,
-      title: chapter,
-      subtitle: `Parts · ${parts.length} ${parts.length === 1 ? "part" : "parts"} · ${chapterStats.total} questions`,
-      searchPlaceholder: "Search parts...",
-      searchLabel: `Search parts in ${chapter}`,
-      status: `Showing all ${parts.length} ${parts.length === 1 ? "part" : "parts"}`,
-      noun: "parts",
-      total: parts.length,
-      layout: "grid",
-      rows
-    });
-    if (window.lucide && window.lucide.createIcons) window.lucide.createIcons();
-  };
-  window.showQBankSubjects = async function(requestedQBankId = null) {
-      nextNavToken();
-      // 1. Switch active view to qbank-home-view
-      if (window.hideAllMainViews) window.hideAllMainViews();
-      const view = document.getElementById("qbank-home-view");
-      if (view) view.style.display = "flex";
-
-      // 2. Update navigation active state
-      if (window.setQBankNav) window.setQBankNav('browse');
-
+    return (async () => {
       const area = document.getElementById("qbank-home-content");
-      if (!area) return;
-      
-      const activeQBankId = requestedQBankId || currentQBankId || (window.db && window.db.selectedQBankId);
-      if (!activeQBankId) { window.openQBank(); return; }
+      if (!area) return null;
 
-      // Make sure the QBank data is loaded
+      const activeQBankId = requestedQBankId || currentQBankId || (window.db && window.db.selectedQBankId);
+      if (!activeQBankId) { window.openQBank(); return null; }
+
       if (!cachedQBanks[activeQBankId] || !cachedQBanks[activeQBankId].questions) {
-          // Load via startQBankSession (fetches this bank's questions, then
-          // renders its subjects directly). NOTE: openQBank() takes no bank
-          // argument and follows window.db.selectedQBankId, so delegating to
-          // it here rendered the WRONG bank's subjects.
-          const _nm = ((cachedCategories || []).find(qb => qb.id === activeQBankId) || {}).name || "Your QBank";
-          await window.startQBankSession(activeQBankId, _nm);
-          return;
+        const _nm = ((cachedCategories || []).find(qb => qb.id === activeQBankId) || {}).name || "Your QBank";
+        await window.startQBankSession(activeQBankId, _nm);
+        return null;
       }
 
-      // Set module-level allQuestions for startQBankFiltered
       allQuestions = cachedQBanks[activeQBankId].questions || [];
       window.qbankProgress = cachedQBanks[activeQBankId].progress || {};
       currentQBankId = activeQBankId;
-
-      const questionsToUse = cachedQBanks[activeQBankId].questions;
-      const progressToUse = cachedQBanks[activeQBankId].progress || {};
+      const questions = allQuestions;
+      const progress = window.qbankProgress || {};
       const activeQBankName = (cachedCategories || []).find(qb => qb.id === activeQBankId)?.name || "Your QBank";
-      const subSafeQbankId = window.escapeHtml ? window.escapeHtml(activeQBankId).replace(/'/g, "\\'") : activeQBankId;
-      const subSafeQbankName = window.escapeHtml ? window.escapeHtml(activeQBankName).replace(/'/g, "\\'") : activeQBankName;
+      return { activeQBankId, activeQBankName, questions, progress };
+    })();
+  }
 
-      const subjectStats = window.qbankCurrentSubjectStats || {};
-      const getScoreDisplay = (correct, answered) => {
-          if (answered === 0) return { text: '0%', color: 'var(--text-muted)', bg: 'rgba(255,255,255,0.05)' };
-          const score = Math.round((correct / answered) * 100);
-          const color = score >= 80 ? '#22c55e' : (score >= 50 ? '#eab308' : '#f43f5e');
-          const bg = score >= 80 ? 'rgba(34,197,94,0.1)' : (score >= 50 ? 'rgba(234,179,8,0.1)' : 'rgba(244,63,94,0.1)');
-          return { text: `${score}%`, color, bg };
-      };
+  function qbankTaxonomyLevelStats(questions, progress, level, prefix = []) {
+    const map = new Map();
+    (questions || []).forEach(q => {
+      const path = qblockTaxonomyPath(q);
+      if (path.length <= level) return;
+      for (let i = 0; i < prefix.length; i++) {
+        if (String(path[i] || "").trim().toLowerCase() !== String(prefix[i] || "").trim().toLowerCase()) return;
+      }
+      const name = path[level];
+      if (!name) return;
+      if (!map.has(name)) map.set(name, { name, total: 0, answered: 0, correct: 0, children: new Set() });
+      const entry = map.get(name);
+      entry.total += 1;
+      const child = level < 3 ? path[level + 1] : "";
+      if (child) entry.children.add(child);
+      const p = (progress || {})[q.id];
+      if (p && p.correct !== undefined) {
+        entry.answered += 1;
+        if (p.correct) entry.correct += 1;
+      }
+    });
+    return [...map.values()]
+      .map(entry => ({ ...entry, childCount: entry.children.size, children: undefined }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }
 
-      // Recompute stats fresh so progress is always current
-      const stats = {};
-      let totalAns = 0, totalCorrect = 0;
-      questionsToUse.forEach(q => {
-        const sub = (q.data && q.data.subject) || "Uncategorized";
-        const chapter = (q.data && q.data.chapter) || null;
-        if (!stats[sub]) stats[sub] = { total: 0, answered: 0, correct: 0, chapters: {} };
-        stats[sub].total++;
-        if (chapter) {
-          if (!stats[sub].chapters[chapter]) stats[sub].chapters[chapter] = { total: 0, answered: 0, correct: 0 };
-          stats[sub].chapters[chapter].total++;
-        }
-        const p = progressToUse[q.id];
-        if (p && p.correct !== undefined) {
-          stats[sub].answered++;
-          totalAns++;
-          if (chapter && stats[sub].chapters[chapter]) stats[sub].chapters[chapter].answered++;
-          if (p.correct) {
-            stats[sub].correct++; totalCorrect++;
-            if (chapter && stats[sub].chapters[chapter]) stats[sub].chapters[chapter].correct++;
-          }
-        }
-      });
-      window.qbankCurrentSubjectStats = stats;
+  function qbankTaxonomyRoute(path, level) {
+    window.__qbankTaxonomyRoutes = window.__qbankTaxonomyRoutes || {};
+    const routeId = "tax_" + Math.random().toString(36).slice(2, 10);
+    window.__qbankTaxonomyRoutes[routeId] = { path: path || [], level: Number(level) || 0 };
+    return routeId;
+  }
 
-      let subjectList = Object.keys(stats).filter(x => x !== "Uncategorized");
-      subjectList.sort((a, b) => {
-        const isCasA = a.toLowerCase().includes("cas clinique");
-        const isCasB = b.toLowerCase().includes("cas clinique");
-        if (isCasA && !isCasB) return -1;
-        if (!isCasA && isCasB) return 1;
-        return a.localeCompare(b);
-      });
-
-      const globalScoreUI = getScoreDisplay(totalCorrect, totalAns);
-
-      let rows = cqBrowserRow({
-        title: "All Subjects (Mix)",
-        searchText: "all subjects mix",
-        meta: "Practice questions from all available subjects",
-        total: questionsToUse.length,
-        answered: totalAns,
-        correct: totalCorrect,
-        icon: "shuffle",
-        featured: true,
-        onclick: "window.startQBankFiltered(null)",
-        ariaLabel: `Practice all subjects. ${totalAns} of ${questionsToUse.length} answered.`
-      });
-
-      subjectList.forEach(sub => {
-        const st = stats[sub];
-        const chapterCount = Object.keys(st.chapters || {}).length;
-        const hasChapters = chapterCount > 0;
-        const design = window.getSubjectDesign(sub);
-        const admin = window.isQBankAdmin ? cqBrowserAdmin([
-          { label: `Delete subject ${sub}`, text: "Delete", icon: "trash-2", tone: "danger", onclick: `window.qbankAdminDeleteSubject('${cqJsArg(sub)}')` },
-          { label: `Merge subject ${sub}`, text: "Merge", icon: "folder-input", tone: "merge", onclick: `window.qbankAdminMoveSubject('${cqJsArg(sub)}')` },
-          { label: `Rename subject ${sub}`, text: "Rename", icon: "edit-3", tone: "rename", onclick: `window.qbankAdminRenameSubject('${cqJsArg(sub)}')` }
-        ]) : "";
-        rows += cqBrowserRow({
-          title: sub,
-          searchText: sub,
-          meta: hasChapters ? `${chapterCount} ${chapterCount === 1 ? "chapter" : "chapters"} · View chapters` : "Start subject",
-          total: st.total,
-          answered: st.answered,
-          correct: st.correct,
-          color: design.color,
-          icon: design.icon,
-          chevron: hasChapters ? "folder" : "chevron-right",
-          onclick: hasChapters ? `window.showQBankChapters('${cqJsArg(sub)}')` : `window.startQBankFiltered('${cqJsArg(sub)}', null)`,
-          ariaLabel: `${sub}. ${hasChapters ? `${chapterCount} ${chapterCount === 1 ? "chapter" : "chapters"}. ` : ""}${st.answered} of ${st.total} answered.`,
-          admin
-        });
-      });
-
-      area.innerHTML = cqBrowserPage({
-        backLabel: "Back to home",
-        backAction: "window.openQBank()",
-        crumb: `${cqEsc(activeQBankName)} · ${subjectList.length} subjects`,
-        kicker: activeQBankName,
-        title: "Subjects",
-        subtitle: `${subjectList.length} subjects · ${questionsToUse.length} questions · ${totalAns} answered`,
-        actions: `<button type="button" class="cq-browser-action" onclick="window.qbankOpenBlockBuilder()"><i data-lucide="timer" aria-hidden="true"></i><span>Build a block</span></button>`,
-        searchPlaceholder: "Search subjects...",
-        searchLabel: "Search subjects",
-        status: `Showing all ${subjectList.length} subjects`,
-        noun: "subjects",
-        total: subjectList.length,
-        layout: "grid",
-        rows
-      });
-      document.getElementById("qbank-active-name") && (document.getElementById("qbank-active-name").textContent = document.getElementById("qbank-active-name").textContent || "QBank");
-      if (window.lucide && window.lucide.createIcons) window.lucide.createIcons();
-      window.showQBankChaptersView = false;
+  window.qbankStartTaxonomyRoute = function(routeId) {
+    const route = window.__qbankTaxonomyRoutes && window.__qbankTaxonomyRoutes[routeId];
+    if (!route) return;
+    const bankId = currentQBankId || (window.db && window.db.selectedQBankId);
+    const path = Array.isArray(route.path) ? route.path : [];
+    return window.qbankOpenBlockBuilder({
+      bankId,
+      objective: path[0] || "",
+      subjects: path[1] ? [path[1]] : [],
+      systems: path[2] ? [path[2]] : [],
+      subTopics: route.level >= 3 && path[3] ? [path[3]] : [],
+    });
   };
 
-  
-  window.showQBankChapters = function(subject) {
-      const area = document.getElementById("qbank-home-content");
-      if (!area) return;
-      const stats = window.qbankCurrentSubjectStats[subject];
-      if (!stats) return;
-      
-      const subArg = cqJsArg(subject);
-      const activeQBankName = document.getElementById("qbank-active-name")?.textContent || "QBank";
-      const chaptersList = Object.keys(stats.chapters || {}).sort((a, b) => a.localeCompare(b));
-
-      let rows = cqBrowserRow({
-        title: "All Chapters (Mix)",
-        searchText: `${subject} all chapters mix`,
-        meta: "Practice questions from all chapters in this subject",
-        total: stats.total,
-        answered: stats.answered,
-        correct: stats.correct,
-        icon: "shuffle",
-        featured: true,
-        onclick: `window.startQBankFiltered('${subArg}', null)`,
-        ariaLabel: `Practice all chapters in ${subject}. ${stats.answered} of ${stats.total} answered.`
+  function qbankTaxonomyRows(stats, level, path, activeQBankId) {
+    return stats.map(item => {
+      const safePath = path.concat(item.name);
+      const routeId = qbankTaxonomyRoute(safePath, level + 1);
+      const childCount = item.childCount || 0;
+      const isLeaf = level >= 3;
+      const onclick = isLeaf
+        ? `window.qbankStartTaxonomyRoute('${cqJsArg(routeId)}')`
+        : `window.showQBankTaxonomyByRoute('${cqJsArg(routeId)}')`;
+      const nouns = ["organ systems", "clinical specialties", "sub-topics"];
+      const noun = isLeaf ? "leaf" : `${childCount} ${nouns[level] || "sections"}`;
+      const design = level === 1 ? window.getSubjectDesign(item.name) : { icon: level === 0 ? "target" : level === 2 ? "stethoscope" : "activity", color: "#007A7A" };
+      return cqBrowserRow({
+        title: item.name,
+        searchText: item.name,
+        meta: isLeaf ? `Start leaf · ${item.total} question${item.total === 1 ? "" : "s"}` : `${noun} · View contents`,
+        total: item.total,
+        answered: item.answered,
+        correct: item.correct,
+        color: design.color,
+        icon: design.icon,
+        chevron: isLeaf ? "chevron-right" : "folder",
+        onclick,
+        ariaLabel: `${item.name}. ${item.answered} of ${item.total} answered.`
       });
+    });
+  }
 
-      chaptersList.forEach(ch => {
-        const chStats = stats.chapters[ch];
-        const parts = qbankChapterParts(subject, ch);
-        const hasParts = parts.length > 0;
-        const design = window.getSubjectDesign(ch);
-        const admin = window.isQBankAdmin ? cqBrowserAdmin([
-          { label: `Merge chapter ${ch}`, text: "Merge", icon: "folder-input", tone: "merge", onclick: `window.qbankAdminMoveChapter('${subArg}', '${cqJsArg(ch)}')` },
-          { label: `Rename chapter ${ch}`, text: "Rename", icon: "edit-3", tone: "rename", onclick: `window.qbankAdminRenameChapter('${subArg}', '${cqJsArg(ch)}')` }
-        ]) : "";
-        rows += cqBrowserRow({
-          title: ch,
-          searchText: ch,
-          meta: hasParts ? `${parts.length} ${parts.length === 1 ? "part" : "parts"} · View parts` : "Start chapter",
-          total: chStats.total,
-          answered: chStats.answered,
-          correct: chStats.correct,
-          color: design.color,
-          icon: design.icon,
-          chevron: hasParts ? "git-branch" : "chevron-right",
-          onclick: hasParts ? `window.showQBankParts('${subArg}', '${cqJsArg(ch)}')` : `window.startQBankFiltered('${subArg}', '${cqJsArg(ch)}')`,
-          ariaLabel: `${ch}. ${hasParts ? `${parts.length} ${parts.length === 1 ? "part" : "parts"}. ` : ""}${chStats.answered} of ${chStats.total} answered.`,
-          admin
-        });
-      });
+  window.showQBankTaxonomyByRoute = async function(routeId) {
+    const route = window.__qbankTaxonomyRoutes && window.__qbankTaxonomyRoutes[routeId];
+    if (!route || !currentQBankId) return;
+    if (route.level === 1) return window.showQBankOrganSystems(route.path[0]);
+    if (route.level === 2) return window.showQBankClinicalSpecialties(route.path[0], route.path[1]);
+    if (route.level === 3) return window.showQBankSubTopics(route.path[0], route.path[1], route.path[2]);
+    return window.showQBankObjectives();
+  };
 
-      area.innerHTML = cqBrowserPage({
-        backLabel: "Back to Subjects",
-        backAction: "window.showQBankSubjects()",
-        crumb: `${cqEsc(activeQBankName)} &gt; ${cqEsc(subject)}`,
-        kicker: activeQBankName,
-        title: "Chapters",
-        subtitle: `${subject} · ${chaptersList.length} chapters · ${stats.total} questions · ${stats.answered} answered`,
-        actions: `<button type="button" class="cq-browser-action" onclick="window.qbankOpenBlockBuilder()"><i data-lucide="timer" aria-hidden="true"></i><span>Build a block</span></button>`,
-        searchPlaceholder: "Search chapters...",
-        searchLabel: `Search chapters in ${subject}`,
-        status: `Showing all ${chaptersList.length} chapters`,
-        noun: "chapters",
-        total: chaptersList.length,
-        layout: "grid",
-        rows
-      });
-      if (window.lucide && window.lucide.createIcons) window.lucide.createIcons();
+  function qbankTaxonomyRender(opts) {
+    const area = document.getElementById("qbank-home-content");
+    if (!area) return;
+    area.innerHTML = cqBrowserPage(opts);
+    if (window.lucide && window.lucide.createIcons) window.lucide.createIcons();
+  }
+
+  window.showQBankObjectives = async function(requestedQBankId = null) {
+    const loaded = await qbankTaxonomyLoadBank(requestedQBankId);
+    if (!loaded) return;
+    const { activeQBankId, activeQBankName, questions, progress } = loaded;
+    const stats = qbankTaxonomyLevelStats(questions, progress, 0);
+    const totalAnswered = stats.reduce((sum, item) => sum + item.answered, 0);
+    const totalCorrect = stats.reduce((sum, item) => sum + item.correct, 0);
+    const totalQuestions = questions.length;
+
+    let rows = cqBrowserRow({
+      title: "All objectives (Mix)",
+      searchText: "all objectives mix",
+      meta: "Practice across every educational objective in this bank",
+      total: totalQuestions,
+      answered: totalAnswered,
+      correct: totalCorrect,
+      icon: "shuffle",
+      featured: true,
+      onclick: `window.qbankOpenBlockBuilder({ bankId: '${cqJsArg(activeQBankId)}' })`,
+      ariaLabel: `Practice all objectives. ${totalAnswered} of ${totalQuestions} answered.`
+    });
+    rows += qbankTaxonomyRows(stats, 0, [], activeQBankId);
+
+    qbankTaxonomyRender({
+      backLabel: "Back to home",
+      backAction: "window.openQBank()",
+      crumb: `${cqEsc(activeQBankName)} · ${stats.length} objectives`,
+      kicker: activeQBankName,
+      title: "Educational objectives",
+      subtitle: `${stats.length} objectives · Objective → Organ System → Clinical Specialty → Sub-topic / Disease`,
+      actions: `<button type="button" class="cq-browser-action" onclick="window.qbankOpenBlockBuilder()"><i data-lucide="timer" aria-hidden="true"></i><span>Create test</span></button>`,
+      searchPlaceholder: "Search educational objectives...",
+      searchLabel: "Search educational objectives",
+      status: `Showing all ${stats.length} objectives`,
+      noun: "objectives",
+      total: stats.length,
+      layout: "grid",
+      rows
+    });
+  };
+
+  window.showQBankOrganSystems = async function(objective) {
+    const loaded = await qbankTaxonomyLoadBank(currentQBankId);
+    if (!loaded) return;
+    const { activeQBankName, questions, progress } = loaded;
+    const prefix = [objective];
+    const stats = qbankTaxonomyLevelStats(questions, progress, 1, prefix);
+    const total = questions.filter(q => qblockObjectiveOf(q) === objective).length;
+    const answered = questions.filter(q => qblockObjectiveOf(q) === objective && progress[q.id] && progress[q.id].correct !== undefined).length;
+    const correct = questions.filter(q => qblockObjectiveOf(q) === objective && progress[q.id] && progress[q.id].correct).length;
+    const path = [objective];
+    const routeId = qbankTaxonomyRoute(path, 1);
+
+    let rows = cqBrowserRow({
+      title: "All organ systems (Mix)",
+      searchText: `${objective} all organ systems mix`,
+      meta: "Practice questions across all organ systems for this objective",
+      total,
+      answered,
+      correct,
+      icon: "shuffle",
+      featured: true,
+      onclick: `window.qbankStartTaxonomyRoute('${cqJsArg(routeId)}')`,
+      ariaLabel: `Practice all organ systems for ${objective}. ${answered} of ${total} answered.`
+    });
+    rows += qbankTaxonomyRows(stats, 1, path, currentQBankId);
+
+    qbankTaxonomyRender({
+      backLabel: "Back to objectives",
+      backAction: "window.showQBankObjectives()",
+      crumb: `${cqEsc(activeQBankName)} &gt; ${cqEsc(objective)}`,
+      kicker: activeQBankName,
+      title: cqEsc(objective),
+      subtitle: `Organ systems · ${stats.length} systems · ${total} questions`,
+      actions: `<button type="button" class="cq-browser-action" onclick="window.qbankOpenBlockBuilder()"><i data-lucide="timer" aria-hidden="true"></i><span>Create test</span></button>`,
+      searchPlaceholder: "Search organ systems...",
+      searchLabel: `Search organ systems in ${objective}`,
+      status: `Showing all ${stats.length} organ systems`,
+      noun: "organ systems",
+      total: stats.length,
+      layout: "grid",
+      rows
+    });
+  };
+
+  window.showQBankClinicalSpecialties = async function(objective, organSystem) {
+    const loaded = await qbankTaxonomyLoadBank(currentQBankId);
+    if (!loaded) return;
+    const { activeQBankName, questions, progress } = loaded;
+    const prefix = [objective, organSystem];
+    const stats = qbankTaxonomyLevelStats(questions, progress, 2, prefix);
+    const total = questions.filter(q => qblockObjectiveOf(q) === objective && qblockSubjectOf(q) === organSystem).length;
+    const answered = questions.filter(q => qblockObjectiveOf(q) === objective && qblockSubjectOf(q) === organSystem && progress[q.id] && progress[q.id].correct !== undefined).length;
+    const correct = questions.filter(q => qblockObjectiveOf(q) === objective && qblockSubjectOf(q) === organSystem && progress[q.id] && progress[q.id].correct).length;
+    const path = [objective, organSystem];
+    const routeId = qbankTaxonomyRoute(path, 2);
+
+    let rows = cqBrowserRow({
+      title: "All clinical specialties (Mix)",
+      searchText: `${organSystem} all clinical specialties mix`,
+      meta: "Practice questions across all clinical specialties for this objective and organ system",
+      total,
+      answered,
+      correct,
+      icon: "shuffle",
+      featured: true,
+      onclick: `window.qbankStartTaxonomyRoute('${cqJsArg(routeId)}')`,
+      ariaLabel: `Practice all clinical specialties in ${organSystem}. ${answered} of ${total} answered.`
+    });
+    rows += qbankTaxonomyRows(stats, 2, path, currentQBankId);
+
+    qbankTaxonomyRender({
+      backLabel: "Back to organ systems",
+      backAction: `window.showQBankOrganSystems('${cqJsArg(objective)}')`,
+      crumb: `${cqEsc(activeQBankName)} &gt; ${cqEsc(objective)} &gt; ${cqEsc(organSystem)}`,
+      kicker: activeQBankName,
+      title: cqEsc(organSystem),
+      subtitle: `Clinical specialties · ${stats.length} specialties · ${total} questions`,
+      actions: `<button type="button" class="cq-browser-action" onclick="window.qbankOpenBlockBuilder()"><i data-lucide="timer" aria-hidden="true"></i><span>Create test</span></button>`,
+      searchPlaceholder: "Search clinical specialties...",
+      searchLabel: `Search clinical specialties in ${organSystem}`,
+      status: `Showing all ${stats.length} clinical specialties`,
+      noun: "clinical specialties",
+      total: stats.length,
+      layout: "grid",
+      rows
+    });
+  };
+
+  window.showQBankSubTopics = async function(objective, organSystem, clinicalSpecialty) {
+    const loaded = await qbankTaxonomyLoadBank(currentQBankId);
+    if (!loaded) return;
+    const { activeQBankName, questions, progress } = loaded;
+    const prefix = [objective, organSystem, clinicalSpecialty];
+    const stats = qbankTaxonomyLevelStats(questions, progress, 3, prefix);
+    const total = questions.filter(q => qblockObjectiveOf(q) === objective && qblockSubjectOf(q) === organSystem && qblockClinicalSpecialtyOf(q) === clinicalSpecialty).length;
+    const answered = questions.filter(q => qblockObjectiveOf(q) === objective && qblockSubjectOf(q) === organSystem && qblockClinicalSpecialtyOf(q) === clinicalSpecialty && progress[q.id] && progress[q.id].correct !== undefined).length;
+    const correct = questions.filter(q => qblockObjectiveOf(q) === objective && qblockSubjectOf(q) === organSystem && qblockClinicalSpecialtyOf(q) === clinicalSpecialty && progress[q.id] && progress[q.id].correct).length;
+    const path = [objective, organSystem, clinicalSpecialty];
+    const routeId = qbankTaxonomyRoute(path, 3);
+
+    let rows = cqBrowserRow({
+      title: "All sub-topics / diseases (Mix)",
+      searchText: `${clinicalSpecialty} all sub-topics mix`,
+      meta: "Practice questions across all sub-topics and diseases in this specialty",
+      total,
+      answered,
+      correct,
+      icon: "shuffle",
+      featured: true,
+      onclick: `window.qbankStartTaxonomyRoute('${cqJsArg(routeId)}')`,
+      ariaLabel: `Practice all sub-topics in ${clinicalSpecialty}. ${answered} of ${total} answered.`
+    });
+    rows += qbankTaxonomyRows(stats, 3, path, currentQBankId);
+
+    qbankTaxonomyRender({
+      backLabel: "Back to clinical specialties",
+      backAction: `window.showQBankClinicalSpecialties('${cqJsArg(objective)}', '${cqJsArg(organSystem)}')`,
+      crumb: `${cqEsc(activeQBankName)} &gt; ${cqEsc(objective)} &gt; ${cqEsc(organSystem)} &gt; ${cqEsc(clinicalSpecialty)}`,
+      kicker: activeQBankName,
+      title: cqEsc(clinicalSpecialty),
+      subtitle: `Sub-topics / diseases · ${stats.length} leaves · ${total} questions`,
+      actions: `<button type="button" class="cq-browser-action" onclick="window.qbankOpenBlockBuilder()"><i data-lucide="timer" aria-hidden="true"></i><span>Create test</span></button>`,
+      searchPlaceholder: "Search sub-topics / diseases...",
+      searchLabel: `Search sub-topics and diseases in ${clinicalSpecialty}`,
+      status: `Showing all ${stats.length} sub-topics`,
+      noun: "sub-topics",
+      total: stats.length,
+      layout: "grid",
+      rows
+    });
+  };
+
+  window.showQBankOrganSystemsByRoute = function(routeId) {
+    const route = window.__qbankTaxonomyRoutes && window.__qbankTaxonomyRoutes[routeId];
+    if (route) window.showQBankOrganSystems(route.path[0]);
+  };
+
+  window.showQBankSubjects = window.showQBankObjectives;
+  window.showQBankChapters = function() {
+    return window.showQBankObjectives();
+  };
+  window.showQBankParts = function() {
+    return window.showQBankObjectives();
   };
 
   window.filterQBankSubjects = function(query) {
@@ -3618,8 +5864,8 @@
     const noun = container.getAttribute("data-search-noun") || "items";
     const total = Number(container.getAttribute("data-search-total")) || visible;
     if (!q) status.textContent = `Showing all ${total} ${noun}`;
-    else if (visible) status.textContent = `${visible} of ${total} ${noun} match “${raw}”`;
-    else status.textContent = `No ${noun} match “${raw}”. Try a shorter term.`;
+    else if (visible) status.textContent = `${visible} of ${total} ${noun} match “${raw}”`;
+    else status.textContent = `No ${noun} match “${raw}”. Try a shorter term.`;
   };
 
   window.startQBankFiltered = async function(subject, chapter = null, reviewIncorrectsOnly = false, topicPath = null, tag = null) {
@@ -3748,6 +5994,7 @@
     const sidebar = document.getElementById("qbank-sidebar");
     if (sidebar) sidebar.style.display = "flex";
 
+    window.startQBankBlockClock && window.startQBankBlockClock(Date.now());
     window.qbankRenderCurrent();
     
     if (window.QBankParty && window.QBankParty.state.party && typeof window.qbankPartyStateChanged === 'function') {
@@ -3782,7 +6029,7 @@
     const lb = document.createElement("div");
     lb.id = "qbank-img-lightbox";
     lb.innerHTML = `
-      <button type="button" class="qlb-close" title="Close (Esc)">×</button>
+      <button type="button" class="qlb-close" title="Close (Esc)">Ã—</button>
       <img src="${src}" alt="Enlarged image" />
       <div class="qlb-hint">Click anywhere or press Esc to close</div>
       <style>${QLB_CSS}</style>`;
@@ -4095,35 +6342,26 @@
         const selectedHere = (blockExam || blockSubmitted) && blockPick.includes(i);
         const isCorrectPick = blockSubmitted && correctIndices.includes(i);
         const isPartialPick = blockSubmitted && reviewState && reviewState.partial && selectedHere && isCorrectPick;
-        let optionStyle = "display:flex; align-items:flex-start; width:100%; box-sizing:border-box;";
-        let optionClass = "usmle-option qbank-option-btn uiverse-label";
-        if (blockExam && selectedHere) optionClass += " selected";
+        let optionClass = "usmle-option qbank-option-btn uiverse-label qbank-uw-option";
+        if (selectedHere) optionClass += " selected";
         if (blockSubmitted) {
-          if (isPartialPick) {
-            optionClass += " partial";
-            optionStyle += " background:rgba(234,179,8,0.12); border:2px solid #eab308; border-radius:12px; padding:16px 20px;";
-          } else if (isCorrectPick) {
-            optionClass += " correct";
-            optionStyle += " background:rgba(34,197,94,0.1); border:2px solid #22c55e; border-radius:12px; padding:16px 20px;";
-          } else if (selectedHere) {
-            optionClass += " incorrect";
-            optionStyle += " background:rgba(244,63,94,0.1); border:2px solid #f43f5e; border-radius:12px; padding:16px 20px;";
-          }
+          if (isPartialPick) optionClass += " partial";
+          else if (isCorrectPick) optionClass += " correct";
+          else if (selectedHere) optionClass += " incorrect";
         }
         const inputDisabled = blockSubmitted ? "disabled" : "";
-        const inputPrevent = (!isMultiple && !inPartyMode) || blockExam || blockSubmitted ? 'onclick="event.preventDefault()"' : "";
+        const inputPrevent = blockExam || blockSubmitted ? 'onclick="event.preventDefault()"' : "";
         const labelClick = blockExam
           ? `onclick="window.qbankBlockPick(${i}); event.preventDefault();"`
-          : blockSubmitted
-            ? ""
-            : (!isMultiple && !inPartyMode ? `onclick="window.qbankSelectOption(${i}); event.preventDefault();"` : "");
+          : "";
 
         return `
-        <div class="qbank-radio-input" style="position:relative; width:100%;">
-          <input type="${isMultiple ? 'checkbox' : 'radio'}" id="qbank-radio-input-${i}" name="qbank-radio" value="${i}" ${blockExam && selectedHere ? "checked" : ""} ${inputDisabled} style="position:absolute; opacity:0; pointer-events:none; width:1px; height:1px; margin:0;" ${inputPrevent} aria-label="Option ${String.fromCharCode(65 + i)}">
-          <label class="${optionClass}" id="qbank-opt-${i}" for="qbank-radio-input-${i}" ${labelClick} style="${optionStyle}">
-            <span class="usmle-option-letter" style="margin-right:12px; font-weight:800; opacity:0.8;">${String.fromCharCode(65 + i)}</span>
-            <span class="usmle-option-text" style="flex:1;">${window.renderRichText ? window.renderRichText(opt) : (window.escapeHtml ? window.escapeHtml(opt) : opt)}</span>
+        <div class="qbank-radio-input">
+          <input type="${isMultiple ? 'checkbox' : 'radio'}" id="qbank-radio-input-${i}" name="qbank-radio" value="${i}" ${selectedHere ? "checked" : ""} ${inputDisabled} style="position:absolute; opacity:0; pointer-events:none; width:1px; height:1px; margin:0;" ${inputPrevent} aria-label="Option ${String.fromCharCode(65 + i)}">
+          <label class="${optionClass}" id="qbank-opt-${i}" for="qbank-radio-input-${i}" ${labelClick}>
+            <span class="qbank-uw-radio" aria-hidden="true"></span>
+            <span class="usmle-option-letter">${String.fromCharCode(65 + i)}</span>
+            <span class="usmle-option-text">${window.renderRichText ? window.renderRichText(opt) : (window.escapeHtml ? window.escapeHtml(opt) : opt)}</span>
             ${peerPercent}
           </label>
         </div>`;
@@ -4179,11 +6417,13 @@
       const examHint = blockPick.length
         ? "Answer saved. Correct answers and explanations unlock after you submit."
         : (isMultiple ? "Select all that apply. Answers unlock after you submit." : "Select one answer. Answers unlock after you submit.");
-      submitHtml = `<div style="margin-top:10px; text-align:center; font-size:12px; color:var(--text-muted); display:flex; align-items:center; justify-content:center; gap:7px;"><i data-lucide="lock" style="width:14px;height:14px;"></i><span id="qb-block-hint-text">${examHint}</span></div>`;
+      submitHtml = `<div class="qbank-uw-hint" id="qb-block-hint"><i class="fa-solid fa-lock"></i><span id="qb-block-hint-text">${examHint}</span></div>`;
     } else if (inPartyMode) {
-      submitHtml = `<button id="qbank-submit-btn" class="btn-action primary" style="margin-top:10px; width:100%; padding:12px;" onclick="window.qbankPartyLockAnswer()">Lock Answer</button>`;
-    } else if (isMultiple) {
-      submitHtml = `<button id="qbank-submit-btn" class="btn-action primary" style="margin-top:10px; width:100%; padding:12px;" onclick="window.qbankSelectOption()">Submit Answer</button>`;
+      submitHtml = `<button id="qbank-submit-btn" class="qbank-uw-submit" onclick="window.qbankPartyLockAnswer()">Lock Answer</button>`;
+    } else {
+      const hint = isMultiple ? "Select all that apply, then submit." : "Select one answer, then submit.";
+      submitHtml = `<button id="qbank-submit-btn" class="qbank-uw-submit" onclick="window.qbankSelectOption()">Submit</button>
+        <div class="qbank-uw-hint" id="qbank-submit-hint"><i class="fa-regular fa-hand-pointer"></i><span>${hint}</span></div>`;
     }
 
     let reviewHeader = "";
@@ -4197,91 +6437,40 @@
     const isLastQuestion = currentIndex >= currentQuestions.length - 1;
     const nextButtonLabel = blockSubmitted
       ? (isLastQuestion ? "Back to block results" : "Next review question")
-      : (blockActive && block.mode === "tutor" && isLastQuestion ? "Finish block" : "Next Question");
+      : (blockActive && block.mode === "tutor" && isLastQuestion ? "Finish test" : "Next Question");
     const nextButtonAction = blockSubmitted ? "window.qbankBlockNextReview()" : "window.qbankNext()";
-    const leaveAction = blockSubmitted ? "window.qbankBlockShowResults()" : (blockActive ? "window.qbankEndSession()" : "window.openQBank()");
-    const leaveLabel = blockSubmitted ? "Results" : "Leave";
-    const leaveTitle = blockSubmitted ? "Back to block results" : "Return to QBank Home";
 
     area.innerHTML = `
-      ${blockActive ? qblockBarHtml() : ""}
-      <div id="qbank-split-container" style="display:flex; max-width:1400px; margin:0 auto; padding:20px; gap:24px; text-align:left; align-items:flex-start;">
+      <div id="qbank-split-container" class="qbank-uw-split" style="display:flex; text-align:left; align-items:flex-start;">
         
         <!-- MAIN QUESTION COLUMN -->
-        <div id="qbank-left-col" style="flex:1; min-width:0; transition: width 0.3s ease;">
-          <div class="usmle-question-card">
-          <div class="usmle-question-num" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
-            <div style="display:flex; align-items:center; gap:12px;">
-              <button class="btn-dark-pill" style="padding:4px 8px; font-size:0.8rem; display:flex; align-items:center; gap:4px; height:27px; color:var(--text-secondary); border: 1px solid #d1d5db;" onclick="${leaveAction}" title="${leaveTitle}">
-                <i class="fa-solid fa-arrow-left" style="font-size:12px;"></i> ${leaveLabel}
-              </button>
-              <span>Question ${currentIndex + 1} of ${currentQuestions.length}</span>
-            </div>
-            <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
-               ${(() => {
-                 const p = window.qbankProgress[q.id] || {};
-                 const isMarked = p.marked;
-                 const hasNote = !!p.note;
-                 const highActive = !!window.qbankHighlighterActive;
-                 return `
-                   <button class="btn-dark-pill" style="padding:4px 10px; font-size:0.8rem; color:${isMarked ? 'var(--accent-cyan)' : 'var(--text-secondary)'}; display:flex; align-items:center; gap:4px; height:27px;" onclick="window.qbankToggleMark()">
-                     <i class="fa-solid fa-bookmark" style="font-size:12px;${isMarked ? 'color:var(--accent-cyan);' : ''}"></i> ${isMarked ? 'Marked' : 'Mark'}
-                   </button>
-                   <button class="btn-dark-pill" style="padding:4px 10px; font-size:0.8rem; color:${hasNote ? 'var(--accent-cyan)' : 'var(--text-secondary)'}; display:flex; align-items:center; gap:4px; height:27px;" onclick="window.qbankToggleNoteUI()">
-                     <i class="fa-solid fa-file-alt" style="font-size:12px;${hasNote ? 'color:var(--accent-cyan);' : ''}"></i> ${hasNote ? 'Edit Note' : 'Add Note'}
-                   </button>
-                   <button class="btn-dark-pill" id="qbank-highlighter-btn" style="padding:4px 10px; font-size:0.8rem; color:${highActive ? 'var(--accent-cyan)' : 'var(--text-secondary)'}; display:flex; align-items:center; gap:4px; height:27px;" onclick="window.qbankToggleHighlighter()">
-                     <i class="fa-solid fa-highlighter" style="font-size:12px;${highActive ? 'color:var(--accent-cyan);' : ''}"></i> Highlighter
-                   </button>
-                   <button class="btn-dark-pill" style="padding:4px 10px; font-size:0.8rem; color:var(--text-secondary); display:flex; align-items:center; gap:4px; height:27px;" onclick="window.generateAIFlashcard('${q.id}')" title="Generate AI Flashcard for this question">
-                     <i class="fa-solid fa-brain" style="font-size:12px;"></i> AI Flashcard
-                   </button>
-                   <button id="qbank-study-btn" class="btn-dark-pill" style="padding:4px 10px; font-size:0.8rem; color:var(--accent-cyan); display:flex; align-items:center; gap:4px; height:27px;" onclick="window.generateStudyConcept('${q.id}')" title="Study this concept in detail">
-                     <i class="fa-solid fa-book-open" style="font-size:12px;"></i> Study this part
-                   </button>
-                   <button class="btn-dark-pill" style="padding:4px 10px; font-size:0.8rem; color:#ef4444; display:flex; align-items:center; gap:4px; height:27px;" onclick="window.qbankReportQuestion('${q.id}')" title="Report an error in this question">
-                     <i class="fa-solid fa-flag" style="font-size:12px;"></i> Report
-                   </button>
-                 `;
-               })()}
-               <span title="${isMultiple ? 'Question à Choix Multiples (Multiple Answers)' : 'Question à Choix Simple (Single Answer)'}" style="font-size:0.8rem; padding:4px 10px; background:${isMultiple ? 'rgba(168,85,247,0.15)' : 'rgba(6,182,212,0.15)'}; border:1px solid ${isMultiple ? 'rgba(168,85,247,0.3)' : 'rgba(6,182,212,0.3)'}; border-radius:12px; color:${isMultiple ? '#a855f7' : '#06b6d4'}; font-weight:700; cursor:help; letter-spacing:0.5px;">${isMultiple ? 'QCM' : 'QCS'}</span>
-               ${data.subject ? `<span style="font-size:0.8rem; padding:4px 10px; background:rgba(255,255,255,0.1); border-radius:12px; color:var(--text-secondary); text-transform:uppercase;">${window.escapeHtml ? window.escapeHtml(data.subject) : data.subject}</span>` : ""}
-               <span style="font-size:0.8rem; padding:4px 10px; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.1); border-radius:12px; color:var(--text-secondary); font-family:monospace;">ID: ${data.code ? (window.escapeHtml ? window.escapeHtml(data.code) : data.code) : ("Q-" + q.id.substring(0, 5).toUpperCase())}</span>
-               ${(data.tags || []).map(t => `<span style="font-size:0.75rem; padding:3px 8px; background:rgba(167, 139, 250, 0.15); border:1px solid rgba(167, 139, 250, 0.3); border-radius:12px; color:#a78bfa;">#${window.escapeHtml ? window.escapeHtml(t) : t}</span>`).join("")}
-
-               ${window.isQBankAdmin ? `
-                 <button class="btn-dark-pill" style="padding:4px 10px; font-size:0.8rem; color:#f43f5e; display:flex; align-items:center; gap:4px; height:27px;" onclick="window.qbankAdminDelete('${q.id}')">
-                   <i class="fa-solid fa-trash" style="font-size:12px;"></i> Delete
-                 </button>
-                 <button class="btn-dark-pill" style="padding:4px 10px; font-size:0.8rem; color:#38bdf8; display:flex; align-items:center; gap:4px; height:27px;" onclick="window.qbankAdminEdit('${q.id}')">
-                   <i class="fa-solid fa-edit" style="font-size:12px;"></i> Edit
-                 </button>
-               ` : ''}
-            </div>
-          </div>
+        <div id="qbank-left-col" class="qbank-uw-left" style="flex:1; min-width:0;">
+          <div class="usmle-question-card qbank-uw-question-card">
           
           ${(() => {
              const p = window.qbankProgress[q.id] || {};
              if (!p.note) return "";
              return `
-             <div id="qbank-note-container" style="background:rgba(255,255,100,0.05); border-left:3px solid #facc15; padding:12px; margin-bottom:15px; border-radius:0 8px 8px 0; margin-top:15px;">
-               <div style="font-size:0.8rem; color:#facc15; font-weight:700; margin-bottom:4px; display:flex; align-items:center; gap:4px;"><i class="fa-solid fa-sticky-note" style="font-size:12px;"></i> MY NOTE</div>
-               <div style="font-size:0.9rem; color:var(--text-primary); white-space:pre-wrap;">${window.escapeHtml ? window.escapeHtml(p.note) : p.note}</div>
+             <div id="qbank-note-container" class="qbank-uw-note">
+               <div class="qbank-uw-note-label"><i class="fa-solid fa-sticky-note"></i> MY NOTE</div>
+               <div class="qbank-uw-note-text">${window.escapeHtml ? window.escapeHtml(p.note) : p.note}</div>
              </div>`;
           })()}
 
-          <div id="qbank-note-editor" style="display:none; margin-top:15px; margin-bottom:15px; background:rgba(0,0,0,0.2); padding:12px; border-radius:8px; border:1px solid rgba(255,255,255,0.1);">
+          <div id="qbank-note-editor" class="qbank-uw-note-editor" style="display:none;">
              <textarea id="qbank-note-input" class="login-input" style="width:100%; height:80px; padding:10px; font-size:0.9rem; margin-bottom:10px;" placeholder="Type your personal note here..."></textarea>
              <div style="display:flex; justify-content:flex-end; gap:8px;">
                <button class="btn-dark-pill" style="padding:6px 12px; font-size:0.85rem;" onclick="window.qbankToggleNoteUI()">Cancel</button>
                <button class="btn-action primary" style="padding:6px 12px; font-size:0.85rem;" onclick="window.qbankSaveNote()">Save Note</button>
              </div>
           </div>
-          <h2 id="qbank-question-content" onmouseup="window.qbankHandleSelection(event)" style="font-size:1.05rem; line-height:1.6; margin-bottom:1.5rem; font-weight:500;">
+          <h2 id="qbank-question-content" class="qbank-uw-stem" onmouseup="window.qbankHandleSelection(event)">
             ${q.highlightedHTML ? q.highlightedHTML : (window.renderRichText ? window.renderRichText(q.text) : (window.escapeHtml ? window.escapeHtml(q.text) : q.text))}
           </h2>
-          <div class="usmle-options" id="qbank-options-container">
-            ${optionsHtml}
+          <div class="qbank-uw-options-box">
+            <div class="usmle-options qbank-uw-options" id="qbank-options-container">
+              ${optionsHtml}
+            </div>
           </div>
           ${submitHtml}
           
@@ -4310,6 +6499,15 @@
                })()}
              </div>
              
+             <div class="qbank-uw-explanation-actions">
+               <button id="qbank-study-btn" type="button" class="btn-dark-pill" onclick="window.generateStudyConcept('${q.id}')" title="Study this concept in detail">
+                 <i class="fa-solid fa-book-open"></i> Study this part
+               </button>
+               <button type="button" class="btn-dark-pill" onclick="window.generateAIFlashcard('${q.id}')" title="Generate an AI flashcard from this question">
+                 <i class="fa-solid fa-brain"></i> AI Flashcard
+               </button>
+             </div>
+
              <!-- AI Chat Area -->
              <div style="margin-top:20px; border-top:1px solid var(--border-color, rgba(0,0,0,0.1)); padding-top:20px;">
                <button class="btn-dark-pill" style="color:var(--accent-cyan); display:flex; align-items:center; gap:8px;" onclick="window.qbankToggleChat()">
@@ -4357,16 +6555,40 @@
     window.qbankRenderSidebar();
     // Wire pre-submit selected visuals (QCM + party lock mode).
     if (window.qbankWireOptionSelection) window.qbankWireOptionSelection();
+    window.qbankRenderChrome();
   };
 
   window.qbankSelectOption = async function (selectedIndex) {
     const activeBlock = window.__qbankBlock;
     if (activeBlock && activeBlock.active && (activeBlock.submitted || activeBlock.mode === "exam")) return;
     if (!qbankTimer) return; // already answered
-    stopTimer();
-    
-    currentQuestionTimeMs = Date.now() - questionStartTime;
     const q = currentQuestions[currentIndex];
+    if (!q) return;
+
+    // Two-step answer flow: the user picks an option, then presses Submit.
+    // Read the checked input(s) so both radio and checkbox groups work.
+    const inputs = Array.from(document.getElementsByName("qbank-radio"));
+    let selectedIndices = [];
+    const explicit = (selectedIndex !== undefined && selectedIndex !== null) ? parseInt(selectedIndex, 10) : NaN;
+    if (Number.isFinite(explicit)) {
+      selectedIndices = [explicit];
+      inputs.forEach((input) => {
+        const idx = parseInt(input.value, 10);
+        if (idx === explicit) input.checked = true;
+      });
+    } else {
+      inputs.forEach((input) => {
+        if (input.checked) selectedIndices.push(parseInt(input.value, 10));
+      });
+    }
+    selectedIndices = [...new Set(selectedIndices.filter((n) => Number.isFinite(n)))].sort((a, z) => a - z);
+    if (!selectedIndices.length) {
+      qbankToastSafe("Select an answer choice before submitting.", true);
+      return;
+    }
+
+    stopTimer();
+    currentQuestionTimeMs = questionStartTime ? Math.max(0, Date.now() - questionStartTime) : 0;
     const data = q.data || {};
     // Answer split: the slice is usually prefetched by the render window;
     // await it here as fallback so grading never runs on missing answers.
@@ -4378,20 +6600,14 @@
         }
       } catch (_) {}
     }
-    const correctIndices = Array.isArray(data.correctIndices) ? data.correctIndices : (data.correctOptionIndex !== undefined ? [data.correctOptionIndex] : []);
-    const isMultiple = correctIndices.length > 1;
+    const gradedData = q.data || {};
+    const correctIndices = Array.isArray(gradedData.correctIndices) ? gradedData.correctIndices : (gradedData.correctOptionIndex !== undefined ? [gradedData.correctOptionIndex] : []);
+    const isMultiple = correctIndices.length > 1 || (correctIndices.length === 0 && gradedData.multi === true);
 
-    let selectedIndices = [];
-    if (isMultiple) {
-      const inputs = document.getElementsByName("qbank-radio");
-      inputs.forEach(r => { if (r.checked) selectedIndices.push(parseInt(r.value, 10)); });
-      const submitBtn = document.getElementById("qbank-submit-btn");
-      if (submitBtn) submitBtn.style.display = "none";
-    } else {
-      selectedIndices = [selectedIndex];
-      const inputs = document.getElementsByName("qbank-radio");
-      inputs.forEach((r) => { if (parseInt(r.value, 10) === selectedIndex) r.checked = true; });
-    }
+    const submitBtn = document.getElementById("qbank-submit-btn");
+    if (submitBtn) submitBtn.style.display = "none";
+    const submitHint = document.getElementById("qbank-submit-hint");
+    if (submitHint) submitHint.style.display = "none";
     
     currentSelectedIndices = selectedIndices;
     if (activeBlock && activeBlock.active && !activeBlock.submitted && activeBlock.mode === "tutor") {
@@ -4413,7 +6629,7 @@
         isPartial = true;
       }
     } else {
-      isCorrect = correctIndices.includes(selectedIndex);
+      isCorrect = correctIndices.includes(selectedIndices[0]);
     }
     
     // Highlight UI
@@ -4432,22 +6648,10 @@
       if (isPartial && selectedIndices.includes(i) && correctIndices.includes(i)) {
         // User's picked subset: correct but incomplete -> yellow so their answer stays visible
         label.classList.add("partial");
-        label.style.background = "rgba(234,179,8,0.12)";
-        label.style.border = "2px solid #eab308";
-        label.style.borderRadius = "12px";
-        label.style.padding = "16px 20px";
       } else if (correctIndices.includes(i)) {
         label.classList.add("correct");
-        label.style.background = "rgba(34,197,94,0.1)";
-        label.style.border = "2px solid #22c55e";
-        label.style.borderRadius = "12px";
-        label.style.padding = "16px 20px";
       } else if (selectedIndices.includes(i) && !correctIndices.includes(i)) {
         label.classList.add("incorrect");
-        label.style.background = "rgba(244,63,94,0.1)";
-        label.style.border = "2px solid #f43f5e";
-        label.style.borderRadius = "12px";
-        label.style.padding = "16px 20px";
       }
     });
 
@@ -4505,6 +6709,7 @@
     p.correct = isCorrect;
     p.partial = isPartial;
     p.timeTakenMs = currentQuestionTimeMs;
+    p.omitted = false;
     window.qbankProgress[q.id] = p;
     window.qbankRenderSidebar();
 
@@ -4515,6 +6720,7 @@
         questionId: q.id,
         correct: isCorrect,
         timeTakenMs: currentQuestionTimeMs,
+        omitted: false,
         subject: (q.data && q.data.subject) || "",
         chapter: (q.data && q.data.chapter) || ""
       });
@@ -4534,6 +6740,9 @@
         } catch (_) {}
       }, 500);
     }
+
+    window.qbankRenderChrome();
+    if (activeBlock && activeBlock.active) qblockPersistActive();
   };
 
   // Update peer percentages without re-rendering the question
@@ -4956,28 +7165,14 @@
   window.qbankToggleMark = async function() {
     const q = currentQuestions[currentIndex];
     if (!q) return;
-    const p = window.qbankProgress[q.id] || {};
+    const p = qbankProgressMap()[q.id] || {};
     const newMarked = !p.marked;
     
-    // Optimistic UI update (in-place only: do NOT re-render the question,
-    // otherwise the current checkbox/radio selection, timer and revealed
-    // answer would reset mid-question)
+    // Optimistic update only — re-rendering the question would reset the
+    // current selection, the timer, and any revealed explanation.
     p.marked = newMarked;
-    window.qbankProgress[q.id] = p;
-    try {
-      let btn = null;
-      if (window.event && window.event.target && window.event.target.closest) {
-        btn = window.event.target.closest('button');
-      }
-      if (!btn) {
-        const all = document.querySelectorAll('[onclick="window.qbankToggleMark()"]');
-        if (all && all.length) btn = all[0];
-      }
-      if (btn) {
-        btn.style.color = newMarked ? 'var(--accent-cyan)' : 'var(--text-secondary)';
-        btn.innerHTML = `<i class="fa-solid fa-bookmark" style="font-size:12px;${newMarked ? 'color:var(--accent-cyan);' : ''}"></i> ${newMarked ? 'Marked' : 'Mark'}`;
-      }
-    } catch (e) {}
+    qbankProgressMap()[q.id] = p;
+    window.qbankRenderChrome();
     window.qbankRenderSidebar();
     
     // Background save
@@ -5012,7 +7207,7 @@
             <div class="rp-title"><i data-lucide="flag" style="width:17px;height:17px;color:#f59e0b;"></i> Report Question</div>
             <div class="rp-sub">What is wrong with this question?</div>
           </div>
-          <button type="button" class="rp-close">×</button>
+          <button type="button" class="rp-close">Ã—</button>
         </div>
 
         <div class="rp-reasons">
@@ -5156,15 +7351,10 @@
 
   window.qbankToggleHighlighter = function() {
       window.qbankHighlighterActive = !window.qbankHighlighterActive;
-      const btn = document.getElementById("qbank-highlighter-btn");
+      window.qbankRenderChrome();
       if (window.qbankHighlighterActive) {
-          btn.style.color = "var(--accent-cyan)";
-          btn.innerHTML = '<i data-lucide="highlighter" style="width:14px;height:14px;stroke:var(--accent-cyan);"></i> Highlighter';
-      } else {
-          btn.style.color = "var(--text-secondary)";
-          btn.innerHTML = '<i data-lucide="highlighter" style="width:14px;height:14px;"></i> Highlighter';
+          qbankToastSafe("Highlighter on. Select text in the question to highlight it.");
       }
-      if (window.lucide && window.lucide.createIcons) window.lucide.createIcons();
   };
 
   window.qbankHandleSelection = function(e) {
@@ -5216,6 +7406,7 @@
     
     const p = window.qbankProgress[q.id] || {};
     p.note = newNote;
+    p.noteUpdatedAt = Date.now();
     window.qbankProgress[q.id] = p;
     window.qbankRenderCurrent();
     
@@ -6356,7 +8547,7 @@
       try { loadExamPrepPerformance(); } catch (_) {}
   }
 
-  // ── Exam Prep section of the Analytics tab ──
+  // â”€â”€ Exam Prep section of the Analytics tab â”€â”€
   // Lists every exam-prep bank with its own accuracy stats plus a combined
   // subject breakdown aggregated across exam-prep banks. Bank-level totals
   // come from progress-only fetches (no question download); subject splits
@@ -7119,7 +9310,6 @@
 
   window.__epBankCard = function(q) {
       const locked = !!q.locked;
-      const pending = window.__pendingAccess instanceof Set && window.__pendingAccess.has(q.id);
       const safeId = epJs(q.id);
       const safeName = epJs(q.name || "");
       const qCount = epQuestionsKnown(q);
@@ -7130,20 +9320,16 @@
       meta.push(`<span class="ep-bank-chip"><i data-lucide="globe-2"></i>${epEsc(epCountryLabel(country))}</span>`);
       if (qCount > 0) meta.push(`<span class="ep-bank-chip"><i data-lucide="list-checks"></i>${qCount.toLocaleString()} questions</span>`);
       const status = locked
-          ? (pending
-              ? `<span class="ep-status is-pending"><i data-lucide="clock-3"></i>Pending</span>`
-              : `<span class="ep-status is-locked"><i data-lucide="lock"></i>Locked</span>`)
+          ? `<span class="ep-status is-locked"><i data-lucide="lock"></i>Paid</span>`
           : `<span class="ep-status is-open"><i data-lucide="check-circle"></i>Ready</span>`;
       const cta = locked
-          ? (pending
-              ? `<button type="button" class="ep-btn ep-btn-ghost" disabled><i data-lucide="clock-3"></i>Pending</button>`
-              : `<button type="button" class="ep-btn ep-btn-locked" onclick="event.stopPropagation(); window.qbankRequestAccess('${safeId}', '${safeName}')"><i data-lucide="lock"></i>Request access</button>`)
+          ? `<button type="button" class="ep-btn ep-btn-locked" onclick="event.stopPropagation(); window.qbankEnterLicense('${safeId}', '${safeName}')"><i data-lucide="key-round"></i>Enter license</button>`
           : `<button type="button" class="ep-btn ep-btn-primary" onclick="event.stopPropagation(); window.startQBankSession('${safeId}', '${safeName}')">Practice <i data-lucide="arrow-right"></i></button>`;
       const click = locked
-          ? (pending ? "" : `onclick="window.qbankRequestAccess('${safeId}', '${safeName}')"`)
+          ? `onclick="window.qbankEnterLicense('${safeId}', '${safeName}')"`
           : `onclick="window.startQBankSession('${safeId}', '${safeName}')"`;
       return `
-      <article class="ep-bank-card${locked ? " is-locked" : ""}${pending ? " is-pending" : ""}" ${click}>
+      <article class="ep-bank-card${locked ? " is-locked" : ""}" ${click}>
           <div class="ep-bank-head">
               <span class="ep-bank-icon"><i data-lucide="${locked ? "lock" : "graduation-cap"}"></i></span>
               ${status}
@@ -7155,7 +9341,7 @@
       </article>`;
   };
 
-  window.epRenderHome = function(focusCountry = null, focusCollege = null) {
+  window.__epRenderHomeLegacy = function(focusCountry = null, focusCollege = null) {
       const listEl = document.getElementById("exam-prep-content");
       if (!listEl) return;
       const profile = window.__epProfile();
@@ -7309,6 +9495,61 @@
                   <b>${noteTitle}</b>
                   <span>${noteText}</span>
               </div>
+          </section>
+      </div>`;
+      if (window.lucide && window.lucide.createIcons) window.lucide.createIcons();
+  };
+
+  window.epRenderHome = function() {
+      const listEl = document.getElementById("exam-prep-content");
+      if (!listEl) return;
+      const acc = (window.db && window.db.access) || null;
+      const allowed = new Set([
+          ...((acc && Array.isArray(acc.prepIds)) ? acc.prepIds : []),
+          ...((acc && Array.isArray(acc.grants)) ? acc.grants : []),
+      ]);
+      const all = (window.__epBanks && window.__epBanks.length)
+          ? window.__epBanks
+          : cqPrepBanks().map(q => ({ ...q }));
+      const banks = all
+          .filter(q => q && q.id)
+          .map(q => ({ ...q, locked: acc ? !allowed.has(q.id) : false }))
+          .sort((a, b) => String(b.year || "").localeCompare(String(a.year || "")) || String(a.name || "").localeCompare(String(b.name || "")));
+      const paidCount = banks.filter(q => q.accessTier === "paid").length;
+      const lockedCount = banks.filter(q => q.locked).length;
+      const stats = `<div class="ep-profile-stats">
+          <div class="ep-profile-stat"><b>${banks.length}</b><small>${banks.length === 1 ? "bank" : "banks"}</small></div>
+          ${paidCount ? `<div class="ep-profile-stat"><b>${lockedCount}</b><small>locked</small></div>` : ""}
+      </div>`;
+      const empty = `<div class="ep-empty">
+          <span class="ep-empty-icon"><i data-lucide="folder-open"></i></span>
+          <h3>No exam prep banks yet</h3>
+          <p>Exam prep banks will appear here as soon as they are published.</p>
+      </div>`;
+      listEl.innerHTML = `
+      <div class="ep-home">
+          <section class="ep-profile">
+              <span class="ep-profile-flag"><i data-lucide="graduation-cap"></i></span>
+              <div class="ep-profile-main">
+                  <span class="ep-profile-kicker">QBank access</span>
+                  <h2>Exam Prep</h2>
+                  <p>Free banks open instantly. Paid banks unlock with a license or an admin assignment.</p>
+              </div>
+              ${stats}
+              <div class="ep-profile-actions">
+                  <button type="button" class="ep-btn ep-btn-primary" onclick="window.qbankEnterLicense()"><i data-lucide="key-round"></i> Enter license</button>
+              </div>
+          </section>
+          <section class="ep-section">
+              <div class="ep-section-head">
+                  <div>
+                      <h2>Exam prep banks</h2>
+                      <p>${lockedCount ? `${lockedCount} paid ${lockedCount === 1 ? "bank needs" : "banks need"} a license.` : "All available banks are ready to practice."}</p>
+                  </div>
+              </div>
+              ${banks.length
+                  ? `<div class="ep-bank-grid">${banks.map(q => window.__epBankCard(q)).join("")}</div>`
+                  : empty}
           </section>
       </div>`;
       if (window.lucide && window.lucide.createIcons) window.lucide.createIcons();
@@ -7509,11 +9750,11 @@
           <div class="ep-shell">
               <header class="ep-hero">
                   <div class="ep-hero-main">
-                      <span class="ep-kicker">Academic profile</span>
+                      <span class="ep-kicker">QBank access</span>
                       <h1>Exam Prep</h1>
-                      <p>Past papers matched to your country, major and college.</p>
+                      <p>Free and licensed exam-prep banks in one place.</p>
                   </div>
-                  <button type="button" class="ep-btn ep-btn-ghost" onclick="window.epShowCountries && window.epShowCountries()"><i data-lucide="compass"></i> Browse all colleges</button>
+                  <button type="button" class="ep-btn ep-btn-ghost" onclick="window.qbankEnterLicense && window.qbankEnterLicense()"><i data-lucide="key-round"></i> Enter license</button>
               </header>
               <div id="exam-prep-content">
                   <div class="ep-loading" aria-label="Loading exam prep">
@@ -7534,7 +9775,7 @@
       const acc = window.db.access || null;
       const accGrants = Array.isArray(acc && acc.grants) ? acc.grants : [];
       const accPrep = Array.isArray(acc && acc.prepIds) ? acc.prepIds : [];
-      const prepAllowed = (id) => !acc || acc.legacy || !acc.country || accGrants.includes(id) || accPrep.includes(id);
+      const prepAllowed = (id) => !acc || accGrants.includes(id) || accPrep.includes(id);
       window.__epBanks = (qbanks || []).filter(q => q.kind === "exam_prep").map(q => ({
         ...q,
         locked: !prepAllowed(q.id),
@@ -7596,6 +9837,65 @@
           document.getElementById('youtube-player-content').style.opacity = "1";
           document.getElementById('youtube-player-content').style.transform = "scale(1)";
       }, 10);
+  };
+
+  // ---- Block-only practice entry points ----
+  // The legacy browser remains available for taxonomy browsing, but every
+  // action that would start answering questions now opens the block builder
+  // with the same subject/chapter/topic filters preselected.
+  window.qbankOpenBlockBuilder = function(opts = {}) {
+    return qblockOpenBuilderScreen(opts || {});
+  };
+
+  window.qbankOpenBlockHistory = function() {
+    return qblockOpenBuilderScreen({ tab: "history" });
+  };
+
+  window.qbankOpenExamPrepBlockBuilder = function() {
+    return qblockOpenBuilderScreen({ pickExamPrep: true });
+  };
+
+  const qblockLegacyStartFiltered = window.startQBankFiltered;
+  window.startQBankFiltered = async function(subject, chapter = null, reviewIncorrectsOnly = false, topicPath = null, tag = null) {
+    // Answer Party is a separate live mode; keep its original path intact.
+    if (window.pendingPartyCreation) {
+      return qblockLegacyStartFiltered.apply(this, arguments);
+    }
+    const bankId = currentQBankId || (window.db && window.db.selectedQBankId);
+    if (!bankId) return window.openQBank();
+    return qblockOpenBuilderScreen({
+      bankId,
+      subject,
+      chapter,
+      reviewIncorrectsOnly,
+      topicPath,
+      tag,
+      modes: reviewIncorrectsOnly ? ["incorrect", "marked"] : undefined,
+    });
+  };
+
+  window.qbankResumeSession = async function(qbankId, qbankName, subject, topicPath = null, tag = null) {
+    const bankId = qbankId || currentQBankId || (window.db && window.db.selectedQBankId);
+    if (!bankId) return window.openQBank();
+    return qblockOpenBuilderScreen({ bankId, subject, topicPath, tag });
+  };
+
+  window.qbankContinueLast = function() {
+    const lastBlock = qblockLatestInProgress();
+    if (lastBlock) return qblockOpenSavedBlock(lastBlock, "resume");
+    const last = getLastSession();
+    if (!last || !last.qbankId) return window.qbankOpenBlockBuilder();
+    return window.qbankResumeSession(last.qbankId, last.qbankName, last.subject, last.topicPath, last.tag);
+  };
+
+  window.qbankContinueMarked = async function() {
+    let bankId = currentQBankId || (window.db && window.db.selectedQBankId);
+    if (!bankId) {
+      const cachedIds = Object.keys(cachedQBanks || {});
+      bankId = cachedIds[0] || "";
+    }
+    if (!bankId) return window.qbankOpenBlockBuilder({ modes: ["marked"] });
+    return qblockOpenBuilderScreen({ bankId, modes: ["marked"] });
   };
 
 })();
@@ -7686,12 +9986,12 @@
       
       const head = document.createElement('div');
       head.style.cssText = 'padding:8px 12px;background:var(--surface-container-highest, #2d2d2d);cursor:pointer;display:flex;justify-content:space-between;align-items:center;font-weight:bold;user-select:none;';
-      head.innerHTML = `<span>Admin DB Diagnostics</span><span id="adw-toggle">▲</span>`;
+      head.innerHTML = `<span>Admin DB Diagnostics</span><span id="adw-toggle">â–²</span>`;
       head.onclick = () => {
         const body = document.getElementById('adw-body');
         const isHidden = body.style.display === 'none';
         body.style.display = isHidden ? 'block' : 'none';
-        document.getElementById('adw-toggle').textContent = isHidden ? '▼' : '▲';
+        document.getElementById('adw-toggle').textContent = isHidden ? 'â–¼' : 'â–²';
       };
       w.appendChild(head);
       
@@ -7707,7 +10007,7 @@
     let html = `<div style="padding:8px 12px;border-bottom:1px solid var(--outline, #444);display:flex;gap:12px;align-items:center;" title="Real Firestore counts only — untracked calls carry no headers and are excluded">
       <div style="color:#22c55e;">Reads: <b>${diagnosticData.reads}</b></div>
       <div style="color:#eab308;">Writes: <b>${diagnosticData.writes}</b></div>
-      ${diagnosticData.untracked > 0 ? `<div style="color:#f59e0b;" title="${diagnosticData.untracked} API call(s) without Firestore headers — backend route not instrumented">⚠ untracked: <b>${diagnosticData.untracked}</b></div>` : ""}
+      ${diagnosticData.untracked > 0 ? `<div style="color:#f59e0b;" title="${diagnosticData.untracked} API call(s) without Firestore headers — backend route not instrumented">âš  untracked: <b>${diagnosticData.untracked}</b></div>` : ""}
     </div>`;
     
     html += `<div style="max-height:200px;overflow-y:auto;padding:8px 12px;display:flex;flex-direction:column;gap:6px;">`;
@@ -7888,4 +10188,5 @@
   window.__diagPatchFirestore = patchFirestoreSDK;
 
 })();
+
 

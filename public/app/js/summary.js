@@ -3,6 +3,22 @@
 let currentSelection = "";
 let popoverActive = false;
 
+// Smart Explain visuals finish one-by-one. Coalesce cache writes so a summary
+// with many images doesn't trigger a Firestore write per image.
+const smartExplainSaveTimers = new WeakMap();
+function persistSmartExplainCache(sec, html) {
+    if (!sec) return;
+    sec.smartExplainCache = window.sePruneHtmlForCache
+        ? window.sePruneHtmlForCache(html)
+        : html;
+    const prev = smartExplainSaveTimers.get(sec);
+    if (prev) clearTimeout(prev);
+    smartExplainSaveTimers.set(sec, setTimeout(() => {
+        smartExplainSaveTimers.delete(sec);
+        if (typeof saveDb === 'function') saveDb();
+    }, 1200));
+}
+
 window.addEventListener('mouseup', handleTextSelection);
 window.addEventListener('mousedown', hidePopoverIfClickOutside);
 
@@ -237,6 +253,13 @@ window.docExplainText = async function () {
     if (reply && !reply._error) {
         let cleanReply = String(reply).replace(/```html/gi, '').replace(/```/g, '').trim();
         contentDiv.innerHTML = window.safeHTML(cleanReply);
+        if (typeof window.smartExplainVisuals === 'function') {
+            try {
+                await window.smartExplainVisuals(cleanReply, { container: contentDiv });
+            } catch (e) {
+                console.warn('[smart-explain] visuals failed', e);
+            }
+        }
     } else {
         contentDiv.innerHTML = (window.aiErrorHTML ? window.aiErrorHTML(reply) : '<div style="color:#aab0c6;text-align:center;padding:16px;">AI unavailable. Try again.</div>');
     }
@@ -485,8 +508,15 @@ window.explainCurrentSummary = async function () {
     const contentDiv = document.getElementById('doc-explain-modal-content');
 
     // If a previously generated Smart Explain exists for this section, show it
+    // and finish any visuals that were interrupted last time.
     if (sec.smartExplainCache) {
-        contentDiv.innerHTML = sec.smartExplainCache;
+        contentDiv.innerHTML = window.safeHTML(sec.smartExplainCache);
+        if (typeof window.smartExplainVisuals === 'function') {
+            window.smartExplainVisuals(sec.smartExplainCache, {
+                container: contentDiv,
+                onChange: (html) => persistSmartExplainCache(sec, html),
+            }).catch((e) => console.warn('[smart-explain] visuals failed', e));
+        }
         return;
     }
 
@@ -498,6 +528,17 @@ window.explainCurrentSummary = async function () {
         contentDiv.innerHTML = window.safeHTML(cleanReply);
         sec.smartExplainCache = cleanReply;
         if (typeof saveDb === 'function') saveDb();
+
+        if (typeof window.smartExplainVisuals === 'function') {
+            try {
+                await window.smartExplainVisuals(cleanReply, {
+                    container: contentDiv,
+                    onChange: (html) => persistSmartExplainCache(sec, html),
+                });
+            } catch (e) {
+                console.warn('[smart-explain] visuals failed', e);
+            }
+        }
     } else {
         contentDiv.innerHTML = (window.aiErrorHTML ? window.aiErrorHTML(reply) : '<div style="color:#aab0c6;text-align:center;padding:16px;">AI unavailable. Try again.</div>');
     }

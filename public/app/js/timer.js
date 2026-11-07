@@ -292,7 +292,7 @@
         if (state.running) {
             document.title = `⏱ ${fmt(state.secondsLeft)} — ${phaseLabel(state.phase)}`;
         } else if (document.title.startsWith('⏱')) {
-            document.title = 'OmNote — Intelligent Learning Platform';
+            document.title = 'CuraQ | The Largest QBank in the Middle East';
         }
     }
 

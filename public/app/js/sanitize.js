@@ -7,13 +7,15 @@
       "a","b","i","em","strong","u","p","br","hr","span","div","mark",
       "ul","ol","li","blockquote","code","pre",
       "h1","h2","h3","h4","h5","h6","table","thead","tbody","tr","td","th",
-      "img"
+      "img","figure","figcaption"
     ],
-    ALLOWED_ATTR: ["href","title","class","style","alt","src","target","rel"],
+    ALLOWED_ATTR: ["href","title","class","style","alt","src","target","rel","loading","decoding","referrerpolicy"],
     ALLOWED_URI_REGEXP: /^(?:(?:https?|mailto|tel|data:image\/[a-z]+;base64,):|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i,
     FORBID_TAGS: ["script","iframe","object","embed","form","input","button","link","meta","style"],
     FORBID_ATTR: ["onerror","onload","onclick","onmouseover","onfocus","onblur","onchange","onsubmit","onkeydown","onkeyup","onkeypress","srcdoc","formaction","xlink:href"],
-    ALLOW_DATA_ATTR: false,
+    // Smart Explain visuals carry their generation brief in data-se-* attributes
+    // so an interrupted explanation can resume without re-planning.
+    ALLOW_DATA_ATTR: true,
   };
 
   function textFallback(html) {

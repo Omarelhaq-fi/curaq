@@ -539,7 +539,7 @@ window.submitReview = function (rating) {
     }
 };
 
-window.explainCurrentFlashcard = function() {
+window.explainCurrentFlashcard = async function() {
     const card = reviewQueue[currentReviewIdx];
     if (!card) return;
     
@@ -559,17 +559,23 @@ window.explainCurrentFlashcard = function() {
     }
 
     const contentDiv = document.getElementById('doc-explain-modal-content');
+    if (!contentDiv) return;
     contentDiv.innerHTML = '<div style="color:var(--accent-active); text-align: center; margin-top: 20px;">Analyzing as a senior tutor...</div>';
 
-    window.aiTask("smart_explain_sentence", { sentence: textToExplain }).then(reply => {
-        if (reply && !reply._error) {
-            let cleanReply = String(reply).replace(/```html/gi, '').replace(/```/g, '').trim();
-            contentDiv.innerHTML = cleanReply;
-        } else {
-            contentDiv.innerHTML = (window.aiErrorHTML ? window.aiErrorHTML(reply) : '<div style="color:#aab0c6;text-align:center;padding:16px;">AI unavailable. Try again.</div>');
+    const reply = await window.aiTask("smart_explain_sentence", { sentence: textToExplain });
+    if (reply && !reply._error) {
+        let cleanReply = String(reply).replace(/```html/gi, '').replace(/```/g, '').trim();
+        contentDiv.innerHTML = window.safeHTML ? window.safeHTML(cleanReply) : cleanReply;
+        if (typeof window.smartExplainVisuals === 'function') {
+            try {
+                await window.smartExplainVisuals(cleanReply, { container: contentDiv });
+            } catch (e) {
+                console.warn('[smart-explain] visuals failed', e);
+            }
         }
-    });
-
+    } else {
+        contentDiv.innerHTML = (window.aiErrorHTML ? window.aiErrorHTML(reply) : '<div style="color:#aab0c6;text-align:center;padding:16px;">AI unavailable. Try again.</div>');
+    }
 };
 
 // ============================================================

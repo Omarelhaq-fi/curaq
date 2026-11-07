@@ -657,7 +657,7 @@
             pillPlay.innerHTML = '<i data-lucide="play"></i>';
             pill.classList.remove("running");
             if (document.title.startsWith('⏱') && !window.__omnoteOcrRunning) {
-              document.title = 'OmNote — Intelligent Learning Platform';
+              document.title = 'CuraQ | The Largest QBank in the Middle East';
             }
           }
           if (window.lucide) window.lucide.createIcons({root: pillPlay});

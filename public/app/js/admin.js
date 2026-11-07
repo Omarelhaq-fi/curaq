@@ -56,6 +56,29 @@
   }
   function fmt(n) { return Number(n || 0).toLocaleString(); }
 
+  window.adminCopyText = async function (text, btn) {
+    const value = String(text == null ? "" : text);
+    if (!value) return;
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(value);
+      } else {
+        const ta = document.createElement("textarea");
+        ta.value = value;
+        ta.style.cssText = "position:fixed;top:-1000px;left:-1000px;opacity:0;";
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand("copy");
+        ta.remove();
+      }
+      if (btn) {
+        const prev = btn.textContent;
+        btn.textContent = "Copied";
+        setTimeout(() => { btn.textContent = prev; }, 1200);
+      }
+    } catch (_) { /* clipboard unavailable */ }
+  };
+
   window.showAdminButton = async function () {
     const btn = document.getElementById("admin-panel-btn");
     if (!btn) return;
@@ -109,8 +132,7 @@
     if (tab === "reports") loadAdminReports();
     if (tab === "support") loadAdminSupport();
     if (tab === "peerstats") loadAdminPeerStats();
-    if (tab === "colleges" && typeof window.loadAdminColleges === "function") window.loadAdminColleges();
-    if (tab === "access" && typeof window.loadAccessRequests === "function") loadAccessRequests();
+    if (tab === "access" && typeof window.loadAdminAccess === "function") window.loadAdminAccess();
     if (window.lucide && window.lucide.createIcons) { try { window.lucide.createIcons(); } catch (_) {} }
   };
 
@@ -739,7 +761,7 @@
       const search = document.createElement("div");
       search.style.cssText = "display:flex;gap:12px;margin-bottom:14px;align-items:center;flex-wrap:wrap;";
       search.innerHTML = `
-        <input id="admin-user-search" placeholder="Search by email…" oninput="window.filterAdminUsers()" style="flex:1;min-width:200px;padding:10px 12px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:8px;color:#fff;font-size:0.85rem;">
+        <input id="admin-user-search" placeholder="Search by email, name or Telegram…" oninput="window.filterAdminUsers()" style="flex:1;min-width:200px;padding:10px 12px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:8px;color:#fff;font-size:0.85rem;">
         <div style="display:flex;gap:14px;font-size:0.78rem;color:var(--text-muted);">
           <span><b style="color:var(--text-primary)">${users.length}</b> users</span>
           <span><b style="color:#67e8f9">${proCount}</b> Supporter</span>
@@ -766,6 +788,7 @@
         const row = document.createElement("div");
         row.className = "admin-user-row";
         row.dataset.email = email.toLowerCase();
+        row.dataset.search = [email, u.displayName, u.telegram, u.telegramType].filter(Boolean).join(" ").toLowerCase();
         row.style.cssText = "padding:10px 12px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:10px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;";
 
         const left = document.createElement("div");
@@ -797,6 +820,24 @@
         const qbankPart = u.qbankAnswerCount > 0 ? ` · ${fmt(u.qbankAnswerCount)} qbank answers` : "";
         meta.textContent = `${creditPart}${bonusPart}${qbankPart} · ${fmt(usedM)} used this month · seen ${last}`;
         left.appendChild(meta);
+
+        if (u.telegram) {
+          const tgLine = document.createElement("div");
+          tgLine.style.cssText = "display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:0.72rem;color:#67e8f9;margin-top:4px;";
+          const tgLabel = document.createElement("span");
+          tgLabel.textContent = `Telegram: ${u.telegram}${u.telegramType ? ` (${u.telegramType})` : ""}`;
+          const tgCopy = document.createElement("button");
+          tgCopy.className = "btn-dark-pill";
+          tgCopy.style.cssText = "padding:2px 8px;font-size:0.66rem;";
+          tgCopy.textContent = "Copy";
+          tgCopy.addEventListener("click", (ev) => {
+            ev.stopPropagation();
+            window.adminCopyText(u.telegram, tgCopy);
+          });
+          tgLine.appendChild(tgLabel);
+          tgLine.appendChild(tgCopy);
+          left.appendChild(tgLine);
+        }
 
         const actions = document.createElement("div");
         actions.style.cssText = "display:flex;gap:6px;flex-wrap:wrap;";
@@ -831,7 +872,8 @@
   window.filterAdminUsers = function () {
     const q = (document.getElementById("admin-user-search").value || "").toLowerCase();
     document.querySelectorAll(".admin-user-row").forEach((r) => {
-      r.style.display = r.dataset.email.includes(q) ? "" : "none";
+      const hay = r.dataset.search || r.dataset.email || "";
+      r.style.display = hay.includes(q) ? "" : "none";
     });
   };
 
@@ -1586,6 +1628,9 @@
           </div>
         </div>`;
       }).join("");
+      const tgLabel = d.telegramType === "phone" ? "Telegram phone"
+        : d.telegramType === "username" ? "Telegram username"
+        : "Telegram";
       host.innerHTML = `
         <div style="margin-top:16px;padding:20px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:12px;">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:10px;">
@@ -1595,6 +1640,11 @@
             </div>
             <button class="btn-dark-pill" style="padding:6px 12px;font-size:0.75rem;" onclick="document.getElementById('admin-stats-detail').innerHTML='';">Close</button>
           </div>
+          ${d.telegram ? `<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 12px;margin-bottom:12px;background:rgba(6,182,212,0.08);border:1px solid rgba(6,182,212,0.22);border-radius:10px;">
+            <span style="font-size:0.68rem;font-weight:800;letter-spacing:0.06em;text-transform:uppercase;color:#22d3ee;">${escapeHtml(tgLabel)}</span>
+            <b style="color:var(--text-primary);word-break:break-all;">${escapeHtml(d.telegram)}</b>
+            <button class="btn-dark-pill" style="padding:3px 10px;font-size:0.7rem;margin-left:auto;" data-copy="${escapeHtml(d.telegram)}" onclick="window.adminCopyText(this.dataset.copy, this)">Copy</button>
+          </div>` : `<div style="padding:10px 12px;margin-bottom:12px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:10px;font-size:0.74rem;color:var(--text-muted);">Telegram contact not provided.</div>`}
           <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;">
             ${statCard("Flashcards", fmt(fc), "user total", "#f59e0b")}
             ${statCard("QBank Answers", fmt(qa), "questions answered", "#06b6d4")}
@@ -2029,6 +2079,7 @@
               <div>
                 <div style="font-weight:600; color:var(--text-primary); display:flex; align-items:center; gap:8px;">
                   <span>${flag}</span>${escapeHtml(q.name)}
+                  <span style="font-size:0.68rem; font-weight:800; padding:2px 8px; border-radius:12px; ${q.accessTier === "paid" ? "background:rgba(251,191,36,0.16); color:#fbbf24;" : "background:rgba(94,234,212,0.13); color:#5eead4;"}">${q.accessTier === "paid" ? "PAID" : "FREE"}</span>
                   <span id="admin-qbank-count-${escapeHtml(q.id)}" style="font-size:0.75rem; background:var(--accent-cyan); color:#000; padding:2px 8px; border-radius:12px; font-weight:800; display:none;">0 Qs</span>
                 </div>
                 <div style="font-size:0.75rem; color:var(--text-muted); margin-top:4px; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;" title="${escapeHtml(q.subcategories || 'None')}">Rules: ${escapeHtml(q.subcategories || "None")}</div>
@@ -2042,6 +2093,13 @@
               </div>
             <div id="admin-qbank-edit-${escapeHtml(q.id)}" style="display:none; flex-direction:column; gap:10px; align-items:stretch; margin-top:4px; padding-top:10px; border-top:1px solid rgba(255,255,255,0.05);">
               <input type="text" id="admin-qbank-input-${escapeHtml(q.id)}" class="login-input" value="${escapeHtml(q.subcategories || "")}" placeholder="Comma-separated rules...">
+              <label style="display:flex; align-items:center; gap:8px; font-size:0.9rem; color:var(--text-secondary);">
+                Access tier
+                <select id="admin-qbank-tier-${escapeHtml(q.id)}" class="login-input" style="width:130px; cursor:pointer;">
+                  <option value="free" ${q.accessTier === "paid" ? "" : "selected"}>Free</option>
+                  <option value="paid" ${q.accessTier === "paid" ? "selected" : ""}>Paid</option>
+                </select>
+              </label>
               <div style="display:flex; gap:20px; align-items:center; font-size:0.9rem; color:var(--text-secondary);">
                 <label style="display:flex; align-items:center; gap:6px; cursor:pointer;">
                   <input type="checkbox" id="admin-qbank-locked-${escapeHtml(q.id)}" ${q.isLocked ? "checked" : ""} style="appearance:auto; width:16px; height:16px; cursor:pointer; accent-color:var(--accent-cyan);"> Under Maintenance (Locked)
@@ -2113,13 +2171,15 @@
     const input = document.getElementById("admin-qbank-name-input");
     const countrySel = document.getElementById("admin-qbank-country-input");
     const subcatsInput = document.getElementById("admin-qbank-create-subcats");
+    const tierSel = document.getElementById("admin-qbank-tier-input");
     const name = input.value.trim();
     const country = countrySel ? countrySel.value : "global";
     const subcategories = subcatsInput ? subcatsInput.value.trim() : "";
+    const accessTier = tierSel && tierSel.value === "paid" ? "paid" : "free";
     
     if (!name) return alert("Enter a name");
     try {
-      await api("/api/admin", { method: "POST", body: JSON.stringify({ action: "create_qbank", qbankName: name, country, subcategories }) });
+      await api("/api/admin", { method: "POST", body: JSON.stringify({ action: "create_qbank", qbankName: name, country, subcategories, accessTier }) });
       input.value = "";
       if (subcatsInput) subcatsInput.value = "";
       loadAdminQBank();
@@ -2130,6 +2190,7 @@
     const input = document.getElementById(`admin-qbank-input-${id}`);
     const lockedInput = document.getElementById(`admin-qbank-locked-${id}`);
     const partyLockedInput = document.getElementById(`admin-qbank-partylocked-${id}`);
+    const tierInput = document.getElementById(`admin-qbank-tier-${id}`);
     if (!input) return;
     try {
       await api("/api/admin", { 
@@ -2140,6 +2201,7 @@
           subcategories: input.value.trim(),
           isLocked: lockedInput ? lockedInput.checked : false,
           isPartyLocked: partyLockedInput ? partyLockedInput.checked : false,
+          accessTier: tierInput ? tierInput.value : "free",
           resources: window.adminQBankResources[id] || []
         }) 
       });
@@ -3238,43 +3300,45 @@
     }
   };
 
-  const AI_PROMPT_GUIDE_TEXT = `You are an expert medical professor creating high-yield Multiple Choice Questions (MCQs) for a medical QBank. 
+  const AI_PROMPT_GUIDE_TEXT = `You are an expert medical professor creating high-yield Multiple Choice Questions (MCQs) for a medical QBank.
 
-Generate [NUMBER] clinical questions about [SUBJECT / CHAPTER / PART].
+Generate [NUMBER] clinical questions about [EDUCATIONAL OBJECTIVE / ORGAN SYSTEM / CLINICAL SPECIALTY / SUB-TOPIC].
 You MUST format your response EXACTLY following this strict text structure. Do not use markdown tables or JSON. Use plain text exactly as shown below.
 
 STRICT FORMAT RULES:
-1. Start each subject with: \`  -> Subject: [Name of Subject]\`
-2. Start each chapter inside that subject with: \`  -> Chapter: [Name of Chapter]\`
-3. Start each part inside that chapter with: \`  -> Part: [Name of Part]\`
-4. Subject, Chapter, and Part are ALL mandatory for every question.
-5. Start each question with: \`Question [Number] [Code: random_5_chars] (Année: [Year]):\`
-6. Write the question text on the next line.
-7. List options A to E. 
-8. For the correct option(s), append exactly \` ✅ (CORRECT)\` immediately after the option text.
-9. For every option (both correct and incorrect), append an explanation arrow exactly formatted as: \` -> Note: [Explanation for this specific option]\`
-10. Add a general explanation at the end starting exactly with: \`Explication générale: [Overall explanation and clinical pearls]\`
-11. Add a separator exactly as: \`--------------------------------------------------\`
+1. Start each educational objective with: \`  -> Objective: [Educational objective]\`
+2. Start each organ system inside that objective with: \`  -> Organ System: [Organ system]\`
+3. Start each clinical specialty inside that organ system with: \`  -> Clinical Specialty: [Clinical specialty]\`
+4. Start each sub-topic/disease inside that clinical specialty with: \`  -> Sub-topic / Disease: [Sub-topic or disease]\`
+5. Objective, Organ System, Clinical Specialty, and Sub-topic / Disease are ALL mandatory for every question.
+6. Start each question with: \`Question [Number] [Code: random_5_chars] (Année: [Year]):\`
+7. Write the question text on the next line.
+8. List options A to E.
+9. For the correct option(s), append exactly \` ✅ (CORRECT)\` immediately after the option text.
+10. For every option (both correct and incorrect), append an explanation arrow exactly formatted as: \` -> Note: [Explanation for this specific option]\`
+11. Add a general explanation at the end starting exactly with: \`Explication générale: [Overall explanation and clinical pearls]\`
+12. Add a separator exactly as: \`--------------------------------------------------\`
 
 EXAMPLE OF THE EXACT REQUIRED FORMAT:
 
-  -> Subject: Cardiologie
-  -> Chapter: Urgences Cardiologiques
-  -> Part: Syndrome coronarien aigu
+  -> Objective: Understand the diagnosis and emergency management of acute coronary syndromes
+  -> Organ System: Cardiovascular
+  -> Clinical Specialty: Cardiology
+  -> Sub-topic / Disease: STEMI
 Question 1 [Code: a1b2c] (Année: 2024):
-Un patient de 60 ans présente une douleur thoracique typique... Quel est le diagnostic le plus probable ?
-  A. Péricardite aiguë -> Note: La douleur de la péricardite est soulagée par l'antéflexion, ce qui n'est pas le cas ici.
-  B. Syndrome coronarien aigu ✅ (CORRECT) -> Note: Douleur rétrosternale constrictive irradiant vers le bras gauche, typique du SCA.
-  C. Dissection aortique -> Note: La douleur serait migratrice et asymétrie tensionnelle présente.
-  D. Embolie pulmonaire -> Note: L'ECG ne montre pas de signes droits (S1Q3).
-  E. Pneumothorax -> Note: L'auscultation pulmonaire est normale.
-Explication générale: Leçon clé: Le SCA doit toujours être suspecté en premier devant une douleur thoracique constrictive chez un patient à risque. Piège à éviter: Ne pas attendre la troponine pour faire un ECG.
+A 60-year-old man presents with sudden chest pain. Which diagnosis is most likely?
+  A. Pericarditis -> Note: Pericarditic pain is usually pleuritic and relieved by leaning forward.
+  B. Acute coronary syndrome ✅ (CORRECT) -> Note: Constricting retrosternal pain radiating to the left arm is typical.
+  C. Aortic dissection -> Note: Consider migrating pain and unequal blood pressures.
+  D. Pulmonary embolism -> Note: Pleuritic pain and risk factors would be more prominent.
+  E. Pneumothorax -> Note: Reduced breath sounds and hyperresonance would be expected.
+Explication générale: Key lesson: Always consider ACS first for constricting chest pain. Common trap: Waiting for troponin before obtaining an ECG.
 
 --------------------------------------------------`;
 
   const JSON_IMPORT_GUIDE_TEXT = `You are an expert medical professor creating high-yield Multiple Choice Questions (MCQs) for a medical QBank.
 
-Generate [NUMBER] clinical questions about [SUBJECT / CHAPTER / PART].
+Generate [NUMBER] clinical questions about [EDUCATIONAL OBJECTIVE / ORGAN SYSTEM / CLINICAL SPECIALTY / SUB-TOPIC].
 Return ONLY valid JSON. Do not use markdown fences, comments, or text outside the JSON.
 
 Use exactly this structure:
@@ -3291,9 +3355,10 @@ Use exactly this structure:
         { "text": "Pneumothorax", "correct": false, "explanation": "Reduced breath sounds and hyperresonance would be expected." }
       ],
       "explanation": "Overall explanation and clinical pearls.",
-      "subject": "Cardiology",
-      "chapter": "Acute coronary syndromes",
-      "part": "STEMI",
+      "objective": "Understand the diagnosis and emergency management of acute coronary syndromes",
+      "organSystem": "Cardiovascular",
+      "clinicalSpecialty": "Cardiology",
+      "subTopic": "STEMI",
       "tags": ["Chest pain", "Troponin"],
       "year": "2024",
       "code": "a1b2c"
@@ -3302,13 +3367,13 @@ Use exactly this structure:
 }
 
 RULES:
-1. Every question MUST include questionText, options, subject, chapter, part, and tags.
-2. Subject, chapter, and part are the required hierarchy: Subject > Chapter > Part. A question cannot be imported without all three.
+1. Every question MUST include questionText, options, objective, organSystem, clinicalSpecialty, subTopic, and tags.
+2. Objective → Organ System → Clinical Specialty → Sub-topic / Disease is the required hierarchy. A question cannot be imported without all four.
 3. options must contain 2-6 choices. Use { "text", "correct", "explanation" } objects as shown. Mark every correct option with "correct": true.
 4. String options plus a zero-based "correctIndices" array are also accepted.
-5. part is the Part inside its chapter, for example "STEMI". It becomes the question's browsing location automatically.
-6. tags must be 1-6 free-form disease or topic labels, for example ["Chest pain", "Troponin"]. Do not put years in tags.
-7. Keep subject, chapter, and part names consistent across the whole file.
+5. subTopic is the Sub-topic / Disease inside the Clinical Specialty. It becomes the leaf browsing location automatically.
+6. tags must be 1-6 free-form topic labels. Do not put years in tags or paths.
+7. Keep objective, organSystem, clinicalSpecialty, and subTopic names consistent across the whole file.
 8. year and code are optional. Do not invent a code if you are unsure.
 9. explanation is the overall explanation. Each option explanation is shown beside that option.
 10. Do not include duplicate questions. Do not use markdown inside the JSON.
@@ -3354,9 +3419,9 @@ The top-level value may be the "questions" object shown above or a plain JSON ar
             <div style="margin-top:4px;">${statusBadge}</div>
           </div>
 
-          <div style="display:flex; align-items:center; gap:8px; flex:1; max-width:320px;">
-            <label style="font-size:0.75rem; color:var(--text-muted); white-space:nowrap;">Fallback subject:</label>
-            <input type="text" class="login-input batch-file-subcat-input" data-idx="${idx}" value="${escapeHtml(item.subcategory)}" placeholder="e.g. Cardiologie" style="font-size:0.8rem; padding:4px 8px; flex:1;" ${isBatchImportingRunning ? 'disabled' : ''}>
+          <div style="display:flex; flex-direction:column; gap:6px; flex:1; max-width:360px;">
+            <input type="text" class="login-input batch-file-objective-input" data-idx="${idx}" value="${escapeHtml(item.objective || '')}" placeholder="Fallback educational objective..." style="font-size:0.78rem; padding:4px 8px;" ${isBatchImportingRunning ? 'disabled' : ''}>
+            <input type="text" class="login-input batch-file-subcat-input" data-idx="${idx}" value="${escapeHtml(item.subcategory)}" placeholder="Fallback organ system..." style="font-size:0.78rem; padding:4px 8px;" ${isBatchImportingRunning ? 'disabled' : ''}>
           </div>
 
           <div>
@@ -3369,9 +3434,13 @@ The top-level value may be the "questions" object shown above or a plain JSON ar
     queueList.querySelectorAll('.batch-file-subcat-input').forEach(inp => {
       inp.addEventListener('input', function(e) {
         const idx = parseInt(e.target.getAttribute('data-idx'));
-        if (activeBatchFilesQueue[idx]) {
-          activeBatchFilesQueue[idx].subcategory = e.target.value;
-        }
+        if (activeBatchFilesQueue[idx]) activeBatchFilesQueue[idx].subcategory = e.target.value;
+      });
+    });
+    queueList.querySelectorAll('.batch-file-objective-input').forEach(inp => {
+      inp.addEventListener('input', function(e) {
+        const idx = parseInt(e.target.getAttribute('data-idx'));
+        if (activeBatchFilesQueue[idx]) activeBatchFilesQueue[idx].objective = e.target.value;
       });
     });
   }
@@ -3386,10 +3455,22 @@ The top-level value may be the "questions" object shown above or a plain JSON ar
     const globalInput = document.getElementById(`${prefix}-global-subcat-input`);
     if (!globalInput) return;
     const val = globalInput.value.trim();
-    if (!val) return alert("Enter a subject name to apply to all files in queue.");
+    if (!val) return alert("Enter an organ system to apply to all files in queue.");
 
     activeBatchFilesQueue.forEach(item => {
       item.subcategory = val;
+    });
+    renderBatchImportQueue(prefix);
+  };
+
+  window.adminApplyGlobalObjective = function(prefix) {
+    const globalInput = document.getElementById(`${prefix}-global-objective-input`);
+    if (!globalInput) return;
+    const val = globalInput.value.trim();
+    if (!val) return alert("Enter an educational objective to apply to all files in queue.");
+
+    activeBatchFilesQueue.forEach(item => {
+      item.objective = val;
     });
     renderBatchImportQueue(prefix);
   };
@@ -3405,6 +3486,8 @@ The top-level value may be the "questions" object shown above or a plain JSON ar
     const textPasted = textPastedInput ? textPastedInput.value.trim() : "";
     const fileSubcatGlobalInput = document.getElementById(`${prefix}-subcategory`);
     const fileSubcatGlobal = fileSubcatGlobalInput ? fileSubcatGlobalInput.value.trim() : "";
+    const objectiveGlobalInput = document.getElementById(`${prefix}-objective`);
+    const objectiveGlobal = objectiveGlobalInput ? objectiveGlobalInput.value.trim() : "";
 
     if (activeBatchFilesQueue.length === 0 && textPasted) {
       activeBatchFilesQueue.push({
@@ -3412,6 +3495,7 @@ The top-level value may be the "questions" object shown above or a plain JSON ar
         file: { name: 'Pasted Raw Text', size: textPasted.length },
         rawText: textPasted,
         subcategory: fileSubcatGlobal || 'Uncategorized',
+        objective: objectiveGlobal || '',
         status: 'pending',
         imported: 0,
         duplicatesSkipped: 0,
@@ -3477,6 +3561,7 @@ The top-level value may be the "questions" object shown above or a plain JSON ar
             qbankId,
             rawText: fileContent,
             fileSubcategory: item.subcategory ? item.subcategory.trim() : "",
+            fileObjective: item.objective ? item.objective.trim() : "",
             skipDuplicates: true
           })
         });
@@ -3562,7 +3647,7 @@ The top-level value may be the "questions" object shown above or a plain JSON ar
   function createBatchImportFormHTML(prefix, qbankId, isModal) {
     return `
       <div style="font-size:0.85rem; color:var(--text-secondary); margin-bottom:12px;">
-        Upload <code>.json</code> files (tags + parts per question), multiple <code>.txt</code> files, or paste either format. Subject defaults from filenames.
+        Upload <code>.json</code> files, multiple <code>.txt</code> files, or paste either format. New imports use Objective → Organ System → Clinical Specialty → Sub-topic / Disease.
         <button class="btn-dark-pill" style="font-size:0.7rem; padding:2px 8px; margin-left:8px; color:var(--accent-cyan);" onclick="window.adminShowImportGuide('${prefix}', 'json')">JSON Format Guide</button>
         <button class="btn-dark-pill" style="font-size:0.7rem; padding:2px 8px; margin-left:4px; color:var(--accent-cyan);" onclick="window.adminShowImportGuide('${prefix}', 'txt')">TXT Guide</button>
       </div>
@@ -3592,8 +3677,10 @@ The top-level value may be the "questions" object shown above or a plain JSON ar
           </div>
 
           <div style="display:flex; gap:6px; align-items:center;">
-            <input type="text" id="${prefix}-global-subcat-input" class="login-input" placeholder="Bulk subject..." style="font-size:0.75rem; padding:4px 8px; width:140px;">
-            <button class="btn-dark-pill" style="font-size:0.75rem; padding:4px 8px; color:var(--accent-cyan);" onclick="window.adminApplyGlobalSubcategory('${prefix}')">Apply to All</button>
+            <input type="text" id="${prefix}-global-objective-input" class="login-input" placeholder="Bulk educational objective..." style="font-size:0.75rem; padding:4px 8px; width:180px;">
+            <button class="btn-dark-pill" style="font-size:0.75rem; padding:4px 8px; color:var(--accent-cyan);" onclick="window.adminApplyGlobalObjective('${prefix}')">Apply Objective</button>
+            <input type="text" id="${prefix}-global-subcat-input" class="login-input" placeholder="Bulk organ system..." style="font-size:0.75rem; padding:4px 8px; width:150px;">
+            <button class="btn-dark-pill" style="font-size:0.75rem; padding:4px 8px; color:var(--accent-cyan);" onclick="window.adminApplyGlobalSubcategory('${prefix}')">Apply Organ System</button>
             <button class="btn-dark-pill" style="font-size:0.75rem; padding:4px 8px; color:var(--text-muted);" onclick="window.adminClearBatchQueue('${prefix}')">Clear Queue</button>
           </div>
         </div>
@@ -3606,9 +3693,13 @@ The top-level value may be the "questions" object shown above or a plain JSON ar
         <summary style="font-size:0.8rem; color:var(--text-secondary); cursor:pointer; padding:6px 0; font-weight:600;">Or Paste TXT or JSON Directly</summary>
         <div style="margin-top:8px;">
           <textarea id="${prefix}-text" class="login-input" rows="6" placeholder="Paste formatted TXT or JSON here..." style="font-family:monospace; font-size:0.85rem; margin-bottom:8px;"></textarea>
+          <div style="display:flex; align-items:center; gap:8px; margin-bottom:6px;">
+            <label style="font-size:0.8rem; color:var(--text-secondary); white-space:nowrap;">Fallback educational objective:</label>
+            <input type="text" id="${prefix}-objective" class="login-input" placeholder="e.g. Understand ACS diagnosis and management" style="flex:1; font-size:0.8rem; padding:4px 8px;">
+          </div>
           <div style="display:flex; align-items:center; gap:8px;">
-            <label style="font-size:0.8rem; color:var(--text-secondary); white-space:nowrap;">Fallback subject for pasted text:</label>
-            <input type="text" id="${prefix}-subcategory" class="login-input" placeholder="e.g. Cardiologie" style="flex:1; font-size:0.8rem; padding:4px 8px;">
+            <label style="font-size:0.8rem; color:var(--text-secondary); white-space:nowrap;">Fallback organ system:</label>
+            <input type="text" id="${prefix}-subcategory" class="login-input" placeholder="e.g. Cardiovascular" style="flex:1; font-size:0.8rem; padding:4px 8px;">
           </div>
         </div>
       </details>
@@ -3639,6 +3730,7 @@ The top-level value may be the "questions" object shown above or a plain JSON ar
             id: 'file-' + Date.now() + '-' + Math.random().toString(36).substr(2, 5),
             file: f,
             subcategory: defaultSubcat,
+            objective: '',
             status: 'pending',
             imported: 0,
             duplicatesSkipped: 0,
@@ -3660,7 +3752,7 @@ The top-level value may be the "questions" object shown above or a plain JSON ar
     const isJson = format === "json";
     container.style.display = "block";
     container.dataset.format = isJson ? "json" : "txt";
-    if (title) title.textContent = isJson ? "JSON import format (tags + parts per question)" : "TXT format (Subject > Chapter > Part)";
+    if (title) title.textContent = isJson ? "JSON import format (objective → organ system → specialty → sub-topic)" : "TXT format (Objective → Organ System → Clinical Specialty → Sub-topic / Disease)";
     if (textarea) textarea.value = isJson ? JSON_IMPORT_GUIDE_TEXT : AI_PROMPT_GUIDE_TEXT;
   };
 
@@ -3998,8 +4090,8 @@ The top-level value may be the "questions" object shown above or a plain JSON ar
   window.adminCreateExamPrep = async function() {
     const nameEl = document.getElementById("admin-ep-name");
     const countryEl = document.getElementById("admin-ep-country");
-    const collegeEl = document.getElementById("admin-ep-college");
     const yearEl = document.getElementById("admin-ep-year");
+    const tierEl = document.getElementById("admin-ep-tier");
     const name = nameEl.value.trim();
     if (!name) return alert("Enter a name for the sub-bank.");
     try {
@@ -4009,14 +4101,13 @@ The top-level value may be the "questions" object shown above or a plain JSON ar
           action: "create_qbank",
           qbankName: name,
           country: countryEl ? countryEl.value : "global",
-          college: collegeEl ? collegeEl.value.trim() : "",
           year: yearEl ? yearEl.value.trim() : "",
+          accessTier: tierEl && tierEl.value === "paid" ? "paid" : "free",
           kind: "exam_prep",
           subcategories: ""
         })
       });
       nameEl.value = "";
-      if (collegeEl) collegeEl.value = "";
       if (yearEl) yearEl.value = "";
       window.adminRefreshExamPrepList();
     } catch (e) { alert("Failed: " + e.message); }
@@ -4041,10 +4132,11 @@ The top-level value may be the "questions" object shown above or a plain JSON ar
                 <span>${EP_ADMIN_FLAGS[q.country] || "🌍"}</span>
                 <i data-lucide="graduation-cap" style="width:15px;height:15px;color:#a78bfa;"></i>
                 ${escapeHtml(q.name)}
+                <span style="font-size:0.68rem; font-weight:800; padding:2px 8px; border-radius:12px; ${q.accessTier === "paid" ? "background:rgba(251,191,36,0.16); color:#fbbf24;" : "background:rgba(94,234,212,0.13); color:#5eead4;"}">${q.accessTier === "paid" ? "PAID" : "FREE"}</span>
                 <span id="admin-ep-count-${escapeHtml(q.id)}" style="font-size:0.75rem; background:var(--accent-purple); color:#000; padding:2px 8px; border-radius:12px; font-weight:800; display:none;">0 Qs</span>
               </div>
               <div style="font-size:0.78rem; color:var(--text-muted); margin-top:4px;">
-                ${q.college ? `🏫 ${escapeHtml(q.college)} · ` : ""}${q.year ? `📅 ${escapeHtml(q.year)} · ` : ""}${EP_ADMIN_FLAGS[q.country] || ""} ${escapeHtml(q.country)}
+                ${q.year ? `📅 ${escapeHtml(q.year)} · ` : ""}${EP_ADMIN_FLAGS[q.country] || ""} ${escapeHtml(q.country)}
               </div>
             </div>
             <div style="display:flex; gap:8px; flex-wrap:wrap;">
@@ -4058,10 +4150,13 @@ The top-level value may be the "questions" object shown above or a plain JSON ar
           <div id="admin-ep-edit-${escapeHtml(q.id)}" style="display:none; flex-direction:column; gap:10px; padding-top:10px; border-top:1px solid rgba(255,255,255,0.05);">
             <input type="text" id="admin-ep-edit-name-${escapeHtml(q.id)}" class="login-input" value="${escapeHtml(q.name)}" placeholder="Name">
             <div style="display:flex; gap:10px; flex-wrap:wrap;">
-              <input type="text" id="admin-ep-edit-college-${escapeHtml(q.id)}" class="login-input" value="${escapeHtml(q.college || "")}" placeholder="College / University" style="flex:2; min-width:200px;">
               <input type="text" id="admin-ep-edit-year-${escapeHtml(q.id)}" class="login-input" value="${escapeHtml(q.year || "")}" placeholder="Year" style="width:120px;">
               <select id="admin-ep-edit-country-${escapeHtml(q.id)}" class="login-input" style="width:150px; cursor:pointer;">
                 ${Object.keys(EP_ADMIN_FLAGS).map(c => `<option value="${c}" ${q.country === c ? "selected" : ""}>${EP_ADMIN_FLAGS[c]} ${c}</option>`).join("")}
+              </select>
+              <select id="admin-ep-edit-tier-${escapeHtml(q.id)}" class="login-input" style="width:120px; cursor:pointer;">
+                <option value="free" ${q.accessTier === "paid" ? "" : "selected"}>Free</option>
+                <option value="paid" ${q.accessTier === "paid" ? "selected" : ""}>Paid</option>
               </select>
             </div>
             <div style="display:flex; gap:10px;">
@@ -4088,14 +4183,14 @@ The top-level value may be the "questions" object shown above or a plain JSON ar
 
   window.adminSaveExamPrepSettings = async function(id) {
     const name = document.getElementById(`admin-ep-edit-name-${id}`).value.trim();
-    const college = document.getElementById(`admin-ep-edit-college-${id}`).value.trim();
     const year = document.getElementById(`admin-ep-edit-year-${id}`).value.trim();
     const country = document.getElementById(`admin-ep-edit-country-${id}`).value;
+    const tier = document.getElementById(`admin-ep-edit-tier-${id}`);
     if (!name) return alert("Name cannot be empty.");
     try {
       await api("/api/admin", {
         method: "POST",
-        body: JSON.stringify({ action: "edit_qbank_settings", qbankId: id, qbankName: name, college, year, country })
+        body: JSON.stringify({ action: "edit_qbank_settings", qbankId: id, qbankName: name, year, country, accessTier: tier ? tier.value : "free" })
       });
       window.adminRefreshExamPrepList();
     } catch (e) { alert("Failed: " + e.message); }
@@ -4129,6 +4224,182 @@ The top-level value may be the "questions" object shown above or a plain JSON ar
       }
     } catch (_) {}
     return String(raw || "");
+  };
+
+  // ---------- LICENSES & QBANK ASSIGNMENTS ----------
+  let adminAccessQbanks = [];
+  let adminAccessUsers = [];
+  let adminAssignUid = "";
+
+  function accessEsc(v) {
+    return window.escapeHtml ? window.escapeHtml(String(v == null ? "" : v)) : String(v == null ? "" : v);
+  }
+
+  window.loadAdminAccess = async function() {
+    await Promise.allSettled([window.loadAdminLicenses(), window.loadAdminAccessData()]);
+    window.loadAccessRequests();
+  };
+
+  window.loadAdminLicenses = async function() {
+    const listEl = document.getElementById("admin-license-list");
+    if (!listEl) return;
+    listEl.innerHTML = '<div style="color:var(--text-muted);font-size:0.8rem;">Loading licenses…</div>';
+    try {
+      const res = await api("/api/admin", { method: "POST", body: JSON.stringify({ action: "list_licenses" }) });
+      const licenses = Array.isArray(res.licenses) ? res.licenses : [];
+      if (!licenses.length) {
+        listEl.innerHTML = '<div style="color:var(--text-muted);font-size:0.8rem;">No licenses generated yet.</div>';
+        return;
+      }
+      listEl.innerHTML = licenses.map(l => {
+        const state = l.revoked ? "is-revoked" : (l.usedBy ? "is-used" : "is-free");
+        const status = l.revoked ? "Revoked" : (l.usedBy ? `Used by ${accessEsc(l.usedEmail || l.usedBy)}` : "Unused");
+        const until = l.activatedUntil ? ` · active until ${new Date(l.activatedUntil).toLocaleDateString()}` : "";
+        return `<div class="admin-license-row">
+          <div style="min-width:0;">
+            <code>${accessEsc(l.code)}</code>
+            <span style="margin-left:8px;">${l.days} days</span>
+            ${l.note ? `<span style="margin-left:8px;opacity:.7;">${accessEsc(l.note)}</span>` : ""}
+            <div class="${state}" style="font-size:0.72rem;margin-top:3px;">${status}${until}</div>
+          </div>
+          ${l.revoked ? "" : `<button class="btn-dark-pill" style="padding:5px 10px;font-size:0.72rem;color:#f87171;" onclick="window.adminRevokeLicense('${accessEsc(l.code)}')">Revoke</button>`}
+        </div>`;
+      }).join("");
+    } catch (e) {
+      listEl.innerHTML = `<div style="color:#f87171;font-size:0.8rem;">${accessEsc(e.message)}</div>`;
+    }
+  };
+
+  window.adminGenerateLicense = async function() {
+    const daysEl = document.getElementById("admin-license-days");
+    const noteEl = document.getElementById("admin-license-note");
+    const out = document.getElementById("admin-license-code");
+    const days = Math.max(1, Math.min(3650, parseInt(daysEl && daysEl.value, 10) || 30));
+    try {
+      if (out) out.textContent = "Generating…";
+      const res = await api("/api/admin", {
+        method: "POST",
+        body: JSON.stringify({ action: "generate_license", licenseDays: days, licenseNote: (noteEl && noteEl.value) || "" }),
+      });
+      if (out) out.textContent = res.code || "";
+      if (noteEl) noteEl.value = "";
+      window.loadAdminLicenses();
+    } catch (e) {
+      if (out) out.textContent = "";
+      alert("Failed: " + e.message);
+    }
+  };
+
+  window.adminRevokeLicense = async function(code) {
+    if (!confirm("Revoke this license? Students who already redeemed it keep their remaining days.")) return;
+    try {
+      await api("/api/admin", { method: "POST", body: JSON.stringify({ action: "revoke_license", licenseCode: code }) });
+      window.loadAdminLicenses();
+    } catch (e) { alert("Failed: " + e.message); }
+  };
+
+  window.loadAdminAccessData = async function() {
+    const box = document.getElementById("admin-assign-qbanks");
+    try {
+      const [qres, ures] = await Promise.all([
+        api("/api/admin?action=list_qbanks", { method: "GET" }),
+        api("/api/admin", { method: "POST", body: JSON.stringify({ action: "list_users" }) }),
+      ]);
+      adminAccessQbanks = (qres.qbanks || []).filter(q => q && q.id);
+      adminAccessUsers = (ures.users || []).filter(u => u && u.uid);
+      window.renderAdminAssignBanks();
+    } catch (e) {
+      if (box) box.innerHTML = `<div style="color:#f87171;font-size:0.8rem;">${accessEsc(e.message)}</div>`;
+    }
+  };
+
+  window.renderAdminAssignBanks = function() {
+    const box = document.getElementById("admin-assign-qbanks");
+    if (!box) return;
+    const user = adminAccessUsers.find(u => u.uid === adminAssignUid) || null;
+    const grants = new Set(user && Array.isArray(user.grants) ? user.grants : []);
+    const summary = document.getElementById("admin-assign-user-summary");
+    if (summary) {
+      summary.textContent = user
+        ? `${user.displayName || "User"} · ${user.email || user.uid}${user.paidUntil > Date.now() ? ` · paid until ${new Date(user.paidUntil).toLocaleDateString()}` : ""}`
+        : "No user selected yet.";
+    }
+    const sorted = [...adminAccessQbanks].sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")));
+    box.innerHTML = sorted.map(q => {
+      const tier = q.accessTier === "paid" ? "paid" : "free";
+      return `<label class="admin-assign-item">
+        <input type="checkbox" value="${accessEsc(q.id)}" ${grants.has(q.id) ? "checked" : ""}>
+        <span>${accessEsc(q.name || q.id)}</span>
+        <span class="tier ${tier}">${tier.toUpperCase()}</span>
+      </label>`;
+    }).join("") || '<div style="color:var(--text-muted);font-size:0.8rem;">No QBanks found.</div>';
+  };
+
+  window.adminFindAssignUser = function() {
+    const input = document.getElementById("admin-assign-user");
+    const box = document.getElementById("admin-assign-qbanks");
+    const query = String((input && input.value) || "").trim().toLowerCase();
+    if (!query) {
+      alert("Enter an email, name, or UID first.");
+      return;
+    }
+    const exact = adminAccessUsers.find(u =>
+      String(u.uid || "").toLowerCase() === query ||
+      String(u.email || "").toLowerCase() === query
+    );
+    const matches = exact ? [exact] : adminAccessUsers.filter(u =>
+      String(u.email || "").toLowerCase().includes(query) ||
+      String(u.displayName || "").toLowerCase().includes(query)
+    ).slice(0, 12);
+    if (matches.length === 1) {
+      window.adminSelectAssignUser(matches[0].uid);
+      return;
+    }
+    if (!matches.length) {
+      if (box) box.innerHTML = '<div style="color:#f87171;font-size:0.8rem;">No matching user.</div>';
+      return;
+    }
+    if (box) {
+      box.innerHTML = matches.map(u => `<button type="button" class="btn-dark-pill" style="text-align:left;padding:8px 12px;font-size:0.78rem;" onclick="window.adminSelectAssignUser('${accessEsc(u.uid)}')">${accessEsc(u.displayName || "User")} · ${accessEsc(u.email || u.uid)}</button>`).join("");
+    }
+  };
+
+  window.adminSelectAssignUser = function(uid) {
+    adminAssignUid = uid;
+    const user = adminAccessUsers.find(u => u.uid === uid);
+    const input = document.getElementById("admin-assign-user");
+    if (input && user) input.value = user.email || user.uid;
+    window.renderAdminAssignBanks();
+  };
+
+  window.adminSaveAssignments = async function() {
+    const status = document.getElementById("admin-assign-status");
+    if (!adminAssignUid) { alert("Find and select a user first."); return; }
+    const checked = [...document.querySelectorAll("#admin-assign-qbanks input[type=checkbox]:checked")].map(el => el.value);
+    try {
+      if (status) status.textContent = "Saving…";
+      await api("/api/admin", {
+        method: "POST",
+        body: JSON.stringify({ action: "assign_user_qbanks", uid: adminAssignUid, grants: checked }),
+      });
+      const user = adminAccessUsers.find(u => u.uid === adminAssignUid);
+      if (user) user.grants = checked;
+      if (status) status.textContent = "Saved. The student sees the change on their next bank refresh.";
+    } catch (e) {
+      if (status) status.textContent = "";
+      alert("Failed: " + e.message);
+    }
+  };
+
+  window.adminClearPaid = async function() {
+    if (!adminAssignUid) { alert("Find and select a user first."); return; }
+    if (!confirm("Clear this user's paid license access? Assigned banks stay.")) return;
+    try {
+      await api("/api/admin", { method: "POST", body: JSON.stringify({ action: "clear_user_paid", uid: adminAssignUid }) });
+      const user = adminAccessUsers.find(u => u.uid === adminAssignUid);
+      if (user) user.paidUntil = 0;
+      window.renderAdminAssignBanks();
+    } catch (e) { alert("Failed: " + e.message); }
   };
 
   // ---------- ACCESS REQUESTS MODERATION ----------

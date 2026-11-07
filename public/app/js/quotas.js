@@ -95,8 +95,8 @@
           if (desc) desc.textContent = "Thank you for supporting OmNote! Upgrade to Supporter+ to unlock priority support and more.";
           if (btnLabel) btnLabel.textContent = "Supporter+";
         } else {
-          if (title) title.textContent = "Keep OmNote Free";
-          if (desc) desc.textContent = "OmNote is 100% free to use. Support the website to help keep our servers running and unlock exclusive features!";
+          if (title) title.textContent = "Support OmNote";
+          if (desc) desc.textContent = "Support the website to help keep our servers running and unlock exclusive features!";
           if (btnLabel) btnLabel.textContent = "Become a Supporter";
         }
       }

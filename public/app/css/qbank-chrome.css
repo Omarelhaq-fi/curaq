@@ -1,0 +1,2165 @@
+/* ============================================================
+   CuraQ QBank question chrome
+   UWorld-style top/bottom toolbars in CuraQ clinical teal.
+   Scoped to #qbank-modal so the exam/review viewers keep their
+   existing layout.
+   ============================================================ */
+
+#qbank-modal.qbank-uw-shell {
+  background: #edf3f6 !important;
+  color: #12333d !important;
+}
+
+/* ---------------- Top toolbar ---------------- */
+.qbank-uw-topbar {
+  display: flex;
+  align-items: stretch;
+  gap: 10px;
+  min-height: 64px;
+  padding: 0 14px;
+  background: linear-gradient(180deg, #0e7c86 0%, #0a626c 100%);
+  border-bottom: 2px solid #074d55;
+  box-shadow: 0 2px 10px rgba(6, 61, 70, 0.28);
+  color: #ffffff;
+  flex-shrink: 0;
+  z-index: 30;
+}
+
+.qbank-uw-topbar-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-right: 12px;
+  border-right: 1px solid rgba(255, 255, 255, 0.18);
+  min-width: 286px;
+}
+
+.qbank-uw-brand {
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  background: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  box-shadow: inset 0 0 0 1px rgba(7, 77, 85, 0.12);
+}
+
+.qbank-uw-brand img {
+  width: 28px;
+  height: 28px;
+  object-fit: contain;
+  display: block;
+}
+
+.qbank-uw-item-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  line-height: 1.15;
+  min-width: 0;
+}
+
+.qbank-uw-item-line {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  font-weight: 800;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+}
+
+.qbank-uw-item-line i {
+  font-size: 12px;
+  opacity: 0.82;
+}
+
+.qbank-uw-qid {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.72);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.qbank-uw-qid i {
+  font-size: 9px;
+  opacity: 0.7;
+}
+
+.qbank-uw-bank-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-left: 2px;
+  min-width: 0;
+}
+
+#qbank-active-name {
+  font-size: 10.5px;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.92);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 170px;
+}
+
+.qbank-uw-qtype {
+  display: inline-flex;
+  align-self: flex-start;
+  align-items: center;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.16);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  color: #ffffff;
+  font-size: 8.5px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+/* Tool strip */
+.qbank-uw-tools {
+  display: flex;
+  align-items: stretch;
+  gap: 1px;
+  flex: 1;
+  overflow-x: auto;
+  scrollbar-width: none;
+  min-width: 0;
+}
+
+.qbank-uw-tools::-webkit-scrollbar {
+  display: none;
+}
+
+.qbank-uw-tool {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.88);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  flex: 1 1 auto;
+  min-width: 58px;
+  padding: 8px 6px;
+  border-radius: 6px;
+  cursor: pointer;
+  font: inherit;
+  line-height: 1;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.qbank-uw-tool i {
+  font-size: 15px;
+  line-height: 1;
+}
+
+.qbank-uw-tool span {
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+}
+
+.qbank-uw-tool:hover {
+  background: rgba(255, 255, 255, 0.14);
+  color: #ffffff;
+}
+
+.qbank-uw-tool.is-on {
+  background: rgba(255, 255, 255, 0.18);
+  color: #ffffff;
+  box-shadow: inset 0 -2px 0 #b8f6fb;
+}
+
+.qbank-uw-tool:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.qbank-uw-tool.qbank-uw-tool-end {
+  color: #ffe3de;
+}
+
+.qbank-uw-tool.qbank-uw-tool-end:hover {
+  background: rgba(192, 57, 43, 0.35);
+  color: #ffffff;
+}
+
+.qbank-uw-admin-tools {
+  flex: 0 0 auto;
+  border-left: 1px solid rgba(255, 255, 255, 0.18);
+  padding-left: 6px;
+  margin-left: 2px;
+}
+
+/* ---------------- Bottom toolbar ---------------- */
+.qbank-uw-bottombar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 62px;
+  padding: 0 16px;
+  background: linear-gradient(180deg, #0d7681 0%, #085963 100%);
+  border-top: 2px solid #074d55;
+  color: #ffffff;
+  flex-shrink: 0;
+  z-index: 30;
+}
+
+.qbank-uw-bottom-left {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  min-width: 152px;
+}
+
+.qbank-uw-clock {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.qbank-uw-clock i {
+  font-size: 13px;
+}
+
+.qbank-uw-progress {
+  font-size: 10px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.7);
+  white-space: nowrap;
+}
+
+.qbank-uw-brandline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  border-left: 1px solid rgba(255, 255, 255, 0.16);
+  border-right: 1px solid rgba(255, 255, 255, 0.16);
+  flex-shrink: 0;
+}
+
+.qbank-uw-brandline img {
+  width: 30px;
+  height: 30px;
+  border-radius: 7px;
+  background: #ffffff;
+  padding: 2px;
+  object-fit: contain;
+}
+
+.qbank-uw-brandline b {
+  display: block;
+  font-size: 13px;
+  line-height: 1.05;
+  letter-spacing: -0.01em;
+}
+
+.qbank-uw-brandline small {
+  display: block;
+  margin-top: 1px;
+  font-size: 7.5px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  color: rgba(255, 255, 255, 0.72);
+}
+
+.qbank-uw-bottom-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.qbank-uw-bottom-controls::-webkit-scrollbar {
+  display: none;
+}
+
+.qbank-uw-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 10.5px;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.92);
+  cursor: pointer;
+  white-space: nowrap;
+  user-select: none;
+}
+
+.qbank-uw-switch input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.qbank-uw-track {
+  position: relative;
+  width: 34px;
+  height: 18px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.26);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.2);
+  transition: background 0.15s ease;
+}
+
+.qbank-uw-track::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+  transition: transform 0.15s ease;
+}
+
+.qbank-uw-switch input:checked + .qbank-uw-track {
+  background: #3fd4df;
+}
+
+.qbank-uw-switch input:checked + .qbank-uw-track::after {
+  transform: translateX(16px);
+}
+
+.qbank-uw-switch input:disabled + .qbank-uw-track {
+  opacity: 0.5;
+}
+
+.qbank-uw-bottom-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.qbank-uw-bottom-btn {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: #ffffff;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  min-width: 55px;
+  padding: 5px 6px;
+  border-radius: 6px;
+  cursor: pointer;
+  font: inherit;
+  line-height: 1;
+  transition: background 0.12s ease;
+}
+
+.qbank-uw-bottom-btn i {
+  font-size: 15px;
+  line-height: 1;
+}
+
+.qbank-uw-bottom-btn span {
+  font-size: 9.5px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.qbank-uw-bottom-btn:hover {
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.qbank-uw-bottom-btn.is-active {
+  background: rgba(255, 255, 255, 0.18);
+  box-shadow: inset 0 -2px 0 #b8f6fb;
+}
+
+.qbank-uw-bottom-btn:disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
+}
+
+.qbank-uw-bottom-btn:disabled:hover {
+  background: transparent;
+}
+
+.qbank-uw-bottom-btn.qbank-uw-danger {
+  color: #ffe1dc;
+}
+
+.qbank-uw-bottom-btn.qbank-uw-danger:hover {
+  background: rgba(192, 57, 43, 0.35);
+  color: #ffffff;
+}
+
+/* ---------------- Integrated block bar ----------------
+   The timed/tutor block bar lives in the green footer so the question
+   canvas stays clear. The same #qbank-block-bar element is restyled as a
+   compact footer strip instead of the old white card above the question. */
+#qbank-modal .qbank-uw-blockbar-slot {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+#qbank-modal .qbank-uw-bottombar #qbank-block-bar {
+  position: static !important;
+  width: 100% !important;
+  min-width: 0 !important;
+  flex: 1 1 auto !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  background: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
+  color: #ffffff !important;
+  font-family: inherit !important;
+}
+
+#qbank-modal .qbank-uw-bottombar #qbank-block-bar .qb-block-left,
+#qbank-modal .qbank-uw-bottombar #qbank-block-bar .qb-block-right {
+  gap: 6px;
+}
+
+#qbank-modal .qbank-uw-bottombar #qbank-block-bar .qb-block-chip {
+  min-height: 24px;
+  padding: 0 8px;
+  background: rgba(255, 255, 255, 0.16);
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  color: #ffffff;
+  font-size: 10px;
+}
+
+#qbank-modal .qbank-uw-bottombar #qbank-block-bar .qb-block-meta {
+  color: rgba(255, 255, 255, 0.88);
+  font-size: 11.5px;
+}
+
+#qbank-modal .qbank-uw-bottombar #qbank-block-bar .qb-block-meta b {
+  color: #ffffff;
+}
+
+#qbank-modal .qbank-uw-bottombar #qbank-block-bar .qb-block-clock {
+  min-height: 24px;
+  padding: 0 8px;
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.24);
+  color: #ffffff;
+  font-size: 11.5px;
+}
+
+#qbank-modal .qbank-uw-bottombar #qbank-block-bar .qb-block-clock.warn {
+  background: rgba(244, 63, 94, 0.22);
+  border-color: rgba(255, 160, 170, 0.55);
+  color: #ffe1dc;
+}
+
+#qbank-modal .qbank-uw-bottombar #qbank-block-bar .qb-block-btn {
+  min-height: 28px;
+  padding: 0 9px;
+  background: transparent;
+  border-color: rgba(255, 255, 255, 0.28);
+  color: #ffffff;
+  font-size: 11.5px;
+}
+
+#qbank-modal .qbank-uw-bottombar #qbank-block-bar .qb-block-btn.primary {
+  background: #ffffff;
+  border-color: #ffffff;
+  color: #085963;
+}
+
+#qbank-modal .qbank-uw-bottombar #qbank-block-bar .qb-block-btn:hover {
+  background: rgba(255, 255, 255, 0.14);
+  border-color: rgba(255, 255, 255, 0.5);
+  color: #ffffff;
+}
+
+#qbank-modal .qbank-uw-bottombar #qbank-block-bar .qb-block-btn.primary:hover {
+  background: #e6f2f2;
+  border-color: #e6f2f2;
+  color: #085963;
+}
+
+#qbank-modal .qbank-uw-bottombar #qbank-block-bar .qb-block-btn svg {
+  width: 13px;
+  height: 13px;
+}
+
+#qbank-modal .qbank-uw-bottombar #qbank-block-bar button:focus-visible {
+  outline: 2px solid #b8f6fb;
+  outline-offset: 2px;
+}
+
+/* While a timed/tutor block is active, the integrated bar carries the
+   clock and answered count, so the default bottom-left readout is hidden. */
+#qbank-modal .qbank-uw-bottombar:has(#qbank-block-bar) .qbank-uw-bottom-left {
+  display: none !important;
+}
+
+@media (max-width: 1180px) {
+  #qbank-modal .qbank-uw-bottombar:has(#qbank-block-bar) .qbank-uw-brandline {
+    display: none !important;
+  }
+}
+
+/* ---------------- Question canvas ---------------- */
+#qbank-modal .usmle-body {
+  background: #edf3f6 !important;
+}
+
+/* Sidebar in brand teal (the stock viewer uses blue). */
+#qbank-modal .usmle-sidebar {
+  background: linear-gradient(180deg, #0e7c86 0%, #084d55 100%) !important;
+  border-right: 1px solid rgba(0, 0, 0, 0.12) !important;
+}
+
+#qbank-modal .usmle-sidebar-item {
+  color: rgba(255, 255, 255, 0.7) !important;
+  background: rgba(255, 255, 255, 0.07) !important;
+  border-color: transparent !important;
+}
+
+#qbank-modal .usmle-sidebar-item:hover {
+  color: #ffffff !important;
+  background: rgba(255, 255, 255, 0.16) !important;
+}
+
+#qbank-modal .usmle-sidebar-item.active {
+  color: #032a2f !important;
+  background: linear-gradient(135deg, #64e6ec 0%, #2bc3cd 100%) !important;
+  border-color: rgba(255, 255, 255, 0.5) !important;
+  box-shadow: 0 5px 14px rgba(0, 0, 0, 0.28) !important;
+}
+
+#qbank-modal .usmle-sidebar-item.answered {
+  color: #d7fbfd !important;
+  background: rgba(63, 212, 223, 0.16) !important;
+  border-color: rgba(63, 212, 223, 0.32) !important;
+}
+
+#qbank-modal .usmle-content {
+  background: #edf3f6 !important;
+}
+
+#qbank-modal #qbank-question-area {
+  background: #edf3f6 !important;
+  padding: 26px 40px 46px !important;
+  --qbank-stem-size: 16px;
+  --qbank-option-size: 15px;
+}
+
+#qbank-modal #qbank-split-container.qbank-uw-split {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 0 !important;
+  gap: 20px;
+}
+
+#qbank-modal #qbank-left-col.qbank-uw-left {
+  width: 100%;
+}
+
+#qbank-modal .qbank-uw-question-card {
+  max-width: none;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+}
+
+#qbank-modal .qbank-uw-stem {
+  font-family: 'Figtree', 'Inter', system-ui, sans-serif !important;
+  font-size: var(--qbank-stem-size, 16px) !important;
+  line-height: 1.68 !important;
+  font-weight: 500 !important;
+  color: #12333d !important;
+  margin: 0 0 18px !important;
+  white-space: normal;
+  letter-spacing: 0.001em;
+}
+
+#qbank-modal .qbank-uw-stem p {
+  margin: 0 0 0.85em;
+}
+
+#qbank-modal .qbank-uw-stem p:last-child {
+  margin-bottom: 0;
+}
+
+#qbank-modal .qbank-uw-options-box {
+  width: 100%;
+  max-width: 100%;
+  border: 1px solid #a9bcc7;
+  background: #ffffff;
+  padding: 4px 12px;
+  box-shadow: 0 1px 2px rgba(10, 61, 74, 0.04);
+  box-sizing: border-box;
+}
+
+#qbank-modal #qbank-options-container.qbank-uw-options {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  margin: 0;
+  max-width: none;
+}
+
+#qbank-modal #qbank-options-container .qbank-uw-option.usmle-option,
+#qbank-modal #qbank-options-container label.qbank-uw-option {
+  display: flex !important;
+  align-items: flex-start !important;
+  gap: 9px !important;
+  width: 100% !important;
+  box-sizing: border-box !important;
+  border: 0 !important;
+  border-bottom: 1px solid #edf2f5 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  padding: 11px 8px !important;
+  margin: 0 !important;
+  color: #12333d !important;
+  font-family: 'Figtree', 'Inter', system-ui, sans-serif !important;
+  font-size: var(--qbank-option-size, 15px) !important;
+  font-weight: 500 !important;
+  line-height: 1.45 !important;
+  text-align: left !important;
+  cursor: pointer !important;
+  transition: background 0.12s ease !important;
+}
+
+#qbank-modal #qbank-options-container .qbank-uw-option:last-child {
+  border-bottom: 0 !important;
+}
+
+#qbank-modal #qbank-options-container .qbank-uw-option:hover {
+  background: #eef8f9 !important;
+  color: #12333d !important;
+}
+
+#qbank-modal #qbank-options-container .qbank-uw-option.selected {
+  background: #e3f2f4 !important;
+  color: #0a3d4a !important;
+  box-shadow: inset 3px 0 0 #0e7c86 !important;
+}
+
+#qbank-modal #qbank-options-container .qbank-uw-radio {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+  margin-top: 1px;
+  border-radius: 50%;
+  border: 2px solid #8ea3ae;
+  background: #ffffff;
+  position: relative;
+  box-sizing: border-box;
+  transition: border-color 0.12s ease;
+}
+
+#qbank-modal #qbank-options-container .qbank-uw-option:hover .qbank-uw-radio {
+  border-color: #0e7c86;
+}
+
+#qbank-modal #qbank-options-container input:checked + .qbank-uw-option .qbank-uw-radio,
+#qbank-modal #qbank-options-container .qbank-uw-option.selected .qbank-uw-radio {
+  border-color: #0e7c86;
+}
+
+#qbank-modal #qbank-options-container input:checked + .qbank-uw-option .qbank-uw-radio::after,
+#qbank-modal #qbank-options-container .qbank-uw-option.selected .qbank-uw-radio::after {
+  content: "";
+  position: absolute;
+  inset: 3px;
+  border-radius: 50%;
+  background: #0e7c86;
+}
+
+#qbank-modal #qbank-options-container .qbank-uw-option .usmle-option-letter {
+  color: #0e7c86 !important;
+  font-weight: 800 !important;
+  min-width: 17px !important;
+  flex: 0 0 auto !important;
+  margin: 0 !important;
+  background: transparent !important;
+  padding: 0 !important;
+  border-radius: 0 !important;
+  opacity: 1 !important;
+}
+
+#qbank-modal #qbank-options-container .qbank-uw-option .usmle-option-text {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Post-answer states */
+#qbank-modal #qbank-options-container.answered .qbank-uw-option.correct,
+#qbank-modal #qbank-options-container.answered .qbank-uw-option.revealed-correct {
+  background: #e8f6ee !important;
+  color: #0a5a3f !important;
+  box-shadow: inset 3px 0 0 #0f8a5f !important;
+  border-bottom-color: #d7ecdf !important;
+}
+
+#qbank-modal #qbank-options-container.answered .qbank-uw-option.incorrect {
+  background: #fbeae7 !important;
+  color: #7a2216 !important;
+  box-shadow: inset 3px 0 0 #c0392b !important;
+  border-bottom-color: #f0d5d1 !important;
+}
+
+#qbank-modal #qbank-options-container.answered .qbank-uw-option.partial {
+  background: #fef9c3 !important;
+  color: #713f12 !important;
+  box-shadow: inset 3px 0 0 #eab308 !important;
+  border-bottom-color: #f2e7ae !important;
+}
+
+#qbank-modal #qbank-options-container.answered .qbank-uw-option.correct .usmle-option-letter {
+  color: #0f8a5f !important;
+}
+
+#qbank-modal #qbank-options-container.answered .qbank-uw-option.incorrect .usmle-option-letter {
+  color: #c0392b !important;
+}
+
+#qbank-modal #qbank-options-container.answered .qbank-uw-option.partial .usmle-option-letter {
+  color: #b8760b !important;
+}
+
+/* Notes */
+#qbank-modal .qbank-uw-note {
+  margin: 0 0 18px;
+  padding: 11px 14px;
+  background: #fff9db;
+  border-left: 3px solid #eab308;
+  border-radius: 0 6px 6px 0;
+}
+
+#qbank-modal .qbank-uw-note-label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-bottom: 4px;
+  color: #8a6d0b;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.07em;
+}
+
+#qbank-modal .qbank-uw-note-text {
+  color: #5b4708;
+  font-size: 13.5px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+}
+
+#qbank-modal .qbank-uw-note-editor {
+  margin: 0 0 18px;
+  padding: 12px;
+  background: #ffffff;
+  border: 1px solid #dbe7ea;
+  border-radius: 6px;
+}
+
+/* Explanation actions */
+#qbank-modal .qbank-uw-explanation-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 14px;
+}
+
+/* Submit + hints */
+.qbank-uw-submit {
+  appearance: none;
+  margin-top: 16px;
+  background: #0e7c86;
+  color: #ffffff;
+  border: 1px solid #0e7c86;
+  border-radius: 4px;
+  padding: 10px 30px;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 800;
+  cursor: pointer;
+  box-shadow: 0 1px 2px rgba(10, 61, 74, 0.15);
+  transition: background 0.12s ease, box-shadow 0.12s ease;
+}
+
+.qbank-uw-submit:hover {
+  background: #0b6770;
+  border-color: #0b6770;
+  box-shadow: 0 4px 12px rgba(14, 124, 134, 0.25);
+}
+
+.qbank-uw-submit:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+.qbank-uw-hint {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 12px;
+  font-size: 12px;
+  color: #5f7984;
+}
+
+/* Explanation */
+#qbank-modal #qbank-explanation-container.usmle-explanation {
+  max-width: 920px;
+  margin-top: 24px !important;
+  padding: 18px 20px;
+  background: #ffffff;
+  border: 1px solid #dbe7ea;
+  border-radius: 6px;
+  box-shadow: 0 1px 2px rgba(10, 61, 74, 0.04);
+}
+
+#qbank-modal #qbank-explanation-container #qbank-result-header {
+  font-size: 1rem;
+}
+
+#qbank-modal #qbank-explanation-container .usmle-proceed-btn {
+  border-radius: 4px !important;
+}
+
+/* ---------------- Dark mode ---------------- */
+html.dark #qbank-modal.qbank-uw-shell,
+body.dark-exam #qbank-modal.qbank-uw-shell,
+html.dark #qbank-modal .usmle-body,
+body.dark-exam #qbank-modal .usmle-body,
+html.dark #qbank-modal .usmle-content,
+body.dark-exam #qbank-modal .usmle-content,
+html.dark #qbank-modal #qbank-question-area,
+body.dark-exam #qbank-modal #qbank-question-area {
+  background: #0b1416 !important;
+}
+
+html.dark #qbank-modal .qbank-uw-stem,
+body.dark-exam #qbank-modal .qbank-uw-stem,
+html.dark #qbank-modal #qbank-answers .qbank-uw-option,
+body.dark-exam #qbank-modal #qbank-answers .qbank-uw-option {
+  color: #eef4f5 !important;
+}
+
+html.dark #qbank-modal .qbank-uw-options-box,
+body.dark-exam #qbank-modal .qbank-uw-options-box {
+  background: #10191c !important;
+  border-color: #263539 !important;
+}
+
+html.dark #qbank-modal .qbank-uw-note,
+body.dark-exam #qbank-modal .qbank-uw-note {
+  background: #2a2410 !important;
+  border-left-color: #eab308 !important;
+}
+
+html.dark #qbank-modal .qbank-uw-note-label,
+body.dark-exam #qbank-modal .qbank-uw-note-label {
+  color: #facc15 !important;
+}
+
+html.dark #qbank-modal .qbank-uw-note-text,
+body.dark-exam #qbank-modal .qbank-uw-note-text {
+  color: #f1e6b8 !important;
+}
+
+html.dark #qbank-modal .qbank-uw-note-editor,
+body.dark-exam #qbank-modal .qbank-uw-note-editor {
+  background: #10191c !important;
+  border-color: #263539 !important;
+}
+
+/* Study-concept side panel */
+html.dark #qbank-modal #qbank-right-col,
+body.dark-exam #qbank-modal #qbank-right-col,
+html.dark #qbank-modal #qbank-right-col > div:first-child,
+body.dark-exam #qbank-modal #qbank-right-col > div:first-child,
+html.dark #qbank-modal #qbank-right-col > div:first-child > div:first-child,
+body.dark-exam #qbank-modal #qbank-right-col > div:first-child > div:first-child {
+  background: #10191c !important;
+  border-color: #263539 !important;
+  color: #eef4f5 !important;
+}
+
+html.dark #qbank-modal #qbank-study-content,
+body.dark-exam #qbank-modal #qbank-study-content {
+  background: #10191c !important;
+  color: #cddde0 !important;
+}
+
+html.dark #qbank-modal #qbank-options-container .qbank-uw-option,
+body.dark-exam #qbank-modal #qbank-options-container .qbank-uw-option {
+  background: transparent !important;
+  color: #eef4f5 !important;
+  border-bottom-color: #1f2e33 !important;
+}
+
+html.dark #qbank-modal #qbank-options-container .qbank-uw-option:hover,
+body.dark-exam #qbank-modal #qbank-options-container .qbank-uw-option:hover {
+  background: #17383b !important;
+  color: #eef4f5 !important;
+}
+
+html.dark #qbank-modal #qbank-options-container .qbank-uw-option.selected,
+body.dark-exam #qbank-modal #qbank-options-container .qbank-uw-option.selected {
+  background: #123a3f !important;
+  color: #eef4f5 !important;
+  box-shadow: inset 3px 0 0 #45c9d2 !important;
+}
+
+html.dark #qbank-modal #qbank-options-container .qbank-uw-radio,
+body.dark-exam #qbank-modal #qbank-options-container .qbank-uw-radio {
+  background: #0b1416 !important;
+  border-color: #4b666d !important;
+}
+
+html.dark #qbank-modal #qbank-options-container input:checked + .qbank-uw-option .qbank-uw-radio,
+body.dark-exam #qbank-modal #qbank-options-container input:checked + .qbank-uw-option .qbank-uw-radio,
+html.dark #qbank-modal #qbank-options-container .qbank-uw-option.selected .qbank-uw-radio,
+body.dark-exam #qbank-modal #qbank-options-container .qbank-uw-option.selected .qbank-uw-radio {
+  border-color: #45c9d2 !important;
+}
+
+html.dark #qbank-modal #qbank-options-container input:checked + .qbank-uw-option .qbank-uw-radio::after,
+body.dark-exam #qbank-modal #qbank-options-container input:checked + .qbank-uw-option .qbank-uw-radio::after,
+html.dark #qbank-modal #qbank-options-container .qbank-uw-option.selected .qbank-uw-radio::after,
+body.dark-exam #qbank-modal #qbank-options-container .qbank-uw-option.selected .qbank-uw-radio::after {
+  background: #45c9d2 !important;
+}
+
+html.dark #qbank-modal #qbank-options-container.answered .qbank-uw-option.correct,
+html.dark #qbank-modal #qbank-options-container.answered .qbank-uw-option.revealed-correct,
+body.dark-exam #qbank-modal #qbank-options-container.answered .qbank-uw-option.correct,
+body.dark-exam #qbank-modal #qbank-options-container.answered .qbank-uw-option.revealed-correct {
+  background: #123424 !important;
+  color: #a7e3c4 !important;
+  box-shadow: inset 3px 0 0 #0f8a5f !important;
+}
+
+html.dark #qbank-modal #qbank-options-container.answered .qbank-uw-option.correct .usmle-option-letter,
+html.dark #qbank-modal #qbank-options-container.answered .qbank-uw-option.revealed-correct .usmle-option-letter,
+body.dark-exam #qbank-modal #qbank-options-container.answered .qbank-uw-option.correct .usmle-option-letter,
+body.dark-exam #qbank-modal #qbank-options-container.answered .qbank-uw-option.revealed-correct .usmle-option-letter {
+  color: #5ddca4 !important;
+}
+
+html.dark #qbank-modal #qbank-options-container.answered .qbank-uw-option.incorrect,
+body.dark-exam #qbank-modal #qbank-options-container.answered .qbank-uw-option.incorrect {
+  background: #3a1a14 !important;
+  color: #f2b8ae !important;
+  box-shadow: inset 3px 0 0 #c0392b !important;
+}
+
+html.dark #qbank-modal #qbank-options-container.answered .qbank-uw-option.incorrect .usmle-option-letter,
+body.dark-exam #qbank-modal #qbank-options-container.answered .qbank-uw-option.incorrect .usmle-option-letter {
+  color: #ff9c8c !important;
+}
+
+html.dark #qbank-modal #qbank-options-container.answered .qbank-uw-option.partial,
+body.dark-exam #qbank-modal #qbank-options-container.answered .qbank-uw-option.partial {
+  background: rgba(234, 179, 8, 0.15) !important;
+  color: #fde68a !important;
+  box-shadow: inset 3px 0 0 #eab308 !important;
+}
+
+html.dark #qbank-modal #qbank-options-container.answered .qbank-uw-option.partial .usmle-option-letter,
+body.dark-exam #qbank-modal #qbank-options-container.answered .qbank-uw-option.partial .usmle-option-letter {
+  color: #fcd34d !important;
+}
+
+html.dark #qbank-modal .qbank-uw-hint,
+body.dark-exam #qbank-modal .qbank-uw-hint {
+  color: #9fb3b8 !important;
+}
+
+html.dark #qbank-modal #qbank-explanation-container.usmle-explanation,
+body.dark-exam #qbank-modal #qbank-explanation-container.usmle-explanation {
+  background: #10191c !important;
+  border-color: #263539 !important;
+}
+
+/* Rich explanation / study panel content uses hard-coded dark text on
+   subtle tinted backgrounds; keep those readable in reverse color mode. */
+html.dark #qbank-modal .qbank-rich strong,
+body.dark-exam #qbank-modal .qbank-rich strong {
+  color: #b8f6fb !important;
+  background: rgba(63, 212, 223, 0.14) !important;
+}
+
+html.dark #qbank-modal .qbank-rich h3,
+body.dark-exam #qbank-modal .qbank-rich h3 {
+  color: #7ee8ef !important;
+  border-bottom-color: rgba(126, 232, 239, 0.25) !important;
+}
+
+html.dark #qbank-modal .qbank-rich blockquote,
+body.dark-exam #qbank-modal .qbank-rich blockquote {
+  color: #cfe9ec !important;
+  background: rgba(63, 212, 223, 0.07) !important;
+}
+
+html.dark #qbank-modal .qbank-rich table,
+body.dark-exam #qbank-modal .qbank-rich table {
+  background: #10191c !important;
+  border-color: #263539 !important;
+}
+
+html.dark #qbank-modal .qbank-rich th,
+body.dark-exam #qbank-modal .qbank-rich th {
+  background: #142226 !important;
+  color: #9feef3 !important;
+}
+
+html.dark #qbank-modal .qbank-rich td,
+body.dark-exam #qbank-modal .qbank-rich td {
+  border-bottom-color: #263539 !important;
+  color: #d7e5e8 !important;
+}
+
+html.dark #qbank-modal .qbank-rich li::marker,
+body.dark-exam #qbank-modal .qbank-rich li::marker {
+  color: #5eead4 !important;
+}
+
+html.dark #qbank-modal .qbank-uw-submit,
+body.dark-exam #qbank-modal .qbank-uw-submit {
+  background: #45c9d2 !important;
+  border-color: #45c9d2 !important;
+  color: #071a1d !important;
+}
+
+html.dark #qbank-modal .qbank-uw-submit:hover,
+body.dark-exam #qbank-modal .qbank-uw-submit:hover {
+  background: #62dde5 !important;
+  border-color: #62dde5 !important;
+}
+
+/* ---------------- Calculator ---------------- */
+#qbank-calculator-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 23000;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(5, 38, 44, 0.42);
+  backdrop-filter: blur(2px);
+}
+
+#qbank-calculator-modal.is-open {
+  display: flex;
+}
+
+.qbank-calc-card {
+  width: min(320px, 96vw);
+  background: #ffffff;
+  border: 1px solid #cfe0e4;
+  border-radius: 12px;
+  box-shadow: 0 26px 70px rgba(6, 43, 50, 0.32);
+  overflow: hidden;
+  color: #0a3d4a;
+}
+
+.qbank-calc-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  background: linear-gradient(180deg, #0e7c86, #0a626c);
+  color: #ffffff;
+}
+
+.qbank-calc-head strong {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  letter-spacing: 0.02em;
+}
+
+.qbank-calc-close {
+  appearance: none;
+  border: 0;
+  background: rgba(255, 255, 255, 0.14);
+  color: #ffffff;
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.qbank-calc-display {
+  padding: 16px 16px 10px;
+  text-align: right;
+  font-size: 28px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  min-height: 58px;
+  overflow-x: auto;
+  white-space: nowrap;
+  background: #f7fbfb;
+  color: #0a3d4a;
+}
+
+.qbank-calc-keys {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1px;
+  background: #dbe7ea;
+  padding: 1px;
+}
+
+.qbank-calc-keys button {
+  appearance: none;
+  border: 0;
+  background: #ffffff;
+  color: #12333d;
+  font-family: inherit;
+  font-size: 17px;
+  font-weight: 600;
+  padding: 14px 8px;
+  cursor: pointer;
+  transition: background 0.1s ease;
+}
+
+.qbank-calc-keys button:hover {
+  background: #eef8f9;
+}
+
+.qbank-calc-keys button.qbank-calc-op {
+  color: #0e7c86;
+  background: #f0f8f9;
+  font-weight: 800;
+}
+
+.qbank-calc-keys button.qbank-calc-eq {
+  background: #0e7c86;
+  color: #ffffff;
+  font-weight: 800;
+}
+
+.qbank-calc-keys button.qbank-calc-eq:hover {
+  background: #0b6770;
+}
+
+.qbank-calc-keys button.qbank-calc-clear {
+  color: #c0392b;
+  background: #fdf3f1;
+  font-weight: 800;
+}
+
+html.dark .qbank-calc-card,
+body.dark-exam .qbank-calc-card {
+  background: #10191c;
+  border-color: #263539;
+  color: #eef4f5;
+}
+
+html.dark .qbank-calc-display,
+body.dark-exam .qbank-calc-display {
+  background: #0b1416;
+  color: #eef4f5;
+}
+
+html.dark .qbank-calc-keys,
+body.dark-exam .qbank-calc-keys {
+  background: #1f2e33;
+}
+
+html.dark .qbank-calc-keys button,
+body.dark-exam .qbank-calc-keys button {
+  background: #142226;
+  color: #eef4f5;
+}
+
+html.dark .qbank-calc-keys button:hover,
+body.dark-exam .qbank-calc-keys button:hover {
+  background: #17383b;
+}
+
+/* Keep the admin diagnostics pill from covering the block clock. */
+#qbank-modal[style*="display: flex"] ~ #admin-diagnostic-widget {
+  bottom: 82px !important;
+}
+
+/* ---------------- Responsive ---------------- */
+@media (max-width: 1180px) {
+  .qbank-uw-bank-meta {
+    display: none;
+  }
+
+  .qbank-uw-topbar-left {
+    min-width: 220px;
+  }
+
+  .qbank-uw-brandline {
+    display: none;
+  }
+}
+
+@media (max-width: 900px) {
+  .qbank-uw-topbar {
+    padding: 0 8px;
+    gap: 6px;
+  }
+
+  .qbank-uw-topbar-left {
+    min-width: 0;
+    padding-right: 8px;
+  }
+
+  .qbank-uw-brand {
+    width: 30px;
+    height: 30px;
+  }
+
+  .qbank-uw-brand img {
+    width: 25px;
+    height: 25px;
+  }
+
+  .qbank-uw-tool {
+    min-width: 56px;
+    padding: 7px 4px;
+  }
+
+  .qbank-uw-tool span {
+    font-size: 8.5px;
+  }
+
+  .qbank-uw-tools {
+    -webkit-mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 22px), transparent 100%);
+    mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 22px), transparent 100%);
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .qbank-uw-bottombar {
+    gap: 8px;
+    padding: 6px 10px;
+    min-height: 58px;
+  }
+
+  .qbank-uw-bottom-left {
+    min-width: 118px;
+  }
+
+  .qbank-uw-bottom-controls {
+    gap: 5px;
+  }
+
+  .qbank-uw-switch {
+    font-size: 9.5px;
+  }
+
+  .qbank-uw-track {
+    width: 30px;
+    height: 16px;
+  }
+
+  .qbank-uw-track::after {
+    width: 12px;
+    height: 12px;
+  }
+
+  .qbank-uw-switch input:checked + .qbank-uw-track::after {
+    transform: translateX(14px);
+  }
+
+  .qbank-uw-bottom-btn {
+    min-width: 48px;
+    padding: 4px;
+  }
+
+  .qbank-uw-bottom-btn span {
+    font-size: 8.5px;
+  }
+
+  #qbank-modal #qbank-question-area {
+    padding: 18px 16px 36px !important;
+  }
+
+  #qbank-modal .qbank-uw-options-box {
+    padding: 3px 8px;
+  }
+
+  /* The AI study-concept panel auto-opens on wrong answers. On tablets and
+     phones show it as a full-width sheet between the two toolbars so it is
+     immediately visible and the answer choices keep the full row width. */
+  #qbank-modal #qbank-right-col {
+    position: fixed !important;
+    top: 64px !important;
+    right: 0 !important;
+    bottom: 58px !important;
+    left: 0 !important;
+    width: auto !important;
+    height: auto !important;
+    max-height: none !important;
+    flex: none !important;
+    z-index: 45;
+    border: 0 !important;
+    border-radius: 0 !important;
+    box-shadow: 0 -10px 34px rgba(4, 32, 38, 0.28);
+  }
+}
+
+@media (max-width: 640px) {
+  .qbank-uw-topbar-left {
+    border-right: 0;
+  }
+
+  .qbank-uw-qid {
+    display: none;
+  }
+
+  .qbank-uw-bottom-left {
+    min-width: 96px;
+  }
+
+  .qbank-uw-progress {
+    display: none;
+  }
+
+  .qbank-uw-switch {
+    gap: 4px;
+  }
+
+  .qbank-uw-switch span.qbank-uw-switch-label {
+    display: none;
+  }
+}
+
+/* Very narrow phones: give the clock its own row so it never collides
+   with the Timed/Tutor switches, and keep every bottom action visible. */
+@media (max-width: 520px) {
+  .qbank-uw-bottombar {
+    flex-wrap: wrap;
+    row-gap: 2px;
+    min-height: 0;
+    padding: 5px 10px 6px;
+  }
+
+  .qbank-uw-bottom-left {
+    order: 1;
+    flex: 1 1 100%;
+    min-width: 0;
+    flex-direction: row;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 8px;
+  }
+
+  .qbank-uw-clock {
+    font-size: 11.5px;
+  }
+
+  .qbank-uw-bottom-controls {
+    order: 2;
+    flex: 1 1 100%;
+    margin-left: 0;
+    justify-content: space-between;
+    overflow: visible;
+  }
+
+  .qbank-uw-bottom-actions {
+    gap: 0;
+  }
+
+  .qbank-uw-bottom-btn {
+    min-width: 44px;
+  }
+
+  #qbank-modal #qbank-right-col {
+    bottom: 68px !important;
+  }
+}
+
+/* Tiny phones (<=340px): keep the five bottom actions on one row. */
+@media (max-width: 340px) {
+  .qbank-uw-bottom-controls {
+    gap: 4px;
+  }
+
+  .qbank-uw-bottom-btn {
+    min-width: 40px;
+    padding: 4px 2px;
+  }
+
+  .qbank-uw-bottom-btn span {
+    font-size: 8px;
+  }
+}
+
+/* ============================================================
+   PHOTO-EXACT QBANK LAYOUT
+   Square, compact, UWorld-screenshot geometry in CuraQ teal.
+   ============================================================ */
+
+#qbank-modal.qbank-uw-shell {
+  background: #eef3f5 !important;
+  color: #16323a !important;
+  font-family: Arial, Helvetica, sans-serif !important;
+}
+
+/* ---------- Flat 44px toolbars ---------- */
+.qbank-uw-topbar {
+  min-height: 44px !important;
+  height: 44px !important;
+  padding: 0 8px !important;
+  gap: 6px !important;
+  background: #0e7c86 !important;
+  border-bottom: 1px solid #064b53 !important;
+  box-shadow: none !important;
+}
+
+.qbank-uw-topbar-left {
+  min-width: 150px !important;
+  gap: 8px !important;
+  padding-right: 10px !important;
+  border-right: 1px solid rgba(255, 255, 255, 0.22) !important;
+}
+
+.qbank-uw-brand {
+  width: 26px !important;
+  height: 26px !important;
+  padding: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.qbank-uw-brand img {
+  width: 25px !important;
+  height: 25px !important;
+  border-radius: 0 !important;
+}
+
+.qbank-uw-item-line {
+  font-family: Arial, Helvetica, sans-serif !important;
+  font-size: 11px !important;
+  font-weight: 700 !important;
+  line-height: 1.15 !important;
+}
+
+.qbank-uw-item-line i,
+.qbank-uw-qid i {
+  display: none !important;
+}
+
+.qbank-uw-qid {
+  font-family: Arial, Helvetica, sans-serif !important;
+  font-size: 9px !important;
+  line-height: 1.2 !important;
+}
+
+.qbank-uw-tool {
+  min-width: 46px !important;
+  padding: 4px 2px !important;
+  gap: 2px !important;
+  border-radius: 0 !important;
+}
+
+.qbank-uw-tool i {
+  font-size: 15px !important;
+}
+
+.qbank-uw-tool span {
+  font-family: Arial, Helvetica, sans-serif !important;
+  font-size: 9.5px !important;
+  font-weight: 700 !important;
+  line-height: 1.15 !important;
+}
+
+.qbank-uw-tool:hover {
+  background: rgba(255, 255, 255, 0.14) !important;
+  border-radius: 0 !important;
+}
+
+.qbank-uw-tool.is-on {
+  background: rgba(255, 255, 255, 0.13) !important;
+  box-shadow: inset 0 -2px 0 #ffffff !important;
+}
+
+.qbank-uw-bottombar {
+  min-height: 44px !important;
+  padding: 0 10px 0 56px !important;
+  gap: 8px !important;
+  background: #0e7c86 !important;
+  border-top: 1px solid #064b53 !important;
+  box-shadow: none !important;
+}
+
+.qbank-uw-bottom-left {
+  min-width: 140px !important;
+  gap: 0 !important;
+}
+
+.qbank-uw-clock {
+  gap: 4px !important;
+  font-family: Arial, Helvetica, sans-serif !important;
+  font-size: 12px !important;
+  font-weight: 700 !important;
+}
+
+.qbank-uw-clock i {
+  font-size: 12px !important;
+}
+
+.qbank-uw-progress {
+  font-family: Arial, Helvetica, sans-serif !important;
+  font-size: 9px !important;
+}
+
+.qbank-uw-brandline {
+  gap: 6px !important;
+  padding: 0 10px !important;
+  border-left-color: rgba(255, 255, 255, 0.2) !important;
+  border-right-color: rgba(255, 255, 255, 0.2) !important;
+}
+
+.qbank-uw-brandline img {
+  width: 24px !important;
+  height: 24px !important;
+  padding: 1px !important;
+  border-radius: 0 !important;
+}
+
+.qbank-uw-brandline b {
+  font-family: Arial, Helvetica, sans-serif !important;
+  font-size: 11px !important;
+}
+
+.qbank-uw-brandline small {
+  font-family: Arial, Helvetica, sans-serif !important;
+  font-size: 6px !important;
+}
+
+@media (min-width: 901px) {
+  .qbank-uw-brandline {
+    display: flex !important;
+  }
+}
+
+.qbank-uw-bottom-controls {
+  gap: 6px !important;
+}
+
+.qbank-uw-switch {
+  gap: 5px !important;
+  font-family: Arial, Helvetica, sans-serif !important;
+  font-size: 9.5px !important;
+}
+
+.qbank-uw-track {
+  width: 30px !important;
+  height: 15px !important;
+}
+
+.qbank-uw-track::after {
+  top: 2px !important;
+  left: 2px !important;
+  width: 11px !important;
+  height: 11px !important;
+}
+
+.qbank-uw-switch input:checked + .qbank-uw-track::after {
+  transform: translateX(15px) !important;
+}
+
+.qbank-uw-bottom-actions {
+  gap: 0 !important;
+}
+
+.qbank-uw-bottom-btn {
+  min-width: 46px !important;
+  padding: 3px 4px !important;
+  gap: 2px !important;
+  border-radius: 0 !important;
+}
+
+.qbank-uw-bottom-btn i {
+  font-size: 14px !important;
+}
+
+.qbank-uw-bottom-btn span {
+  font-family: Arial, Helvetica, sans-serif !important;
+  font-size: 9.5px !important;
+}
+
+.qbank-uw-bottom-btn:hover {
+  border-radius: 0 !important;
+}
+
+.qbank-uw-bottom-btn.is-active {
+  box-shadow: inset 0 -2px 0 #b8f6fb !important;
+}
+
+/* ---------- Full-height plain question rail ---------- */
+#qbank-modal #qbank-sidebar {
+  position: fixed !important;
+  top: 0 !important;
+  bottom: 0 !important;
+  left: 0 !important;
+  width: 58px !important;
+  min-width: 58px !important;
+  max-width: 58px !important;
+  padding: 0 !important;
+  background: #f7f9fa !important;
+  border-right: 1px solid #c3ced3 !important;
+  z-index: 29;
+  scrollbar-width: thin;
+  scrollbar-color: #b9c4c9 #eef1f3;
+}
+
+#qbank-modal #qbank-sidebar::-webkit-scrollbar {
+  width: 8px;
+}
+
+#qbank-modal #qbank-sidebar::-webkit-scrollbar-track {
+  background: #eef1f3;
+  border-radius: 0;
+}
+
+#qbank-modal #qbank-sidebar::-webkit-scrollbar-thumb {
+  background: #b9c4c9;
+  border-radius: 0;
+}
+
+#qbank-modal #qbank-sidebar .usmle-sidebar-item {
+  flex: 0 0 27px !important;
+  width: 100% !important;
+  min-height: 27px !important;
+  max-height: 27px !important;
+  height: 27px !important;
+  margin: 0 !important;
+  border: 0 !important;
+  border-bottom: 1px solid #e1e6e9 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  color: #334a52 !important;
+  font-family: Arial, Helvetica, sans-serif !important;
+  font-size: 11px !important;
+  font-weight: 400 !important;
+  transform: none !important;
+  transition: none !important;
+}
+
+#qbank-modal #qbank-sidebar .usmle-sidebar-item > div {
+  display: none !important;
+}
+
+#qbank-modal #qbank-sidebar .usmle-sidebar-item.flagged::after {
+  display: none !important;
+}
+
+#qbank-modal #qbank-sidebar .usmle-sidebar-item:hover {
+  background: #e9f2f4 !important;
+  color: #0b5c66 !important;
+  transform: none !important;
+}
+
+#qbank-modal #qbank-sidebar .usmle-sidebar-item.answered {
+  background: #edf7f8 !important;
+  color: #0e6b74 !important;
+  border-bottom-color: #d7e7ea !important;
+}
+
+#qbank-modal #qbank-sidebar .usmle-sidebar-item.active {
+  background: #d7edef !important;
+  color: #084d55 !important;
+  font-weight: 700 !important;
+  border-bottom-color: #c4dde0 !important;
+  box-shadow: inset 3px 0 0 #0e7c86 !important;
+}
+
+#qbank-modal #qbank-sidebar .usmle-sidebar-item.active.answered {
+  background: #d7edef !important;
+  color: #084d55 !important;
+}
+
+/* Bars and canvas start to the right of the full-height rail. */
+#qbank-modal:has(#qbank-sidebar[style*="display: flex"]) .qbank-uw-topbar,
+#qbank-modal:has(#qbank-sidebar[style*="display: flex"]) .qbank-uw-bottombar {
+  margin-left: 58px;
+}
+
+#qbank-modal:has(#qbank-sidebar[style*="display: flex"]) .usmle-content {
+  margin-left: 58px;
+}
+
+#qbank-modal:has(#qbank-sidebar[style*="display: flex"]) .usmle-body {
+  overflow: hidden !important;
+}
+
+/* ---------- Question canvas, type and spacing ---------- */
+#qbank-modal .usmle-body,
+#qbank-modal .usmle-content,
+#qbank-modal #qbank-question-area {
+  background: #eef3f5 !important;
+}
+
+#qbank-modal #qbank-question-area {
+  padding: 28px 36px 40px 56px !important;
+  --qbank-stem-size: 14px;
+  --qbank-option-size: 14px;
+}
+
+#qbank-modal #qbank-split-container.qbank-uw-split {
+  max-width: none !important;
+  margin: 0 !important;
+  gap: 16px !important;
+}
+
+#qbank-modal .qbank-uw-stem {
+  margin: 0 0 16px !important;
+  color: #16323a !important;
+  font-family: Arial, Helvetica, sans-serif !important;
+  font-size: 14px !important;
+  font-weight: 400 !important;
+  line-height: 1.5 !important;
+  letter-spacing: 0 !important;
+}
+
+#qbank-modal .qbank-uw-stem p {
+  margin: 0 0 0.75em;
+}
+
+#qbank-modal .qbank-uw-stem p:last-child {
+  margin-bottom: 0;
+}
+
+/* ---------- 368px answer box, copied from the reference ---------- */
+#qbank-modal .qbank-uw-options-box {
+  width: 368px !important;
+  max-width: calc(100% - 10px) !important;
+  margin-left: 10px !important;
+  padding: 5px 10px 5px 13px !important;
+  background: #ffffff !important;
+  border: 1px solid #8ea3ad !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+}
+
+#qbank-modal #qbank-options-container.qbank-uw-options {
+  width: 100% !important;
+  max-width: none !important;
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 0 !important;
+  margin: 0 !important;
+}
+
+#qbank-modal #qbank-options-container .qbank-uw-option.usmle-option,
+#qbank-modal #qbank-options-container label.qbank-uw-option {
+  display: flex !important;
+  align-items: flex-start !important;
+  gap: 0 !important;
+  width: 100% !important;
+  box-sizing: border-box !important;
+  margin: 0 !important;
+  padding: 6px 8px 6px 9px !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  color: #16323a !important;
+  font-family: Arial, Helvetica, sans-serif !important;
+  font-size: 14px !important;
+  font-weight: 400 !important;
+  line-height: 1.45 !important;
+  text-align: left !important;
+  cursor: pointer !important;
+  transition: background 0.1s ease !important;
+}
+
+#qbank-modal #qbank-options-container .qbank-uw-option:hover {
+  background: #eef7f8 !important;
+  color: #16323a !important;
+}
+
+#qbank-modal #qbank-options-container .qbank-uw-option.selected {
+  background: #e4f2f4 !important;
+  color: #0e3b45 !important;
+  box-shadow: none !important;
+}
+
+#qbank-modal #qbank-options-container .qbank-uw-radio {
+  width: 18px !important;
+  height: 18px !important;
+  flex: 0 0 18px !important;
+  margin: 1px 26px 0 0 !important;
+  border: 1px solid #7b8fa5 !important;
+  border-radius: 50% !important;
+  background: #ffffff !important;
+  box-shadow: none !important;
+}
+
+#qbank-modal #qbank-options-container .qbank-uw-option:hover .qbank-uw-radio {
+  border-color: #0e7c86 !important;
+}
+
+#qbank-modal #qbank-options-container input:checked + .qbank-uw-option .qbank-uw-radio,
+#qbank-modal #qbank-options-container .qbank-uw-option.selected .qbank-uw-radio {
+  border-color: #0e7c86 !important;
+}
+
+#qbank-modal #qbank-options-container input:checked + .qbank-uw-option .qbank-uw-radio::after,
+#qbank-modal #qbank-options-container .qbank-uw-option.selected .qbank-uw-radio::after {
+  inset: 4px !important;
+  background: #0e7c86 !important;
+  border-radius: 50% !important;
+}
+
+#qbank-modal #qbank-options-container .qbank-uw-option .usmle-option-letter {
+  flex: 0 0 auto !important;
+  min-width: 0 !important;
+  margin: 0 5px 0 0 !important;
+  padding: 0 !important;
+  background: transparent !important;
+  border-radius: 0 !important;
+  color: #16323a !important;
+  font-family: Arial, Helvetica, sans-serif !important;
+  font-size: 14px !important;
+  font-weight: 400 !important;
+  opacity: 1 !important;
+}
+
+#qbank-modal #qbank-options-container .qbank-uw-option .usmle-option-letter::after {
+  content: ".";
+}
+
+#qbank-modal #qbank-options-container .qbank-uw-option .usmle-option-text {
+  flex: 1 1 auto !important;
+  min-width: 0 !important;
+}
+
+#qbank-modal #qbank-options-container .qbank-uw-option .usmle-option-text p,
+#qbank-modal #qbank-options-container .qbank-uw-option .usmle-option-text div {
+  margin: 0 !important;
+  padding: 0 !important;
+  line-height: inherit !important;
+}
+
+/* renderRichText wraps every stem/option in .qbank-rich, whose dashboard
+   defaults (Inter, 1.7, slate ink) would override the Arial geometry above
+   and leave dark-mode text unreadable. Let the wrappers inherit instead. */
+#qbank-modal .qbank-uw-stem .qbank-rich,
+#qbank-modal #qbank-options-container .qbank-uw-option .usmle-option-text .qbank-rich {
+  color: inherit !important;
+  font-family: inherit !important;
+  line-height: inherit !important;
+}
+
+/* ---------- Small square Submit, no hint text ---------- */
+#qbank-modal .qbank-uw-submit {
+  appearance: none !important;
+  width: auto !important;
+  min-width: 68px !important;
+  margin: 18px 0 0 10px !important;
+  padding: 4px 10px !important;
+  background: #0e7c86 !important;
+  color: #ffffff !important;
+  border: 1px solid #07545c !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  font-family: Arial, Helvetica, sans-serif !important;
+  font-size: 12px !important;
+  font-weight: 700 !important;
+  line-height: 17px !important;
+  cursor: pointer !important;
+  transition: background 0.1s ease !important;
+}
+
+#qbank-modal .qbank-uw-submit:hover {
+  background: #0b6770 !important;
+  border-color: #0b6770 !important;
+  box-shadow: none !important;
+}
+
+#qbank-modal .qbank-uw-submit:disabled {
+  opacity: 0.55 !important;
+  box-shadow: none !important;
+}
+
+#qbank-modal #qbank-submit-hint {
+  display: none !important;
+}
+
+/* ---------- Hard edges on the remaining chrome ---------- */
+#qbank-modal .qbank-uw-note,
+#qbank-modal .qbank-uw-note-editor,
+#qbank-modal #qbank-explanation-container.usmle-explanation,
+#qbank-modal #qbank-ai-chat-container,
+#qbank-modal #qbank-right-col {
+  border-radius: 0 !important;
+}
+
+#qbank-modal .qbank-uw-note,
+#qbank-modal .qbank-uw-note-editor,
+#qbank-modal #qbank-explanation-container.usmle-explanation,
+#qbank-modal #qbank-right-col {
+  box-shadow: none !important;
+}
+
+#qbank-modal #qbank-explanation-container.usmle-explanation {
+  max-width: none !important;
+  margin-top: 20px !important;
+}
+
+#qbank-modal #qbank-explanation-container .usmle-proceed-btn {
+  border-radius: 0 !important;
+}
+
+#qbank-modal .btn-dark-pill,
+#qbank-modal #qbank-ai-chat-container {
+  border-radius: 0 !important;
+}
+
+body:has(#qbank-modal[style*="display: flex"]) #admin-diagnostic-widget {
+  bottom: 52px !important;
+}
+
+@media (max-width: 520px) {
+  body:has(#qbank-modal[style*="display: flex"]) #admin-diagnostic-widget {
+    bottom: 78px !important;
+  }
+}
+
+@media (max-width: 900px) {
+  .qbank-uw-topbar-left {
+    min-width: 0 !important;
+    padding-right: 8px !important;
+  }
+
+  .qbank-uw-brandline {
+    display: none !important;
+  }
+
+  .qbank-uw-bottombar {
+    padding-left: 16px !important;
+  }
+
+  #qbank-modal #qbank-question-area {
+    padding: 18px 18px 34px 20px !important;
+  }
+
+  #qbank-modal #qbank-right-col {
+    top: 44px !important;
+    bottom: 44px !important;
+  }
+}
+
+/* Between tablet and phone the labels no longer fit the 46px buttons, so
+   collapse the strip to icons. The buttons keep their title tooltips. */
+@media (max-width: 839px) {
+  #qbank-modal .qbank-uw-tool span {
+    display: none !important;
+  }
+
+  #qbank-modal .qbank-uw-tool {
+    min-width: 42px !important;
+    padding: 4px 2px !important;
+  }
+}
+
+@media (max-width: 640px) {
+  .qbank-uw-brand {
+    display: none !important;
+  }
+
+  #qbank-modal #qbank-question-area {
+    padding: 16px 14px 30px 16px !important;
+  }
+
+  #qbank-modal #qbank-options-container .qbank-uw-radio {
+    margin-right: 10px !important;
+  }
+}
+
+@media (max-width: 520px) {
+  #qbank-modal:has(#qbank-sidebar[style*="display: flex"]) .qbank-uw-bottombar {
+    margin-left: 0;
+  }
+
+  .qbank-uw-bottombar {
+    min-height: 0 !important;
+    padding: 5px 10px 6px !important;
+  }
+
+  .qbank-uw-bottom-left {
+    min-width: 0 !important;
+  }
+
+  #qbank-modal #qbank-right-col {
+    bottom: 71px !important;
+  }
+}
+
+@media (max-width: 340px) {
+  .qbank-uw-bottom-btn {
+    min-width: 40px !important;
+    padding: 3px 2px !important;
+  }
+
+  .qbank-uw-bottom-btn span {
+    font-size: 8px !important;
+  }
+}
+
+/* ---------- Dark-mode equivalents for the new geometry ---------- */
+html.dark #qbank-modal.qbank-uw-shell,
+body.dark-exam #qbank-modal.qbank-uw-shell,
+html.dark #qbank-modal .usmle-body,
+body.dark-exam #qbank-modal .usmle-body,
+html.dark #qbank-modal .usmle-content,
+body.dark-exam #qbank-modal .usmle-content,
+html.dark #qbank-modal #qbank-question-area,
+body.dark-exam #qbank-modal #qbank-question-area {
+  background: #0b1416 !important;
+}
+
+html.dark #qbank-modal .qbank-uw-stem,
+body.dark-exam #qbank-modal .qbank-uw-stem {
+  color: #e8eff1 !important;
+}
+
+html.dark #qbank-modal .qbank-uw-options-box,
+body.dark-exam #qbank-modal .qbank-uw-options-box {
+  background: #10191c !important;
+  border-color: #3e5a61 !important;
+}
+
+html.dark #qbank-modal #qbank-options-container .qbank-uw-option.usmle-option,
+html.dark #qbank-modal #qbank-options-container label.qbank-uw-option,
+body.dark-exam #qbank-modal #qbank-options-container .qbank-uw-option.usmle-option,
+body.dark-exam #qbank-modal #qbank-options-container label.qbank-uw-option {
+  color: #e8eff1 !important;
+}
+
+html.dark #qbank-modal #qbank-options-container .qbank-uw-option .usmle-option-letter,
+body.dark-exam #qbank-modal #qbank-options-container .qbank-uw-option .usmle-option-letter {
+  color: #e8eff1 !important;
+}
+
+html.dark #qbank-modal #qbank-options-container .qbank-uw-option:hover,
+body.dark-exam #qbank-modal #qbank-options-container .qbank-uw-option:hover {
+  background: #16282c !important;
+  color: #e8eff1 !important;
+}
+
+html.dark #qbank-modal #qbank-options-container .qbank-uw-option.selected,
+body.dark-exam #qbank-modal #qbank-options-container .qbank-uw-option.selected {
+  background: #123236 !important;
+  color: #d7fbfd !important;
+}
+
+html.dark #qbank-modal #qbank-options-container .qbank-uw-radio,
+body.dark-exam #qbank-modal #qbank-options-container .qbank-uw-radio {
+  background: #0b1416 !important;
+  border-color: #4b666d !important;
+}
+
+html.dark #qbank-modal #qbank-options-container input:checked + .qbank-uw-option .qbank-uw-radio,
+html.dark #qbank-modal #qbank-options-container .qbank-uw-option.selected .qbank-uw-radio,
+body.dark-exam #qbank-modal #qbank-options-container input:checked + .qbank-uw-option .qbank-uw-radio,
+body.dark-exam #qbank-modal #qbank-options-container .qbank-uw-option.selected .qbank-uw-radio {
+  border-color: #45c9d2 !important;
+}
+
+html.dark #qbank-modal #qbank-options-container input:checked + .qbank-uw-option .qbank-uw-radio::after,
+html.dark #qbank-modal #qbank-options-container .qbank-uw-option.selected .qbank-uw-radio::after,
+body.dark-exam #qbank-modal #qbank-options-container input:checked + .qbank-uw-option .qbank-uw-radio::after,
+body.dark-exam #qbank-modal #qbank-options-container .qbank-uw-option.selected .qbank-uw-radio::after {
+  background: #45c9d2 !important;
+}
+
+html.dark #qbank-modal .qbank-uw-submit,
+body.dark-exam #qbank-modal .qbank-uw-submit {
+  background: #45c9d2 !important;
+  border-color: #45c9d2 !important;
+  color: #071a1d !important;
+}
+
+html.dark #qbank-modal #qbank-sidebar,
+body.dark-exam #qbank-modal #qbank-sidebar {
+  background: #0d171a !important;
+  border-right-color: #243338 !important;
+  scrollbar-color: #3e5157 #142125;
+}
+
+html.dark #qbank-modal #qbank-sidebar::-webkit-scrollbar-track,
+body.dark-exam #qbank-modal #qbank-sidebar::-webkit-scrollbar-track {
+  background: #142125;
+}
+
+html.dark #qbank-modal #qbank-sidebar::-webkit-scrollbar-thumb,
+body.dark-exam #qbank-modal #qbank-sidebar::-webkit-scrollbar-thumb {
+  background: #3e5157;
+}
+
+html.dark #qbank-modal #qbank-sidebar .usmle-sidebar-item,
+body.dark-exam #qbank-modal #qbank-sidebar .usmle-sidebar-item {
+  background: transparent !important;
+  border-bottom-color: #1f2d31 !important;
+  color: #9fb4ba !important;
+}
+
+html.dark #qbank-modal #qbank-sidebar .usmle-sidebar-item:hover,
+body.dark-exam #qbank-modal #qbank-sidebar .usmle-sidebar-item:hover {
+  background: #14272b !important;
+  color: #c8e6e9 !important;
+}
+
+html.dark #qbank-modal #qbank-sidebar .usmle-sidebar-item.answered,
+body.dark-exam #qbank-modal #qbank-sidebar .usmle-sidebar-item.answered {
+  background: #102528 !important;
+  color: #8fd6dc !important;
+  border-bottom-color: #203438 !important;
+}
+
+html.dark #qbank-modal #qbank-sidebar .usmle-sidebar-item.active,
+html.dark #qbank-modal #qbank-sidebar .usmle-sidebar-item.active.answered,
+body.dark-exam #qbank-modal #qbank-sidebar .usmle-sidebar-item.active,
+body.dark-exam #qbank-modal #qbank-sidebar .usmle-sidebar-item.active.answered {
+  background: #123236 !important;
+  color: #7ee8ef !important;
+  border-bottom-color: #21464b !important;
+  box-shadow: inset 3px 0 0 #2bc3cd !important;
+}
+
+/* Phones and tablets: let the answer box use the full content width. */
+@media (max-width: 900px) {
+  #qbank-modal .qbank-uw-options-box {
+    width: 100% !important;
+    max-width: 100% !important;
+    margin-left: 0 !important;
+    padding: 5px 10px !important;
+  }
+}

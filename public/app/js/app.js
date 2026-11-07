@@ -63,9 +63,8 @@ async function initApp(user) {
         db.studyStats = {};
     }
 
-    // College onboarding: new accounts and legacy accounts that never chose a
-    // college get the profile wizard. Country alone is no longer sufficient
-    // because bank access is attached to the selected college.
+    // Lightweight onboarding: only a display name and contact are required.
+    // QBank access is handled by free/paid tiers and licenses, not colleges.
     try {
         const u0 = window.firebase && firebase.auth().currentUser;
         if (u0 && typeof window.showWelcomeOnboarding === "function") {
@@ -81,7 +80,7 @@ async function initApp(user) {
                             profile = snap.exists ? (snap.data() || {}) : {};
                         }
                     } catch (_) {}
-                    if (!profile || !profile.country || !profile.collegeId) window.showWelcomeOnboarding();
+                    if (!profile || !profile.displayName || !profile.telegram) window.showWelcomeOnboarding();
                 } catch (_) {}
             })();
         }
@@ -386,7 +385,7 @@ function _searchBankLabel(bank) {
 
 function _searchBankAllowed(bank) {
     const acc = window.db && window.db.access;
-    if (!acc || acc.legacy || !acc.country) return true;
+    if (!acc) return true; // fail-open until the access bundle arrives
     const id = bank && bank.id;
     if (!id) return false;
     const grants = Array.isArray(acc.grants) ? acc.grants : [];
@@ -411,20 +410,14 @@ function _searchBanks() {
     }
     const activeId = window.db && window.db.selectedQBankId;
     const active = activeId ? byId.get(activeId) : null;
-    const acc = window.db && window.db.access;
-    const collegeScoped = !!(acc && acc.collegeId);
     const usable = q => _searchBankAllowed(q) && !_searchFailedBanks[q.id];
     const mains = [...byId.values()].filter(q => q.kind !== 'exam_prep' && usable(q));
     const prep = [...byId.values()].filter(q => q.kind === 'exam_prep' && usable(q));
     const chosen = [];
     if (active && usable(active)) chosen.push(active);
-    if (collegeScoped) {
-        mains.forEach(q => {
-            if (!chosen.some(item => item.id === q.id)) chosen.push(q);
-        });
-    } else if (!chosen.length && mains.length) {
-        chosen.push(mains[0]);
-    }
+    mains.forEach(q => {
+        if (!chosen.some(item => item.id === q.id)) chosen.push(q);
+    });
     prep.forEach(q => {
         if (!chosen.some(item => item.id === q.id)) chosen.push(q);
     });
@@ -1676,6 +1669,17 @@ window.handleRegister = async function () {
     try {
         const cred = await firebase.auth().createUserWithEmailAndPassword(email, pass);
         try { await cred.user.updateProfile({ displayName: name }); } catch (e) {}
+        let verificationSent = false;
+        try {
+            await cred.user.sendEmailVerification({
+                url: `${window.location.origin}/app/index.html`,
+                handleCodeInApp: false,
+            });
+            verificationSent = true;
+            try { localStorage.setItem(`curaq_verify_sent_${cred.user.uid}`, String(Date.now())); } catch (_) {}
+        } catch (e) {
+            console.warn('Email verification link send failed:', e);
+        }
         // New users start in light mode.
         localStorage.setItem('omnote_theme', 'light');
         document.body.classList.add('app-light-mode');
@@ -1689,7 +1693,9 @@ window.handleRegister = async function () {
             saveDb();
         }
         initApp(firebase.auth().currentUser);
-        alert("Account created!");
+        alert(verificationSent
+            ? "Account created! We sent a verification link to your email. Open it to finish setting up, or continue with Google from onboarding."
+            : "Account created! Please verify your email from onboarding, or continue with Google instead.");
     } catch (e) {
         err.innerText = e.message;
         err.style.display = 'block';
