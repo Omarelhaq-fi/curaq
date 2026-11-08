@@ -27,6 +27,15 @@ export interface QbankListEntry {
   year: string;
   accessTier?: "free" | "paid";
   storage_provider?: string;
+  /** license_exam | module_academic | module_clinical (default license_exam). */
+  bankType?: string;
+  /** Cover photo URL for modules (e.g. "Pediatrics General"). */
+  coverUrl?: string;
+  description?: string;
+  priceLabel?: string;
+  /** Module audience linking: empty = everyone. License Exams always []. */
+  majorIds?: string[];
+  collegeIds?: string[];
 }
 
 interface ListCache {
@@ -103,6 +112,7 @@ export interface CachedUserProfile {
   grants: string[];
   paidUntil?: number;
   collegeId?: string;
+  majorId?: string;
   major?: string;
   college?: string;
 }
@@ -128,6 +138,7 @@ export function getCachedUserProfile(uid: string): CachedUserProfile | null {
     grants: e.grants,
     paidUntil: e.paidUntil,
     collegeId: e.collegeId,
+    majorId: e.majorId,
     major: e.major,
     college: e.college,
   };
@@ -147,6 +158,7 @@ export function setCachedUserProfile(uid: string, data: CachedUserProfile): void
     grants: data.grants,
     paidUntil: data.paidUntil,
     collegeId: data.collegeId,
+    majorId: data.majorId,
     major: data.major,
     college: data.college,
     time: Date.now(),

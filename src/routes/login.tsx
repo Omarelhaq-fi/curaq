@@ -297,7 +297,18 @@ function LoginPage() {
       if (mode === "signin") {
         await fb.auth().signInWithEmailAndPassword(email.trim(), password);
       } else {
-        await fb.auth().createUserWithEmailAndPassword(email.trim(), password);
+        const cred = await fb.auth().createUserWithEmailAndPassword(email.trim(), password);
+        try {
+          await cred.user.sendEmailVerification({
+            url: `${window.location.origin}${APP_URL}`,
+            handleCodeInApp: false,
+          });
+          try {
+            localStorage.setItem(`curaq_verify_sent_${cred.user.uid}`, String(Date.now()));
+          } catch {}
+        } catch {
+          // Onboarding also sends/resends the link and offers Google sign-in.
+        }
       }
       window.location.href = APP_URL;
     } catch (err: any) {

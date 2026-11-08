@@ -20,7 +20,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { Globe, Languages, Sparkles, User, ArrowRight } from "lucide-react"
+import { Globe, Languages, Sparkles, User, ArrowRight, GraduationCap, Building2 } from "lucide-react"
 
 export const Route = createFileRoute('/onboarding')({
   component: OnboardingPage,
@@ -33,10 +33,26 @@ const formSchema = z.object({
   country: z.string().min(1, {
     message: "Please select a country.",
   }),
+  major: z.string().min(2, {
+    message: "Please select or add your major.",
+  }),
+  college: z.string().min(2, {
+    message: "Please select or add your college.",
+  }),
   language: z.string().min(1, {
     message: "Please select a preferred language.",
   }),
 })
+
+const majorOptions = [
+  "Medicine",
+  "Dentistry",
+  "Pharmacy",
+  "Nursing",
+  "Physiotherapy",
+  "Science",
+  "Engineering",
+]
 
 const countries = [
   "United States", "United Kingdom", "Canada", "Australia", 
@@ -61,13 +77,28 @@ function OnboardingPage() {
     defaultValues: {
       name: "",
       country: "",
+      major: "Medicine",
+      college: "",
       language: "",
     },
   })
 
   function onSubmit(values: z.infer<typeof formSchema>) {
-    console.log("Onboarding preferences saved:", values)
-    // Here we would typically save these preferences to the user's profile/settings
+    // The in-app wizard (welcome.js in /app) is the canonical onboarding and
+    // saves country → major → college via complete_onboarding. This page
+    // keeps the same choices and pre-fills that wizard via localStorage.
+    try {
+      localStorage.setItem(
+        "curaq_onboarding_academic",
+        JSON.stringify({
+          country: values.country,
+          major: values.major,
+          college: values.college,
+        }),
+      );
+    } catch {
+      /* ignore */
+    }
     navigate({ to: '/' });
   }
 
@@ -173,6 +204,61 @@ function OnboardingPage() {
                       </Select>
                       <FormDescription>
                         This helps us tailor guidelines to your region.
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="major"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="flex items-center gap-2 text-base">
+                        <GraduationCap className="h-4 w-4 text-primary" />
+                        What is your major?
+                      </FormLabel>
+                      <Select onValueChange={field.onChange} defaultValue={field.value}>
+                        <FormControl>
+                          <SelectTrigger className="h-12 px-4 rounded-xl border-input/50 transition-colors text-base">
+                            <SelectValue placeholder="Select your major" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent className="rounded-xl">
+                          {majorOptions.map(major => (
+                            <SelectItem key={major} value={major} className="rounded-lg cursor-pointer">
+                              {major}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormDescription>
+                        Modules are linked to majors — this decides which courses you see.
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="college"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="flex items-center gap-2 text-base">
+                        <Building2 className="h-4 w-4 text-primary" />
+                        Which college do you attend?
+                      </FormLabel>
+                      <FormControl>
+                        <Input
+                          placeholder="e.g. Faculty of Medicine, Cairo University"
+                          className="h-12 px-4 rounded-xl border-input/50 focus:border-primary transition-colors text-base"
+                          {...field}
+                        />
+                      </FormControl>
+                      <FormDescription>
+                        Type your college name — admins link modules to it.
                       </FormDescription>
                       <FormMessage />
                     </FormItem>

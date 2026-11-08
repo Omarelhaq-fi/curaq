@@ -6,10 +6,12 @@ import { getQbankListCache, setQbankListCache } from "@/lib/qbank-cache.server";
 import { getCorsHeaders } from "@/lib/cors";
 import { getClientIp, rateLimit, rateLimitResponse } from "@/lib/rate-limit.server";
 
-function toPublicShape(banks: { id: string; name: string; country: string; kind: string; college: string; year: string }[]) {
+function toPublicShape(banks: { id: string; name: string; country: string; kind: string; college: string; year: string; bankType?: string; coverUrl?: string; description?: string; priceLabel?: string; accessTier?: string }[]) {
   return {
     mains: banks.filter((b) => b.kind !== "exam_prep"),
     examPrep: banks.filter((b) => b.kind === "exam_prep"),
+    modules: banks.filter((b) => b.bankType === "module_academic" || b.bankType === "module_clinical"),
+    licenseExams: banks.filter((b) => (b.bankType || "license_exam") === "license_exam"),
   };
 }
 
@@ -73,6 +75,11 @@ export const Route = createFileRoute("/api/public/qbanks")({
               kind: doc.fields?.kind?.stringValue || "main",
               college: doc.fields?.college?.stringValue || "",
               year: doc.fields?.year?.stringValue || "",
+              bankType: doc.fields?.bankType?.stringValue || "license_exam",
+              coverUrl: doc.fields?.coverUrl?.stringValue || "",
+              description: doc.fields?.description?.stringValue || "",
+              priceLabel: doc.fields?.priceLabel?.stringValue || "",
+              accessTier: (doc.fields?.accessTier?.stringValue === "paid" ? "paid" : "free") as "paid" | "free",
             };
           });
 

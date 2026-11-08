@@ -864,17 +864,56 @@ export const Route = createFileRoute("/api/qbank")({
             const onboardingLimit = await rateLimitGlobal(`onboarding:uid:${uid}`, 3600_000, 10);
             if (!onboardingLimit.ok) return rateLimitResponse(onboardingLimit.retryAfter, cors);
 
+            // Academic profile (country -> major -> college) drives which
+            // audience-linked modules the student sees. Optional for
+            // backwards compatibility: older clients send nothing.
+            const academicInput = {
+              countryId: body.countryId ?? body.country,
+              majorId: body.majorId,
+              majorName: body.majorName ?? body.major,
+              collegeId: body.collegeId,
+              collegeName: body.collegeName ?? body.college,
+            };
+            const hasAcademic = Boolean(
+              academicInput.countryId || academicInput.majorId || academicInput.majorName ||
+              academicInput.collegeId || academicInput.collegeName,
+            );
+            let academic: Record<string, string> | null = null;
+            if (hasAcademic) {
+              if (!academicInput.countryId || (!academicInput.majorId && !academicInput.majorName) || (!academicInput.collegeId && !academicInput.collegeName)) {
+                return json({ error: "Please choose your country, major, and college." }, 400, cors);
+              }
+              try {
+                const structureLoaded = await loadAcademicStructure(sa, token);
+                const sel = resolveAcademicSelection(structureLoaded, academicInput);
+                if (sel.changed) {
+                  await saveAcademicStructure(sa, token, sel.structure).catch(() => {});
+                }
+                academic = {
+                  country: sel.country.id,
+                  major: sel.major.name,
+                  majorId: sel.major.id,
+                  college: sel.college.name,
+                  collegeId: sel.college.id,
+                };
+              } catch (e) {
+                const message = (e as Error)?.message || "Please choose a valid country, major, and college.";
+                return json({ error: message }, 400, cors);
+              }
+            }
+
             try {
-              const profile = {
+              const profile: Record<string, string | boolean | number> = {
                 displayName: name,
                 email: String(user.email || ""),
                 telegram: telegram.value,
                 telegramType: telegram.type,
                 onboardingComplete: true,
-                onboardingVersion: 4,
+                onboardingVersion: 5,
                 onboardingCompletedAt: Date.now(),
                 language,
               };
+              if (academic) Object.assign(profile, academic);
               await patchUserDocs(sa, token, uid, profile);
               invalidateAccessBundle(uid);
 
@@ -890,6 +929,7 @@ export const Route = createFileRoute("/api/qbank")({
                   displayName: name,
                   telegram: telegram.value,
                   language,
+                  ...(academic || {}),
                 },
                 access,
               }, 200, cors);
@@ -923,28 +963,63 @@ export const Route = createFileRoute("/api/qbank")({
               return json({ error: "This license has an invalid duration." }, 400, cors);
             }
 
+            // A license without bankId is global (extends paidUntil for all
+            // paid banks). A scoped license grants exactly that one bank
+            // (a module or exam) via qbankGrants — per-module purchases.
+            const scopedBankId = String(licFields.bankId?.stringValue || "").trim();
+            if (scopedBankId && !/^[a-zA-Z0-9_-]+$/.test(scopedBankId)) {
+              return json({ error: "This license has an invalid scope." }, 400, cors);
+            }
+
             const userRes = await fetch(
               `https://firestore.googleapis.com/v1/projects/${sa.project_id}/databases/(default)/documents/users_index/${uid}`,
               { headers: { Authorization: `Bearer ${token}` } }
             );
             const userData = userRes.ok ? await userRes.json() : { fields: {} };
             const currentPaidUntil = Number(userData.fields?.paidUntil?.integerValue || 0);
-            const paidUntil = Math.max(Date.now(), currentPaidUntil) + days * 86_400_000;
-            const patch = {
-              fields: {
-                paidUntil: { integerValue: String(paidUntil) },
-              },
-            };
-            const mask = "updateMask.fieldPaths=paidUntil";
-            const patchRes = await fetch(
-              `https://firestore.googleapis.com/v1/projects/${sa.project_id}/databases/(default)/documents/users_index/${uid}?${mask}`,
-              {
-                method: "PATCH",
-                headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-                body: JSON.stringify(patch),
+            const paidUntil = scopedBankId
+              ? currentPaidUntil
+              : Math.max(Date.now(), currentPaidUntil) + days * 86_400_000;
+            if (!scopedBankId) {
+              const patch = {
+                fields: {
+                  paidUntil: { integerValue: String(paidUntil) },
+                },
+              };
+              const mask = "updateMask.fieldPaths=paidUntil";
+              const patchRes = await fetch(
+                `https://firestore.googleapis.com/v1/projects/${sa.project_id}/databases/(default)/documents/users_index/${uid}?${mask}`,
+                {
+                  method: "PATCH",
+                  headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+                  body: JSON.stringify(patch),
+                }
+              );
+              if (!patchRes.ok) return json({ error: "Could not activate your license." }, 500, cors);
+            } else {
+              const existingGrants = (userData.fields?.qbankGrants?.arrayValue?.values || [])
+                .map((v: any) => String(v.stringValue || ""))
+                .filter(Boolean);
+              if (existingGrants.includes(scopedBankId)) {
+                return json({ error: "You already have access to this bank." }, 403, cors);
               }
-            );
-            if (!patchRes.ok) return json({ error: "Could not activate your license." }, 500, cors);
+              const mergedGrants = [...new Set([...existingGrants, scopedBankId])].slice(0, 500);
+              const grantRes = await fetch(
+                `https://firestore.googleapis.com/v1/projects/${sa.project_id}/databases/(default)/documents/users_index/${uid}?updateMask.fieldPaths=qbankGrants`,
+                {
+                  method: "PATCH",
+                  headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    fields: {
+                      qbankGrants: {
+                        arrayValue: { values: mergedGrants.map((id) => ({ stringValue: id })) },
+                      },
+                    },
+                  }),
+                }
+              );
+              if (!grantRes.ok) return json({ error: "Could not activate your license." }, 500, cors);
+            }
 
             const licenseMask = "updateMask.fieldPaths=usedBy&updateMask.fieldPaths=usedEmail&updateMask.fieldPaths=redeemedAt&updateMask.fieldPaths=activatedUntil";
             await fetch(`${licUrl}?${licenseMask}`, {
@@ -963,7 +1038,7 @@ export const Route = createFileRoute("/api/qbank")({
             invalidateAccessBundle(uid);
             let access = null;
             try { access = await getAccessBundleCached(sa, token, uid); } catch {}
-            return json({ ok: true, paidUntil, access }, 200, cors);
+            return json({ ok: true, paidUntil, bankId: scopedBankId || null, access }, 200, cors);
           }
 
           if (body.action === "set_active_qbank") {

@@ -27,11 +27,13 @@ import {
   invalidateUserProfile,
   type QbankListEntry,
 } from "@/lib/qbank-cache.server";
+import { isModuleBankType } from "@/lib/qbank-types";
 
 export interface AccessBundle {
   profileCountry: string;
   profileMajor?: string;
   profileCollege?: string;
+  majorId?: string;
   collegeId?: string;
   paidUntil: number;
   mainIds: string[];
@@ -45,6 +47,7 @@ type UserProfile = {
   grants: string[];
   paidUntil?: number;
   collegeId?: string;
+  majorId?: string;
   major?: string;
   college?: string;
 };
@@ -107,6 +110,7 @@ async function fetchUserProfileFresh(
   let grants: string[] = [];
   let paidUntil = 0;
   let collegeId = "";
+  let majorId = "";
   let major = "";
   let college = "";
   if (uRes.ok) {
@@ -116,10 +120,11 @@ async function fetchUserProfileFresh(
     grants = gv.map((v: any) => String(v.stringValue || "")).filter(Boolean);
     paidUntil = Number(ud.fields?.paidUntil?.integerValue || 0);
     collegeId = String(ud.fields?.collegeId?.stringValue || "");
+    majorId = String(ud.fields?.majorId?.stringValue || "");
     major = String(ud.fields?.major?.stringValue || "");
     college = String(ud.fields?.college?.stringValue || "");
   }
-  const profile: UserProfile = { country, grants, paidUntil, collegeId, major, college };
+  const profile: UserProfile = { country, grants, paidUntil, collegeId, majorId, major, college };
   try {
     setCachedUserProfile(uid, profile);
   } catch {
@@ -193,7 +198,14 @@ export async function loadAllBanks(
         const year = doc.fields?.year?.stringValue || "";
         const accessTier = doc.fields?.accessTier?.stringValue === "paid" ? "paid" : "free";
         const storage_provider = doc.fields?.storage_provider?.stringValue || "";
-        qbanks.push({ id, name, country, updatedAt, isLocked, isPartyLocked, resources, kind, college, year, accessTier, storage_provider });
+        const bankType = doc.fields?.bankType?.stringValue || "license_exam";
+        const coverUrl = doc.fields?.coverUrl?.stringValue || "";
+        const description = doc.fields?.description?.stringValue || "";
+        const priceLabel = doc.fields?.priceLabel?.stringValue || "";
+        const arrayIds = (v: any) => (v?.arrayValue?.values || []).map((x: any) => String(x.stringValue || "")).filter(Boolean);
+        const majorIds = arrayIds(doc.fields?.majorIds);
+        const collegeIds = arrayIds(doc.fields?.collegeIds);
+        qbanks.push({ id, name, country, updatedAt, isLocked, isPartyLocked, resources, kind, college, year, accessTier, storage_provider, bankType, coverUrl, description, priceLabel, majorIds, collegeIds });
       }
     }
     pageToken = data.nextPageToken || "";
@@ -213,6 +225,7 @@ export function buildAccessBundle(
   const paidUntil = Number(profile.paidUntil || 0);
   const paidActive = paidUntil > Date.now();
   const collegeId = profile.collegeId || "";
+  const majorId = profile.majorId || "";
   const major = profile.major || "";
   const college = profile.college || "";
   const byId = new Map(allBanks.map((b) => [b.id, b]));
@@ -220,6 +233,7 @@ export function buildAccessBundle(
     profileCountry: country,
     profileMajor: major,
     profileCollege: college,
+    majorId,
     collegeId,
     paidUntil,
     mainIds: [],
@@ -234,11 +248,25 @@ export function buildAccessBundle(
     (bank.kind === "exam_prep" ? prep : main).add(id);
   };
 
+  // Modules link to a major and/or specific college (linked audience only).
+  // Unlinked modules and all License Exams are for everyone. Explicit admin
+  // assignments (qbankGrants) always win, even outside the linked audience.
+  const audienceOk = (bank: QbankListEntry): boolean => {
+    if (!isModuleBankType(bank.bankType)) return true;
+    const majors = Array.isArray(bank.majorIds) ? bank.majorIds : [];
+    const colleges = Array.isArray(bank.collegeIds) ? bank.collegeIds : [];
+    if (!majors.length && !colleges.length) return true;
+    if (majorId && majors.includes(majorId)) return true;
+    if (collegeId && colleges.includes(collegeId)) return true;
+    return false;
+  };
+
   // Every account sees free banks. Paid banks unlock while a license is
   // active. Explicit admin assignments (qbankGrants) always win.
   const main = new Set<string>();
   const prep = new Set<string>();
   for (const bank of allBanks) {
+    if (!audienceOk(bank) && !grants.includes(bank.id)) continue;
     const tier = bank.accessTier || "free";
     if (tier !== "paid" || paidActive || grants.includes(bank.id)) {
       (bank.kind === "exam_prep" ? prep : main).add(bank.id);
@@ -311,6 +339,7 @@ export async function resolveBankAccessEdge(
         grants: bundle.grants,
         paidUntil: bundle.paidUntil,
         collegeId: bundle.collegeId,
+        majorId: bundle.majorId,
         major: bundle.profileMajor,
         college: bundle.profileCollege,
       }
