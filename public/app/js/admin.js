@@ -2058,9 +2058,10 @@
     const list = document.getElementById("admin-qbank-list");
     const select = document.getElementById("admin-qbank-select");
     if (!list || !select) return;
-    
+
     list.innerHTML = '<div style="color:var(--text-muted);text-align:center;">Loading...</div>';
     try {
+      await adminEnsureLinking().catch(() => {});
       const res = await api("/api/admin?action=list_qbanks", { method: "GET" });
       let qbanks = res.qbanks || [];
       qbanks = qbanks.filter(q => q.kind !== "exam_prep");
@@ -2078,7 +2079,8 @@
             <div style="display:flex; justify-content:space-between; align-items:center;">
               <div>
                 <div style="font-weight:600; color:var(--text-primary); display:flex; align-items:center; gap:8px;">
-                  <span>${flag}</span>${escapeHtml(q.name)}
+                  ${q.coverUrl ? `<img src="${escapeHtml(q.coverUrl)}" alt="" style="width:28px; height:28px; object-fit:cover; border-radius:6px;">` : `<span>${flag}</span>`}${escapeHtml(q.name)}
+                  <span style="font-size:0.68rem; font-weight:800; padding:2px 8px; border-radius:12px; ${q.bankType === "module_academic" ? "background:rgba(52,211,153,0.16); color:#34d399;" : q.bankType === "module_clinical" ? "background:rgba(96,165,250,0.16); color:#60a5fa;" : "background:rgba(167,139,250,0.16); color:#a78bfa;"}">${q.bankType === "module_academic" ? "MODULE · ACADEMIC" : q.bankType === "module_clinical" ? "MODULE · CLINICAL" : "LICENSE EXAM"}</span>
                   <span style="font-size:0.68rem; font-weight:800; padding:2px 8px; border-radius:12px; ${q.accessTier === "paid" ? "background:rgba(251,191,36,0.16); color:#fbbf24;" : "background:rgba(94,234,212,0.13); color:#5eead4;"}">${q.accessTier === "paid" ? "PAID" : "FREE"}</span>
                   <span id="admin-qbank-count-${escapeHtml(q.id)}" style="font-size:0.75rem; background:var(--accent-cyan); color:#000; padding:2px 8px; border-radius:12px; font-weight:800; display:none;">0 Qs</span>
                 </div>
@@ -2094,12 +2096,26 @@
             <div id="admin-qbank-edit-${escapeHtml(q.id)}" style="display:none; flex-direction:column; gap:10px; align-items:stretch; margin-top:4px; padding-top:10px; border-top:1px solid rgba(255,255,255,0.05);">
               <input type="text" id="admin-qbank-input-${escapeHtml(q.id)}" class="login-input" value="${escapeHtml(q.subcategories || "")}" placeholder="Comma-separated rules...">
               <label style="display:flex; align-items:center; gap:8px; font-size:0.9rem; color:var(--text-secondary);">
+                Bank type
+                <select id="admin-qbank-type-${escapeHtml(q.id)}" class="login-input" style="width:210px; cursor:pointer;">
+                  <option value="license_exam" ${(q.bankType || "license_exam") === "license_exam" ? "selected" : ""}>License Exam (organ system + specialty)</option>
+                  <option value="module_academic" ${q.bankType === "module_academic" ? "selected" : ""}>Module · Academic (objective → subject → topic)</option>
+                  <option value="module_clinical" ${q.bankType === "module_clinical" ? "selected" : ""}>Module · Clinical (objective → system → topic)</option>
+                </select>
+              </label>
+              <label style="display:flex; align-items:center; gap:8px; font-size:0.9rem; color:var(--text-secondary);">
                 Access tier
                 <select id="admin-qbank-tier-${escapeHtml(q.id)}" class="login-input" style="width:130px; cursor:pointer;">
                   <option value="free" ${q.accessTier === "paid" ? "" : "selected"}>Free</option>
                   <option value="paid" ${q.accessTier === "paid" ? "selected" : ""}>Paid</option>
                 </select>
               </label>
+              <input type="text" id="admin-qbank-cover-${escapeHtml(q.id)}" class="login-input" value="${escapeHtml(q.coverUrl || "")}" placeholder="Cover photo URL (modules show this on the storefront card)">
+              <div style="display:flex; gap:8px;">
+                <input type="text" id="admin-qbank-desc-${escapeHtml(q.id)}" class="login-input" value="${escapeHtml(q.description || "")}" placeholder="Short description (optional)" style="flex:1;">
+                <input type="text" id="admin-qbank-price-${escapeHtml(q.id)}" class="login-input" value="${escapeHtml(q.priceLabel || "")}" placeholder="Price label" style="flex:1;">
+              </div>
+              ${window.adminLinkingHTML ? window.adminLinkingHTML(q) : ""}
               <div style="display:flex; gap:20px; align-items:center; font-size:0.9rem; color:var(--text-secondary);">
                 <label style="display:flex; align-items:center; gap:6px; cursor:pointer;">
                   <input type="checkbox" id="admin-qbank-locked-${escapeHtml(q.id)}" ${q.isLocked ? "checked" : ""} style="appearance:auto; width:16px; height:16px; cursor:pointer; accent-color:var(--accent-cyan);"> Under Maintenance (Locked)
@@ -2172,16 +2188,27 @@
     const countrySel = document.getElementById("admin-qbank-country-input");
     const subcatsInput = document.getElementById("admin-qbank-create-subcats");
     const tierSel = document.getElementById("admin-qbank-tier-input");
+    const typeSel = document.getElementById("admin-qbank-type-input");
+    const coverInput = document.getElementById("admin-qbank-create-cover");
+    const descInput = document.getElementById("admin-qbank-create-description");
+    const priceInput = document.getElementById("admin-qbank-create-price");
     const name = input.value.trim();
     const country = countrySel ? countrySel.value : "global";
     const subcategories = subcatsInput ? subcatsInput.value.trim() : "";
     const accessTier = tierSel && tierSel.value === "paid" ? "paid" : "free";
-    
+    const bankType = typeSel ? typeSel.value : "license_exam";
+    const coverUrl = coverInput ? coverInput.value.trim() : "";
+    const description = descInput ? descInput.value.trim() : "";
+    const priceLabel = priceInput ? priceInput.value.trim() : "";
+
     if (!name) return alert("Enter a name");
     try {
-      await api("/api/admin", { method: "POST", body: JSON.stringify({ action: "create_qbank", qbankName: name, country, subcategories, accessTier }) });
+      await api("/api/admin", { method: "POST", body: JSON.stringify({ action: "create_qbank", qbankName: name, country, subcategories, accessTier, bankType, coverUrl, description, priceLabel }) });
       input.value = "";
       if (subcatsInput) subcatsInput.value = "";
+      if (coverInput) coverInput.value = "";
+      if (descInput) descInput.value = "";
+      if (priceInput) priceInput.value = "";
       loadAdminQBank();
     } catch (e) { alert("Failed: " + e.message); }
   };
@@ -2191,19 +2218,30 @@
     const lockedInput = document.getElementById(`admin-qbank-locked-${id}`);
     const partyLockedInput = document.getElementById(`admin-qbank-partylocked-${id}`);
     const tierInput = document.getElementById(`admin-qbank-tier-${id}`);
+    const typeInput = document.getElementById(`admin-qbank-type-${id}`);
+    const coverInput = document.getElementById(`admin-qbank-cover-${id}`);
+    const descInput = document.getElementById(`admin-qbank-desc-${id}`);
+    const priceInput = document.getElementById(`admin-qbank-price-${id}`);
     if (!input) return;
+    const checkedIds = (sel) => Array.from(document.querySelectorAll(sel)).filter(el => el.checked).map(el => el.value);
     try {
-      await api("/api/admin", { 
-        method: "POST", 
-        body: JSON.stringify({ 
-          action: "edit_qbank_settings", 
-          qbankId: id, 
+      await api("/api/admin", {
+        method: "POST",
+        body: JSON.stringify({
+          action: "edit_qbank_settings",
+          qbankId: id,
           subcategories: input.value.trim(),
           isLocked: lockedInput ? lockedInput.checked : false,
           isPartyLocked: partyLockedInput ? partyLockedInput.checked : false,
           accessTier: tierInput ? tierInput.value : "free",
+          bankType: typeInput ? typeInput.value : undefined,
+          coverUrl: coverInput ? coverInput.value.trim() : undefined,
+          description: descInput ? descInput.value.trim() : undefined,
+          priceLabel: priceInput ? priceInput.value.trim() : undefined,
+          majorIds: checkedIds(`[data-link-major="${id}"]`),
+          collegeIds: checkedIds(`[data-link-college="${id}"]`),
           resources: window.adminQBankResources[id] || []
-        }) 
+        })
       });
       loadAdminQBank();
     } catch (e) { alert("Failed: " + e.message); }
@@ -3381,6 +3419,213 @@ RULES:
 
 The top-level value may be the "questions" object shown above or a plain JSON array.`;
 
+  // --- Module guides: Objective > Subject/System > Topic -------------------
+  // Picked automatically from the chosen bank's type. Conversion prompts
+  // reformat an existing question list into the exact import format.
+  const AI_PROMPT_GUIDE_ACADEMIC = `You are an expert medical professor creating high-yield Multiple Choice Questions (MCQs) for a medical MODULE (academic) question bank.
+
+Generate [NUMBER] questions about [EDUCATIONAL OBJECTIVE / SUBJECT / TOPIC].
+You MUST format your response EXACTLY following this strict text structure. Do not use markdown tables or JSON. Use plain text exactly as shown below.
+
+STRICT FORMAT RULES:
+1. Start each educational objective with: \`  -> Objective: [Educational objective, e.g. "Physiology of the Cardiovascular System"]\`
+2. Start each subject inside that objective with: \`  -> Subject: [Subject, e.g. Physiology or Anatomy]\`
+3. Start each topic inside that subject with: \`  -> Topic: [Specific topic, e.g. Cardiac Cycle or Frank-Starling Law]\`
+4. Objective, Subject, and Topic are ALL mandatory for every question. NEVER use Organ System / Clinical Specialty / Sub-topic headers in this module.
+5. Start each question with: \`Question [Number] [Code: random_5_chars] (Année: [Year]):\`
+6. Write the question text on the next line.
+7. List options A to E.
+8. For the correct option(s), append exactly \` ✅ (CORRECT)\` immediately after the option text.
+9. For every option (both correct and incorrect), append an explanation arrow exactly formatted as: \` -> Note: [Explanation for this specific option]\`
+10. Add a general explanation at the end starting exactly with: \`Explication générale: [Overall explanation and teaching pearls]\`
+11. Add a separator exactly as: \`--------------------------------------------------\`
+
+EXAMPLE OF THE EXACT REQUIRED FORMAT:
+
+  -> Objective: Cardiovascular physiology
+  -> Subject: Physiology
+  -> Topic: Cardiac cycle
+Question 1 [Code: a1b2c] (Année: 2024):
+During isovolumetric contraction, which statement is true?
+  A. All valves are closed, pressure rises, volume constant -> Note: Ventricular pressure rises while both valves remain shut.
+  B. Ejection into the aorta ✅ (CORRECT) -> Note: Ejection starts after the aortic valve opens, which happens after pressure rises past aortic pressure.
+  C. Atrial systole occurs -> Note: Atrial systole precedes ventricular contraction.
+  D. Rapid filling of the ventricle -> Note: Rapid filling happens after valve opening in diastole.
+  E. Coronary flow is maximal -> Note: Coronary filling peaks in diastole.
+Explication générale: Key lesson: Isovolumetric contraction = rising pressure, constant volume, all valves closed. Common trap: confusing it with ejection.
+
+--------------------------------------------------`;
+
+  const AI_PROMPT_GUIDE_CLINICAL = `You are an expert medical professor creating high-yield Multiple Choice Questions (MCQs) for a medical MODULE (clinical) question bank.
+
+Generate [NUMBER] questions about [EDUCATIONAL OBJECTIVE, e.g. Pediatrics / SYSTEM, e.g. General Peds / TOPIC, e.g. Hypothyroidism].
+You MUST format your response EXACTLY following this strict text structure. Do not use markdown tables or JSON. Use plain text exactly as shown below.
+
+STRICT FORMAT RULES:
+1. Start each educational objective with: \`  -> Objective: [Educational objective, e.g. Pediatrics]\`
+2. Start each system inside that objective with: \`  -> System: [System, e.g. General Peds]\`
+3. Start each topic inside that system with: \`  -> Topic: [Specific disease/topic, e.g. Hypothyroidism]\`
+4. Objective, System, and Topic are ALL mandatory for every question. NEVER use Organ System / Clinical Specialty / Sub-topic headers in this module.
+5. Start each question with: \`Question [Number] [Code: random_5_chars] (Année: [Year]):\`
+6. Write the question text on the next line (clinical vignette + lead-in question).
+7. List options A to E.
+8. For the correct option(s), append exactly \` ✅ (CORRECT)\` immediately after the option text.
+9. For every option (both correct and incorrect), append an explanation arrow exactly formatted as: \` -> Note: [Explanation for this specific option]\`
+10. Add a general explanation at the end starting exactly with: \`Explication générale: [Overall explanation and teaching pearls]\`
+11. Add a separator exactly as: \`--------------------------------------------------\`
+
+EXAMPLE OF THE EXACT REQUIRED FORMAT:
+
+  -> Objective: Pediatrics
+  -> System: General Peds
+  -> Topic: Hypothyroidism
+Question 1 [Code: a1b2c] (Année: 2024):
+A 3-month-old infant has prolonged jaundice, poor feeding, and large fontanelle. TSH is high and free T4 is low. What is the most likely diagnosis?
+  A. Transient hypothyroxinemia -> Note: Thyroid tests normalise without treatment; here TSH is high with low T4.
+  B. Congenital hypothyroidism ✅ (CORRECT) -> Note: High TSH + low T4 with prolonged jaundice and large fontanelle is classic untreated congenital hypothyroidism.
+  C. Hypopituitarism -> Note: TSH would be low or inappropriately normal.
+  D. Thyroid dyshormonogenesis only -> Note: That is a cause of congenital hypothyroidism, not the clinical syndrome itself.
+  E. Maternal hypothyroidism effect -> Note: Maternal hormone does not sustain infant hypothyroidism at 3 months.
+Explication générale: Key lesson: Untreated congenital hypothyroidism presents with prolonged neonatal jaundice, large fontanelle, and high TSH/low Free T4. Common trap: missing the screening need — levothyroxine must start early.
+
+--------------------------------------------------`;
+
+  const JSON_IMPORT_GUIDE_ACADEMIC = `You are an expert medical professor creating high-yield Multiple Choice Questions (MCQs) for a medical MODULE (academic) question bank.
+
+Generate [NUMBER] questions. Return ONLY valid JSON. Do not use markdown fences, comments, or text outside the JSON.
+
+Use exactly this structure. Every question needs objective, subject, and topic (Objective > Subject > Topic):
+
+{
+  "questions": [
+    {
+      "questionText": "During isovolumetric contraction, which statement is true?",
+      "options": [
+        { "text": "All valves are closed, pressure rises, volume constant", "correct": false, "explanation": "..." },
+        { "text": "Ejection into the aorta", "correct": true, "explanation": "..." }
+      ],
+      "explanation": "Overall explanation and teaching pearls.",
+      "objective": "Cardiovascular physiology",
+      "subject": "Physiology",
+      "topic": "Cardiac cycle",
+      "tags": ["Cardiac cycle"],
+      "year": "2024",
+      "code": "a1b2c"
+    }
+  ]
+}
+
+RULES:
+1. Every question MUST include questionText, options, objective, subject, topic, and tags. NEVER use "system", "organSystem", "clinicalSpecialty", or "subTopic" — this is an academic module (Objective > Subject > Topic).
+2. Objective > Subject > Topic is the required hierarchy. A question cannot be imported without all three.
+3. options must contain 2-6 choices with { "text", "correct", "explanation" } objects. Mark every correct option with "correct": true.
+4. Keep objective, subject, and topic names consistent across the whole file.
+5. tags must be 1-6 free-form topic labels. Do not put years in tags or paths.
+6. year and code are optional. Do not invent a code if you are unsure.
+7. explanation is the overall explanation. Each option explanation is shown beside that option.
+8. Do not include duplicate questions. Do not use markdown inside the JSON.
+9. Keep each JSON file to 2,000 questions or fewer.
+10. The top-level value may be the "questions" object shown above or a plain JSON array.`;
+
+  const JSON_IMPORT_GUIDE_CLINICAL = `You are an expert medical professor creating high-yield Multiple Choice Questions (MCQs) for a medical MODULE (clinical) question bank.
+
+Generate [NUMBER] questions. Return ONLY valid JSON. Do not use markdown fences, comments, or text outside the JSON.
+
+Use exactly this structure. Every question needs objective, system, and topic (Objective > System > Topic):
+
+{
+  "questions": [
+    {
+      "questionText": "A 3-month-old infant has prolonged jaundice, poor feeding, and large fontanelle. TSH is high and free T4 is low. What is the most likely diagnosis?",
+      "options": [
+        { "text": "Hypopituitarism", "correct": false, "explanation": "TSH would be low or inappropriately normal." },
+        { "text": "Congenital hypothyroidism", "correct": true, "explanation": "High TSH + low T4 with prolonged jaundice and large fontanelle is classic untreated congenital hypothyroidism." }
+      ],
+      "explanation": "Untreated congenital hypothyroidism = prolonged jaundice, large fontanelle, high TSH.",
+      "objective": "Pediatrics",
+      "system": "General Peds",
+      "topic": "Hypothyroidism",
+      "tags": ["Hypothyroidism"],
+      "year": "2024",
+      "code": "a1b2c"
+    }
+  ]
+}
+
+RULES:
+1. Every question MUST include questionText, options, objective, system, topic, and tags. NEVER use "subject", "organSystem", "clinicalSpecialty", or "subTopic" — this is a clinical module (Objective > System > Topic).
+2. Objective > System > Topic is the required hierarchy. A question cannot be imported without all three.
+3. options must contain 2-6 choices with { "text", "correct", "explanation" } objects. Mark every correct option with "correct": true.
+4. Keep objective, system, and topic names consistent across the whole file.
+5. tags must be 1-6 free-form topic labels. Do not put years in tags or paths.
+6. year and code are optional. Do not invent a code if you are unsure.
+7. explanation is the overall explanation. Each option explanation is shown beside that option.
+8. Do not include duplicate questions. Do not use markdown inside the JSON.
+9. Keep each JSON file to 2,000 questions or fewer.
+10. The top-level value may be the "questions" object shown above or a plain JSON array.`;
+
+  // Conversion prompt: reformat an EXISTING question list into the import
+  // format. Picked by bank type, same as the generation guides above.
+  function reformatGuideText(kind, bankType) {
+    const middle = bankType === "module_clinical"
+      ? "System (e.g. General Peds)"
+      : bankType === "module_academic"
+        ? "Subject (e.g. Physiology)"
+        : "Organ System";
+    const leaf = bankType === "license_exam" ? "Sub-topic / Disease" : "Topic";
+    const headers = bankType === "license_exam"
+      ? "  -> Objective: [...] then  -> Organ System: [...] then  -> Clinical Specialty: [...] then  -> Sub-topic / Disease: [...]"
+      : bankType === "module_clinical"
+        ? "  -> Objective: [e.g. Pediatrics] then  -> System: [e.g. General Peds] then  -> Topic: [e.g. Hypothyroidism]"
+        : "  -> Objective: [...] then  -> Subject: [e.g. Physiology] then  -> Topic: [...]";
+    const jsonFields = bankType === "license_exam"
+      ? '"objective", "organSystem", "clinicalSpecialty", "subTopic"'
+      : bankType === "module_clinical"
+        ? '"objective", "system", "topic"'
+        : '"objective", "subject", "topic"';
+    if (kind === "json") {
+      return `You are a medical data formatter. I will paste an EXISTING list of questions. Do NOT write new questions, do NOT paraphrase, do NOT drop any question. Reformat EVERY question into valid JSON for a question-bank importer.
+
+Return ONLY valid JSON with this exact structure:
+{ "questions": [ { "questionText": "...", "options": [ { "text": "...", "correct": true|false, "explanation": "..." } ], "explanation": "...", ${jsonFields}, "tags": ["..."], "year": "...", "code": "..." } ] }
+
+RULES:
+1. Keep EVERY question, in the same order. Keep the original language.
+2. Classify each question: ${middle} is the middle level, ${leaf} is the leaf level. Never invent Clinical Specialty / Sub-topic fields for modules, and never drop any of ${jsonFields} for license exams.
+3. "options" must contain 2-6 choices; mark correct ones with "correct": true.
+4. If the source has NO correct answer marked, mark the single best answer true.
+5. Keep each option's explanation if given; otherwise leave "".
+6. "explanation" is the overall explanation from the source; "" if missing.
+7. "tags": 1-6 short labels. "year"/"code" optional — leave them out if unsure. Never invent codes.
+8. No markdown fences, no commentary, no text outside the JSON. Max 2,000 questions per file.`;
+    }
+    return `You are a medical data formatter. I will paste an EXISTING list of questions. Do NOT write new questions, do NOT paraphrase, do NOT drop any question. Reformat EVERY question into this EXACT plain-text format:
+
+${headers}
+Question [Number] [Code: random_5_chars] (Année: [Year]):
+[Full question text on the next line]
+  A. [Option] -> Note: [Why right/wrong]
+  B. [Option] ✅ (CORRECT) -> Note: [Why right/wrong]
+  ... options C to E (or fewer if the source has fewer) ...
+Explication générale: [Overall explanation from the source]
+
+--------------------------------------------------
+
+RULES:
+1. Keep EVERY question, in the same order. Keep the original language.
+2. Middle level is ${middle}; leaf level is ${leaf}. Repeat the headers before each group of questions that shares them, and never mix in the other bank type's headers.
+3. Append exactly " ✅ (CORRECT)" after the correct option text; append "-> Note: ..." after EVERY option.
+4. If the source has no marked correct answer, mark the single best answer.
+5. Explication générale must be the source's overall explanation; write "Key lesson: ..." only if the source has none.
+6. Use plain text only — no markdown tables, no JSON, no commentary outside the format.`;
+  }
+
+  function importGuideText(format, bankType) {
+    if (bankType === "module_academic") return format === "json" ? JSON_IMPORT_GUIDE_ACADEMIC : AI_PROMPT_GUIDE_ACADEMIC;
+    if (bankType === "module_clinical") return format === "json" ? JSON_IMPORT_GUIDE_CLINICAL : AI_PROMPT_GUIDE_CLINICAL;
+    return format === "json" ? JSON_IMPORT_GUIDE_TEXT : AI_PROMPT_GUIDE_TEXT;
+  }
+
   // Multi-File Sequential Batch Import State & Helper Functions
   let activeBatchFilesQueue = [];
   let isBatchImportingRunning = false;
@@ -3421,7 +3666,7 @@ The top-level value may be the "questions" object shown above or a plain JSON ar
 
           <div style="display:flex; flex-direction:column; gap:6px; flex:1; max-width:360px;">
             <input type="text" class="login-input batch-file-objective-input" data-idx="${idx}" value="${escapeHtml(item.objective || '')}" placeholder="Fallback educational objective..." style="font-size:0.78rem; padding:4px 8px;" ${isBatchImportingRunning ? 'disabled' : ''}>
-            <input type="text" class="login-input batch-file-subcat-input" data-idx="${idx}" value="${escapeHtml(item.subcategory)}" placeholder="Fallback organ system..." style="font-size:0.78rem; padding:4px 8px;" ${isBatchImportingRunning ? 'disabled' : ''}>
+            <input type="text" class="login-input batch-file-subcat-input" data-idx="${idx}" value="${escapeHtml(item.subcategory)}" placeholder="${(window.__adminBatchBankType === "module_clinical" ? "Fallback system..." : window.__adminBatchBankType === "module_academic" ? "Fallback subject..." : "Fallback organ system...")}" style="font-size:0.78rem; padding:4px 8px;" ${isBatchImportingRunning ? 'disabled' : ''}>
           </div>
 
           <div>
@@ -3559,6 +3804,7 @@ The top-level value may be the "questions" object shown above or a plain JSON ar
           body: JSON.stringify({
             action: "batch_import_qbank_txt",
             qbankId,
+            bankType: window.__adminBatchBankType || "",
             rawText: fileContent,
             fileSubcategory: item.subcategory ? item.subcategory.trim() : "",
             fileObjective: item.objective ? item.objective.trim() : "",
@@ -3645,11 +3891,15 @@ The top-level value may be the "questions" object shown above or a plain JSON ar
   };
 
   function createBatchImportFormHTML(prefix, qbankId, isModal) {
+    const bt = window.__adminBatchBankType || "";
+    const fmt = bt === "module_clinical" ? "Objective → System → Topic" : bt === "module_academic" ? "Objective → Subject → Topic" : "Objective → Organ System → Clinical Specialty → Sub-topic / Disease";
     return `
       <div style="font-size:0.85rem; color:var(--text-secondary); margin-bottom:12px;">
-        Upload <code>.json</code> files, multiple <code>.txt</code> files, or paste either format. New imports use Objective → Organ System → Clinical Specialty → Sub-topic / Disease.
-        <button class="btn-dark-pill" style="font-size:0.7rem; padding:2px 8px; margin-left:8px; color:var(--accent-cyan);" onclick="window.adminShowImportGuide('${prefix}', 'json')">JSON Format Guide</button>
+        Upload <code>.json</code> files, multiple <code>.txt</code> files, or paste either format. This bank imports as <b>${fmt}</b>.
+        <button class="btn-dark-pill" style="font-size:0.7rem; padding:2px 8px; margin-left:8px; color:var(--accent-cyan);" onclick="window.adminShowImportGuide('${prefix}', 'json')">JSON Guide</button>
         <button class="btn-dark-pill" style="font-size:0.7rem; padding:2px 8px; margin-left:4px; color:var(--accent-cyan);" onclick="window.adminShowImportGuide('${prefix}', 'txt')">TXT Guide</button>
+        <button class="btn-dark-pill" style="font-size:0.7rem; padding:2px 8px; margin-left:4px; color:#a78bfa;" onclick="window.adminShowImportGuide('${prefix}', 'reformat-txt')">Reformat my questions (TXT)</button>
+        <button class="btn-dark-pill" style="font-size:0.7rem; padding:2px 8px; margin-left:4px; color:#a78bfa;" onclick="window.adminShowImportGuide('${prefix}', 'reformat-json')">Reformat my questions (JSON)</button>
       </div>
 
       <div id="${prefix}-ai-prompt-guide-container" style="display:none; padding:12px; background:rgba(6,182,212,0.1); border:1px solid rgba(6,182,212,0.2); border-radius:8px; margin-bottom:15px;">
@@ -3679,8 +3929,8 @@ The top-level value may be the "questions" object shown above or a plain JSON ar
           <div style="display:flex; gap:6px; align-items:center;">
             <input type="text" id="${prefix}-global-objective-input" class="login-input" placeholder="Bulk educational objective..." style="font-size:0.75rem; padding:4px 8px; width:180px;">
             <button class="btn-dark-pill" style="font-size:0.75rem; padding:4px 8px; color:var(--accent-cyan);" onclick="window.adminApplyGlobalObjective('${prefix}')">Apply Objective</button>
-            <input type="text" id="${prefix}-global-subcat-input" class="login-input" placeholder="Bulk organ system..." style="font-size:0.75rem; padding:4px 8px; width:150px;">
-            <button class="btn-dark-pill" style="font-size:0.75rem; padding:4px 8px; color:var(--accent-cyan);" onclick="window.adminApplyGlobalSubcategory('${prefix}')">Apply Organ System</button>
+            <input type="text" id="${prefix}-global-subcat-input" class="login-input" placeholder="${bt === "module_clinical" ? "Bulk system..." : bt === "module_academic" ? "Bulk subject..." : "Bulk organ system..."}" style="font-size:0.75rem; padding:4px 8px; width:150px;">
+            <button class="btn-dark-pill" style="font-size:0.75rem; padding:4px 8px; color:var(--accent-cyan);" onclick="window.adminApplyGlobalSubcategory('${prefix}')">Apply ${bt === "module_clinical" ? "System" : bt === "module_academic" ? "Subject" : "Organ System"}</button>
             <button class="btn-dark-pill" style="font-size:0.75rem; padding:4px 8px; color:var(--text-muted);" onclick="window.adminClearBatchQueue('${prefix}')">Clear Queue</button>
           </div>
         </div>
@@ -3698,8 +3948,8 @@ The top-level value may be the "questions" object shown above or a plain JSON ar
             <input type="text" id="${prefix}-objective" class="login-input" placeholder="e.g. Understand ACS diagnosis and management" style="flex:1; font-size:0.8rem; padding:4px 8px;">
           </div>
           <div style="display:flex; align-items:center; gap:8px;">
-            <label style="font-size:0.8rem; color:var(--text-secondary); white-space:nowrap;">Fallback organ system:</label>
-            <input type="text" id="${prefix}-subcategory" class="login-input" placeholder="e.g. Cardiovascular" style="flex:1; font-size:0.8rem; padding:4px 8px;">
+            <label style="font-size:0.8rem; color:var(--text-secondary); white-space:nowrap;">Fallback ${bt === "module_clinical" ? "system" : bt === "module_academic" ? "subject" : "organ system"}:</label>
+            <input type="text" id="${prefix}-subcategory" class="login-input" placeholder="${bt === "module_clinical" ? "e.g. General Peds" : bt === "module_academic" ? "e.g. Physiology" : "e.g. Cardiovascular"}" style="flex:1; font-size:0.8rem; padding:4px 8px;">
           </div>
         </div>
       </details>
@@ -3749,11 +3999,22 @@ The top-level value may be the "questions" object shown above or a plain JSON ar
     const title = document.getElementById(`${prefix}-guide-title`);
     const textarea = document.getElementById(`${prefix}-guide-text`);
     if (!container) return;
-    const isJson = format === "json";
+    const bt = window.__adminBatchBankType || "";
+    const isReformat = format === "reformat-txt" || format === "reformat-json";
+    const isJson = format === "json" || format === "reformat-json";
     container.style.display = "block";
     container.dataset.format = isJson ? "json" : "txt";
-    if (title) title.textContent = isJson ? "JSON import format (objective → organ system → specialty → sub-topic)" : "TXT format (Objective → Organ System → Clinical Specialty → Sub-topic / Disease)";
-    if (textarea) textarea.value = isJson ? JSON_IMPORT_GUIDE_TEXT : AI_PROMPT_GUIDE_TEXT;
+    const bankName = bt === "module_clinical"
+      ? "Module · Clinical (objective → system → topic)"
+      : bt === "module_academic"
+        ? "Module · Academic (objective → subject → topic)"
+        : "License Exam (objective → organ system → specialty → sub-topic)";
+    if (title) title.textContent = (isReformat ? "Reformat-my-list prompt — " : "") + (isJson ? "JSON" : "TXT") + " format — " + bankName;
+    if (textarea) {
+      textarea.value = isReformat
+        ? reformatGuideText(isJson ? "json" : "txt", bt)
+        : importGuideText(isJson ? "json" : "txt", bt);
+    }
   };
 
   window.adminToggleAIPromptGuideForm = function(prefix) {
@@ -3777,9 +4038,16 @@ The top-level value may be the "questions" object shown above or a plain JSON ar
     });
   };
 
-  window.adminOpenBatchImport = function(qbankId) {
+  window.adminOpenBatchImport = async function(qbankId) {
     const area = document.getElementById("admin-batch-import-area");
     if (!area) return;
+    try {
+      const res = await api("/api/admin?action=list_qbanks", { method: "GET" });
+      const bank = (res.qbanks || []).find(b => b.id === qbankId);
+      window.__adminBatchBankType = bank ? (bank.bankType || "license_exam") : "license_exam";
+    } catch (_) {
+      window.__adminBatchBankType = window.__adminBatchBankType || "license_exam";
+    }
     area.style.display = "block";
     const prefix = "admin-batch-import";
     area.innerHTML = `
@@ -3792,7 +4060,14 @@ The top-level value may be the "questions" object shown above or a plain JSON ar
     setupBatchImportEvents(prefix);
   };
 
-  window.adminOpenGlobalBatchImport = function(qbankId, qbankName) {
+  window.adminOpenGlobalBatchImport = async function(qbankId, qbankName) {
+    try {
+      const res = await api("/api/admin?action=list_qbanks", { method: "GET" });
+      const bank = (res.qbanks || []).find(b => b.id === qbankId);
+      window.__adminBatchBankType = bank ? (bank.bankType || "license_exam") : "license_exam";
+    } catch (_) {
+      window.__adminBatchBankType = window.__adminBatchBankType || "license_exam";
+    }
     let modal = document.getElementById("admin-global-batch-import-modal");
     if (!modal) {
       modal = document.createElement("div");
@@ -3827,7 +4102,7 @@ The top-level value may be the "questions" object shown above or a plain JSON ar
   };
 
   window.adminCopyPromptGuide = function() {
-    navigator.clipboard.writeText(AI_PROMPT_GUIDE_TEXT).then(() => {
+    navigator.clipboard.writeText(importGuideText("txt", window.__adminBatchBankType || "")).then(() => {
       alert("AI Prompt Guide copied to clipboard!");
     }).catch(() => {
       alert("Failed to copy. Please select the text and copy manually.");
@@ -4158,7 +4433,13 @@ The top-level value may be the "questions" object shown above or a plain JSON ar
                 <option value="free" ${q.accessTier === "paid" ? "" : "selected"}>Free</option>
                 <option value="paid" ${q.accessTier === "paid" ? "selected" : ""}>Paid</option>
               </select>
+              <select id="admin-ep-edit-type-${escapeHtml(q.id)}" class="login-input" style="width:210px; cursor:pointer;">
+                <option value="license_exam" ${(q.bankType || "license_exam") === "license_exam" ? "selected" : ""}>License Exam</option>
+                <option value="module_academic" ${q.bankType === "module_academic" ? "selected" : ""}>Module · Academic</option>
+                <option value="module_clinical" ${q.bankType === "module_clinical" ? "selected" : ""}>Module · Clinical</option>
+              </select>
             </div>
+            <input type="text" id="admin-ep-edit-cover-${escapeHtml(q.id)}" class="login-input" value="${escapeHtml(q.coverUrl || "")}" placeholder="Cover photo URL (modules)">
             <div style="display:flex; gap:10px;">
               <button class="btn-dark-pill" style="color:var(--accent-cyan);" onclick="window.adminSaveExamPrepSettings('${escapeHtml(q.id)}')">Save</button>
               <button class="btn-dark-pill" onclick="document.getElementById('admin-ep-edit-${escapeHtml(q.id)}').style.display='none'">Cancel</button>
@@ -4186,11 +4467,18 @@ The top-level value may be the "questions" object shown above or a plain JSON ar
     const year = document.getElementById(`admin-ep-edit-year-${id}`).value.trim();
     const country = document.getElementById(`admin-ep-edit-country-${id}`).value;
     const tier = document.getElementById(`admin-ep-edit-tier-${id}`);
+    const typeEl = document.getElementById(`admin-ep-edit-type-${id}`);
+    const coverEl = document.getElementById(`admin-ep-edit-cover-${id}`);
     if (!name) return alert("Name cannot be empty.");
     try {
       await api("/api/admin", {
         method: "POST",
-        body: JSON.stringify({ action: "edit_qbank_settings", qbankId: id, qbankName: name, year, country, accessTier: tier ? tier.value : "free" })
+        body: JSON.stringify({
+          action: "edit_qbank_settings", qbankId: id, qbankName: name, year, country,
+          accessTier: tier ? tier.value : "free",
+          bankType: typeEl ? typeEl.value : undefined,
+          coverUrl: coverEl ? coverEl.value.trim() : undefined,
+        })
       });
       window.adminRefreshExamPrepList();
     } catch (e) { alert("Failed: " + e.message); }
@@ -4245,7 +4533,20 @@ The top-level value may be the "questions" object shown above or a plain JSON ar
     if (!listEl) return;
     listEl.innerHTML = '<div style="color:var(--text-muted);font-size:0.8rem;">Loading licenses…</div>';
     try {
-      const res = await api("/api/admin", { method: "POST", body: JSON.stringify({ action: "list_licenses" }) });
+      const [res, qres] = await Promise.all([
+        api("/api/admin", { method: "POST", body: JSON.stringify({ action: "list_licenses" }) }),
+        api("/api/admin?action=list_qbanks", { method: "GET" }).catch(() => ({ qbanks: [] })),
+      ]);
+      const bankName = {};
+      (qres.qbanks || []).forEach(b => { bankName[b.id] = b.name || b.id; });
+      // Scope picker for new licenses: all paid banks, or one specific bank.
+      const scopeSel = document.getElementById("admin-license-scope");
+      if (scopeSel && !scopeSel.dataset.filled) {
+        scopeSel.dataset.filled = "1";
+        const opts = [...(qres.qbanks || [])].sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")))
+          .map(b => `<option value="${accessEsc(b.id)}">${accessEsc(b.name || b.id)}${b.bankType && b.bankType !== "license_exam" ? ` (${b.bankType === "module_clinical" ? "Clinical" : "Academic"} module)` : ""}</option>`);
+        scopeSel.innerHTML = `<option value="">All paid banks (global)</option>` + opts.join("");
+      }
       const licenses = Array.isArray(res.licenses) ? res.licenses : [];
       if (!licenses.length) {
         listEl.innerHTML = '<div style="color:var(--text-muted);font-size:0.8rem;">No licenses generated yet.</div>';
@@ -4253,16 +4554,23 @@ The top-level value may be the "questions" object shown above or a plain JSON ar
       }
       listEl.innerHTML = licenses.map(l => {
         const state = l.revoked ? "is-revoked" : (l.usedBy ? "is-used" : "is-free");
+        const scope = l.bankId ? `scoped: ${accessEsc(bankName[l.bankId] || l.bankId)}` : "all paid banks";
         const status = l.revoked ? "Revoked" : (l.usedBy ? `Used by ${accessEsc(l.usedEmail || l.usedBy)}` : "Unused");
         const until = l.activatedUntil ? ` · active until ${new Date(l.activatedUntil).toLocaleDateString()}` : "";
+        const removedNote = l.accessRemovedAt ? `<div style="font-size:0.72rem;margin-top:3px;color:#fbbf24;">Access removed ${new Date(l.accessRemovedAt).toLocaleDateString()}${l.accessRemovedBy ? ` by ${accessEsc(l.accessRemovedBy)}` : ""} — student can no longer use this license</div>` : "";
         return `<div class="admin-license-row">
           <div style="min-width:0;">
             <code>${accessEsc(l.code)}</code>
             <span style="margin-left:8px;">${l.days} days</span>
+            <span style="margin-left:8px;opacity:.65;">${scope}</span>
             ${l.note ? `<span style="margin-left:8px;opacity:.7;">${accessEsc(l.note)}</span>` : ""}
             <div class="${state}" style="font-size:0.72rem;margin-top:3px;">${status}${until}</div>
+            ${removedNote}
           </div>
-          ${l.revoked ? "" : `<button class="btn-dark-pill" style="padding:5px 10px;font-size:0.72rem;color:#f87171;" onclick="window.adminRevokeLicense('${accessEsc(l.code)}')">Revoke</button>`}
+          <div style="display:flex; gap:6px; flex-shrink:0;">
+            ${l.revoked ? "" : `<button class="btn-dark-pill" style="padding:5px 10px;font-size:0.72rem;color:#f87171;" onclick="window.adminRevokeLicense('${accessEsc(l.code)}')">Revoke</button>`}
+            ${l.usedBy && !l.accessRemovedAt ? `<button class="btn-dark-pill" style="padding:5px 10px;font-size:0.72rem;color:#fbbf24;" onclick="window.adminRemoveLicenseAccess('${accessEsc(l.code)}')">Stop user access</button>` : ""}
+          </div>
         </div>`;
       }).join("");
     } catch (e) {
@@ -4273,13 +4581,14 @@ The top-level value may be the "questions" object shown above or a plain JSON ar
   window.adminGenerateLicense = async function() {
     const daysEl = document.getElementById("admin-license-days");
     const noteEl = document.getElementById("admin-license-note");
+    const scopeEl = document.getElementById("admin-license-scope");
     const out = document.getElementById("admin-license-code");
     const days = Math.max(1, Math.min(3650, parseInt(daysEl && daysEl.value, 10) || 30));
     try {
       if (out) out.textContent = "Generating…";
       const res = await api("/api/admin", {
         method: "POST",
-        body: JSON.stringify({ action: "generate_license", licenseDays: days, licenseNote: (noteEl && noteEl.value) || "" }),
+        body: JSON.stringify({ action: "generate_license", licenseDays: days, licenseNote: (noteEl && noteEl.value) || "", licenseBankId: (scopeEl && scopeEl.value) || "" }),
       });
       if (out) out.textContent = res.code || "";
       if (noteEl) noteEl.value = "";
@@ -4291,9 +4600,20 @@ The top-level value may be the "questions" object shown above or a plain JSON ar
   };
 
   window.adminRevokeLicense = async function(code) {
-    if (!confirm("Revoke this license? Students who already redeemed it keep their remaining days.")) return;
+    if (!confirm("Revoke this license? Students who already redeemed it keep their remaining days. Use “Stop user access” to also remove their access now.")) return;
     try {
       await api("/api/admin", { method: "POST", body: JSON.stringify({ action: "revoke_license", licenseCode: code }) });
+      window.loadAdminLicenses();
+    } catch (e) { alert("Failed: " + e.message); }
+  };
+
+  window.adminRemoveLicenseAccess = async function(code) {
+    if (!confirm(`Stop this student from using license ${code}?\n\nTheir access from this license is removed immediately. Admin-assigned banks stay untouched.`)) return;
+    try {
+      const res = await api("/api/admin", { method: "POST", body: JSON.stringify({ action: "remove_license_access", licenseCode: code }) });
+      const who = res.usedEmail || res.userUid || "the student";
+      const what = res.removed === "paidUntil" ? "paid access (paidUntil cleared)" : res.removed ? `access to bank ${res.removed.replace("grant:", "")}` : "no active grant to remove";
+      alert(`Done. ${who}: ${what}.`);
       window.loadAdminLicenses();
     } catch (e) { alert("Failed: " + e.message); }
   };
@@ -4685,6 +5005,42 @@ The top-level value may be the "questions" object shown above or a plain JSON ar
   let collegeBanks = [];
   let collegeEditingId = "";
   let collegeSaving = false;
+
+  // Module audience linking: major/college checkboxes for bank settings.
+  // Loaded once from the academic structure (same data onboarding uses).
+  let linkingStructure = null;
+  let linkingLoading = null;
+  function adminEnsureLinking() {
+    if (linkingStructure) return Promise.resolve(linkingStructure);
+    if (!linkingLoading) {
+      linkingLoading = api("/api/admin?action=get_academic_structure", { method: "GET" })
+        .then((res) => { linkingStructure = res.structure || { countries: [], majors: [], colleges: [] }; return linkingStructure; })
+        .catch(() => { linkingStructure = { countries: [], majors: [], colleges: [] }; return linkingStructure; });
+    }
+    return linkingLoading;
+  }
+  window.adminLinkingHTML = function (q) {
+    const s = linkingStructure;
+    if (!s) return `<div style="font-size:0.78rem; color:var(--text-muted);">Major / college linking loads after the catalogue finishes loading.</div>`;
+    const selM = new Set(Array.isArray(q.majorIds) ? q.majorIds : []);
+    const selC = new Set(Array.isArray(q.collegeIds) ? q.collegeIds : []);
+    const majors = (s.majors || []).map(m => {
+      const country = (s.countries || []).find(c => c.id === m.countryId);
+      return `<label style="display:flex; align-items:center; gap:6px; font-size:0.8rem; color:var(--text-secondary);"><input type="checkbox" data-link-major="${escapeHtml(q.id)}" value="${escapeHtml(m.id)}" ${selM.has(m.id) ? "checked" : ""} style="appearance:auto; width:14px; height:14px; accent-color:var(--accent-cyan);">${escapeHtml(m.name)}${country ? ` <span style="color:var(--text-muted);">(${escapeHtml(country.name)})</span>` : ""}</label>`;
+    }).join("") || '<span style="font-size:0.78rem; color:var(--text-muted);">No majors yet — add them in Colleges.</span>';
+    const colleges = (s.colleges || []).map(c => {
+      const major = (s.majors || []).find(m => m.id === c.majorId);
+      return `<label style="display:flex; align-items:center; gap:6px; font-size:0.8rem; color:var(--text-secondary);"><input type="checkbox" data-link-college="${escapeHtml(q.id)}" value="${escapeHtml(c.id)}" ${selC.has(c.id) ? "checked" : ""} style="appearance:auto; width:14px; height:14px; accent-color:var(--accent-cyan);">${escapeHtml(c.name)}${major ? ` <span style="color:var(--text-muted);">(${escapeHtml(major.name)})</span>` : ""}</label>`;
+    }).join("") || '<span style="font-size:0.78rem; color:var(--text-muted);">No colleges yet — add them in Colleges.</span>';
+    const linked = selM.size + selC.size;
+    return `<details style="font-size:0.82rem; color:var(--text-secondary);">
+      <summary style="cursor:pointer; font-weight:700;">Audience linking — ${linked ? `${linked} linked` : "everyone"} <span style="font-weight:500; color:var(--text-muted);">(modules only; License Exams are for all)</span></summary>
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:8px;">
+        <div><div style="font-weight:700; margin-bottom:4px;">Majors</div>${majors}</div>
+        <div><div style="font-weight:700; margin-bottom:4px;">Colleges</div>${colleges}</div>
+      </div>
+    </details>`;
+  };
 
   function acSlug(value) {
     return String(value || "").toLowerCase().normalize("NFKD")

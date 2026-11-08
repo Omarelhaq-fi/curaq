@@ -1087,6 +1087,7 @@
       country: bundle.profileCountry || "",
       major: bundle.profileMajor || "",
       college: bundle.profileCollege || "",
+      majorId: bundle.majorId || "",
       collegeId: bundle.collegeId || "",
       paidUntil: Number(bundle.paidUntil || 0),
       mainIds: Array.isArray(bundle.mainIds) ? bundle.mainIds : [],
@@ -1373,7 +1374,8 @@
       } catch (e) { /* keep session cache on revalidation failure */ }
       if (navStale(myNav)) return;
       qbanks = cachedCategories || [];
-      qbanks = qbanks.filter(q => q.kind !== "exam_prep");
+      // All banks are listed; the tabs below split Modules from License Exams
+      // by bankType (legacy banks without bankType are License Exams).
 
       // Access must be FRESH before rendering, otherwise lock states lie:
       // a null access fail-opens (every foreign bank looks selectable) and
@@ -1404,81 +1406,219 @@
       }
       if (typeof window.__epEnsureRowStyle === "function") window.__epEnsureRowStyle();
 
-      let html = `<div style="max-width:1000px; margin:0 auto; padding:32px 24px; font-family:Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
-        <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:14px; margin-bottom:20px;">
-          <div>
-            <h2 style="margin:0; font-size:1.5rem; font-weight:700; color:#0F172A;">My banks</h2>
-            <p style="margin:6px 0 0 0; font-size:0.9rem; color:#64748B;">One bank is active at a time. Select another bank to switch instantly.</p>
-          </div>
-          <button class="btn-action primary" style="white-space:nowrap;" onclick="window.qbankEnterLicense()">Enter license</button>
-        </div>
-        <div style="font-size:12px; font-weight:700; letter-spacing:0.06em; text-transform:uppercase; color:#64748B; margin:0 0 10px 0;">Available banks</div>
-        <div class="ep-card-rows" style="background:#fff; border:1px solid #E2E8F0; border-radius:6px; padding:6px 16px;">`;
+      const isModuleBank = (q) => q && (q.bankType === "module_academic" || q.bankType === "module_clinical");
+      const moduleBanks = qbanks.filter(isModuleBank);
+      const licenseBanks = qbanks.filter(q => !isModuleBank(q));
+      const activeTab = window.__qbankStoreTab === "exams" ? "exams" : "modules";
+      const query = String(window.__qbankStoreQuery || "").trim().toLowerCase();
+      const filter = window.__qbankStoreFilter || "all";
+      const sort = window.__qbankStoreSort || "recent";
 
+      const escQ = (s) => window.escapeHtml ? window.escapeHtml(s) : String(s == null ? "" : s);
       const flagMap = { usa: "us", uk: "gb", australia: "au", canada: "ca", india: "in", europe: "eu", tunisia: "tn", algeria: "dz", egypt: "eg", morocco: "ma", saudi: "sa", global: null };
       const countryLabels = { usa: "USA", uk: "UK", australia: "Australia", canada: "Canada", india: "India", europe: "Europe", tunisia: "Tunisia", algeria: "Algeria", egypt: "Egypt", morocco: "Morocco", saudi: "Saudi Arabia", global: "International" };
-      const escQ = (s) => window.escapeHtml ? window.escapeHtml(s) : s;
-      const acc = (window.db && window.db.access) || null;
 
-      for (const q of qbanks) {
+      const ownedCount = (list) => list.filter(q => allowedIds.has(q.id)).length;
+      const matches = (q) => {
+        const tier = tierById.get(q.id) || "free";
+        const owned = allowedIds.has(q.id);
+        if (filter === "owned" && !owned) return false;
+        if (filter === "free" && tier !== "free") return false;
+        if (filter === "paid" && tier !== "paid") return false;
+        if (!query) return true;
+        const hay = `${q.name || ""} ${q.description || ""} ${countryLabels[q.country] || q.country || ""} ${q.college || ""}`.toLowerCase();
+        return hay.includes(query);
+      };
+      const sorted = (list) => {
+        const arr = list.filter(matches);
+        if (sort === "name") arr.sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")));
+        else arr.sort((a, b) => (Number(b.updatedAt) || 0) - (Number(a.updatedAt) || 0));
+        return arr;
+      };
+      const shown = sorted(activeTab === "modules" ? moduleBanks : licenseBanks);
+
+      const statsHtml = `
+        <div class="qb-shop-stats">
+          <span class="qb-shop-stat"><b>${moduleBanks.length}</b> modules</span>
+          <span class="qb-shop-stat"><b>${licenseBanks.length}</b> license exams</span>
+          <span class="qb-shop-stat"><b>${ownedCount(moduleBanks) + ownedCount(licenseBanks)}</b> you own</span>
+          ${paidActive ? `<span class="qb-shop-stat is-on"><i data-lucide="badge-check" style="width:13px;height:13px;"></i> paid license active</span>` : ""}
+        </div>`;
+
+      const tabBtn = (key, label, count) => `<button type="button" class="qb-shop-tab ${activeTab === key ? "is-on" : ""}" onclick="window.qbankStoreTab('${key}')">${label}<span class="qb-shop-tab-count">${count}</span></button>`;
+      const chipBtn = (key, label) => `<button type="button" class="qb-shop-chip ${filter === key ? "is-on" : ""}" onclick="window.qbankStoreFilter('${key}')">${label}</button>`;
+
+      const tool = activeTab === "modules" ? "modules" : "exams";
+      let html = `<style>
+        .qb-shop{max-width:1200px;margin:0 auto;padding:28px 24px 60px;font-family:Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif}
+        .qb-shop-hero{background:linear-gradient(135deg,#063b44 0%,#0a5a63 55%,#0e7c86 100%);border-radius:18px;padding:28px 30px;color:#fff;display:flex;justify-content:space-between;align-items:center;gap:18px;flex-wrap:wrap}
+        .qb-shop-hero h2{margin:0;font-size:26px;font-weight:800;letter-spacing:-0.02em}
+        .qb-shop-hero p{margin:8px 0 0;font-size:14px;color:rgba(255,255,255,.82);max-width:56ch;line-height:1.55}
+        .qb-shop-enter{white-space:nowrap;background:#fff;color:#0a5a63;border:none;padding:13px 20px;border-radius:10px;font:inherit;font-size:14px;font-weight:800;cursor:pointer;display:inline-flex;align-items:center;gap:8px;box-shadow:0 8px 24px rgba(0,0,0,.18)}
+        .qb-shop-enter:hover{background:#e6fbfc}
+        .qb-shop-stats{display:flex;gap:10px;flex-wrap:wrap;margin:16px 0 18px}
+        .qb-shop-stat{background:#fff;border:1px solid #E2E8F0;border-radius:999px;padding:7px 13px;font-size:12.5px;color:#475569;display:inline-flex;align-items:center;gap:6px}
+        .qb-shop-stat b{color:#0F172A}
+        .qb-shop-stat.is-on{background:#e6f2f2;border-color:#9ed3d3;color:#007a7a;font-weight:700}
+        .qb-shop-bar{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:22px}
+        .qb-shop-tabs{display:flex;gap:8px;background:#EEF2F7;border:1px solid #E2E8F0;border-radius:12px;padding:4px}
+        .qb-shop-tab{border:none;background:transparent;padding:9px 16px;border-radius:9px;font:inherit;font-size:13.5px;font-weight:800;color:#64748B;cursor:pointer;display:inline-flex;align-items:center;gap:7px}
+        .qb-shop-tab.is-on{background:#fff;color:#007a7a;box-shadow:0 1px 3px rgba(15,23,42,.12)}
+        .qb-shop-tab-count{background:#E2E8F0;color:#475569;font-size:11px;font-weight:800;padding:1px 7px;border-radius:999px}
+        .qb-shop-tab.is-on .qb-shop-tab-count{background:#e6f2f2;color:#007a7a}
+        .qb-shop-search{flex:1;min-width:220px;display:flex;align-items:center;gap:8px;background:#fff;border:1px solid #E2E8F0;border-radius:10px;padding:0 12px;height:42px}
+        .qb-shop-search i{color:#94A3B8;font-size:14px}
+        .qb-shop-search input{flex:1;border:none;outline:none;font:inherit;font-size:13.5px;color:#0F172A;background:transparent}
+        .qb-shop-chips{display:flex;gap:6px}
+        .qb-shop-chip{border:1px solid #E2E8F0;background:#fff;color:#475569;border-radius:999px;padding:8px 13px;font:inherit;font-size:12.5px;font-weight:700;cursor:pointer}
+        .qb-shop-chip.is-on{background:#007a7a;border-color:#007a7a;color:#fff}
+        .qb-shop-select{height:42px;border:1px solid #E2E8F0;border-radius:10px;background:#fff;font:inherit;font-size:13px;color:#334155;padding:0 10px;cursor:pointer}
+        .qb-shop-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:20px}
+        .qb-card{background:#fff;border:1px solid #E2E8F0;border-radius:16px;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 1px 2px rgba(15,23,42,.05);transition:transform .18s ease,box-shadow .18s ease,border-color .18s ease}
+        .qb-card:hover{transform:translateY(-3px);box-shadow:0 14px 34px rgba(15,23,42,.10);border-color:#CBD5E1}
+        .qb-card.is-active{border-color:#007a7a;box-shadow:0 0 0 2px rgba(0,122,122,.15)}
+        .qb-card-cover{position:relative;aspect-ratio:4/3;background:#E2E8F0;overflow:hidden}
+        .qb-card-cover img{width:100%;height:100%;object-fit:cover;display:block}
+        .qb-card-cover-fallback{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:rgba(255,255,255,.92)}
+        .qb-card-cover-fallback svg,.qb-card-cover-fallback i{width:48px;height:48px}
+        .qb-card-kind{position:absolute;top:10px;left:10px;background:rgba(6,25,31,.72);color:#fff;font-size:10.5px;font-weight:800;letter-spacing:.07em;text-transform:uppercase;padding:5px 9px;border-radius:999px}
+        .qb-card-flag{position:absolute;bottom:10px;right:10px;background:rgba(255,255,255,.92);border-radius:6px;padding:4px 6px;display:flex;align-items:center;gap:5px;font-size:11px;font-weight:800;color:#334155}
+        .qb-card-flag img{width:20px;height:auto;border-radius:3px}
+        .qb-card-status{position:absolute;top:10px;right:10px;font-size:11px;font-weight:800;padding:5px 10px;border-radius:999px}
+        .qb-card-status.is-active{background:#007a7a;color:#fff}
+        .qb-card-status.is-owned{background:#fff;color:#007a7a}
+        .qb-card-status.is-paid{background:#FEF3C7;color:#B45309}
+        .qb-new{position:absolute;bottom:10px;left:10px;background:#F59E0B;color:#fff;font-size:10px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;padding:4px 8px;border-radius:999px}
+        .qb-card-body{padding:16px;display:flex;flex-direction:column;gap:8px;flex:1}
+        .qb-card-title{margin:0;font-size:16px;font-weight:800;color:#0F172A;line-height:1.35;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;min-height:44px}
+        .qb-card-desc{font-size:12.5px;color:#475569;line-height:1.55;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;min-height:58px}
+        .qb-card-meta{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:12px;color:#64748B}
+        .qb-card-meta .dot{opacity:.5}
+        .qb-card-price{margin-top:auto;display:flex;align-items:center;justify-content:space-between;gap:10px;padding-top:8px;border-top:1px solid #F1F5F9}
+        .qb-card-price-label{font-size:15px;font-weight:800;color:#0F172A}
+        .qb-card-price-sub{font-size:11px;color:#64748B;font-weight:600}
+        .qb-card-cta{margin-top:12px}
+        .qb-btn{width:100%;min-height:44px;border:none;border-radius:10px;font:inherit;font-size:13.5px;font-weight:800;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:8px}
+        .qb-btn-primary{background:#007a7a;color:#fff}
+        .qb-btn-primary:hover{background:#006666}
+        .qb-btn-warn{background:#FEF3C7;color:#B45309}
+        .qb-btn-warn:hover{background:#FDE68A}
+        .qb-btn-on{background:#e6f2f2;color:#007a7a;cursor:default}
+        .qb-shop-empty{background:#fff;border:1px dashed #CBD5E1;border-radius:14px;padding:44px 24px;text-align:center;color:#64748B}
+        .qb-shop-empty i{font-size:34px;color:#94A3B8}
+        .qb-shop-empty p{font-size:14px;margin:10px 0 0}
+        @media (max-width:640px){.qb-shop{padding:18px 14px 44px}.qb-shop-hero h2{font-size:22px}.qb-card-title{min-height:0}}
+      </style>
+      <div class="qb-shop">
+        <div class="qb-shop-hero">
+          <div>
+            <h2>QBank Shop</h2>
+            <p>Buy modules for your major and college, or unlock license exams. Buy with a license code, then build tests in one tap.</p>
+          </div>
+          <button class="qb-shop-enter" onclick="window.qbankEnterLicense()"><i data-lucide="key-round" style="width:16px;height:16px;"></i> Enter license</button>
+        </div>
+        ${statsHtml}
+        <div class="qb-shop-bar">
+          <div class="qb-shop-tabs">${tabBtn("modules", "Modules", moduleBanks.length)}${tabBtn("exams", "License Exams", licenseBanks.length)}</div>
+          <div class="qb-shop-search"><i data-lucide="search"></i><input id="qb-shop-search" type="search" placeholder="Search modules or exams…" value="${escQ(window.__qbankStoreQuery || "")}" oninput="window.qbankStoreSearch(this.value)"></div>
+          <div class="qb-shop-chips">${chipBtn("all", "All")}${chipBtn("owned", "Owned")}${chipBtn("free", "Free")}${chipBtn("paid", "Paid")}</div>
+          <select class="qb-shop-select" onchange="window.qbankStoreSort(this.value)">
+            <option value="recent" ${sort === "recent" ? "selected" : ""}>Recently updated</option>
+            <option value="name" ${sort === "name" ? "selected" : ""}>Name A–Z</option>
+          </select>
+        </div>`;
+
+      const kindBadge = (q) => isModuleBank(q)
+        ? `<span class="qb-card-kind">${q.bankType === "module_clinical" ? "Clinical module" : "Academic module"}</span>`
+        : `<span class="qb-card-kind">License exam</span>`;
+
+      html += `<div class="qb-shop-grid">`;
+      if (!shown.length) {
+        html += `<div class="qb-shop-empty" style="grid-column:1/-1;"><i data-lucide="package-open"></i><p>${query || filter !== "all" ? "Nothing matches your search. Try another name or clear the filters." : (activeTab === "modules" ? "No modules for your major or college yet. New modules appear here once published." : "No license exams available yet. Contact support or enter a license.")}</p></div>`;
+      }
+
+      for (const q of shown) {
         const countryCode = flagMap[q.country];
-        const flagHtml = countryCode
-           ? `<img src="https://flagcdn.com/${countryCode}.svg" alt="" style="width:28px; height:auto; border-radius:3px; box-shadow:0 1px 3px rgba(0,0,0,0.1);">`
-           : `<span style="font-size:20px; line-height:1;">ðŸŒ</span>`;
-
+        const countryName = countryLabels[q.country] || q.country || "";
         const cached = cachedQBanks[q.id];
         const qCount = cached ? (cached.questions || []).length : 0;
-        const subLabel = qCount > 0
-          ? `${escQ(countryLabels[q.country] || q.country || "")} · ${qCount.toLocaleString()} questions`
-          : escQ(countryLabels[q.country] || q.country || "");
-
-        const allowed = accSel ? allowedIds.has(q.id) : true;
+        const owned = allowedIds.has(q.id);
         const tier = tierById.get(q.id) || "free";
-        const locked = !allowed;
-        const active = allowed && (window.db && window.db.selectedQBankId) === q.id;
+        const locked = !owned;
+        const active = owned && (window.db && window.db.selectedQBankId) === q.id;
+        const isNew = Date.now() - (Number(q.updatedAt) || 0) < 14 * 24 * 3600 * 1000;
         const safeQName = String(q.name || "").replace(/\\/g, "\\\\").replace(/'/g, "\\'");
-
-        const clickAttr = locked
-          ? `onclick="window.qbankEnterLicense('${q.id}','${safeQName}')"`
-          : `onclick="window.selectQBank('${q.id}')"`;
-        const rowCursor = active ? "cursor:default;" : "cursor:pointer;";
-
+        const price = locked
+          ? (q.priceLabel || "Paid")
+          : (q.priceLabel || (tier === "paid" ? "Included" : "Free"));
+        const priceSub = active ? "Active now" : owned ? "In your library" : (tier === "paid" ? "One license unlocks it" : "Open now");
+        const statusChip = active
+          ? `<span class="qb-card-status is-active">Active</span>`
+          : owned
+            ? `<span class="qb-card-status is-owned">Owned</span>`
+            : tier === "paid"
+              ? `<span class="qb-card-status is-paid">Paid</span>`
+              : "";
         const cta = active
-          ? `<span style="background:#e6f2f2; color:#007a7a; border:none; padding:9px 16px; border-radius:6px; font-weight:800; font-size:13px; display:inline-flex; align-items:center; gap:8px; flex-shrink:0;">
-               <i data-lucide="check-circle-2" style="width:14px;height:14px;"></i> Active
-             </span>`
+          ? `<button type="button" class="qb-btn qb-btn-on" data-cta-bank="${q.id}"><i data-lucide="check-circle-2" style="width:15px;height:15px;"></i> Active bank</button>`
           : locked
-          ? `<button style="background:#FEF3C7; color:#B45309; border:none; padding:9px 18px; border-radius:6px; font-weight:800; font-size:13px; cursor:pointer; display:inline-flex; align-items:center; gap:8px; flex-shrink:0;" onclick="event.stopPropagation(); window.qbankEnterLicense('${q.id}','${safeQName}')">
-               <i data-lucide="key-round" style="width:14px;height:14px;"></i>
-               <span>Enter license</span>
-             </button>`
-          : `<button style="background:#007a7a; color:#fff; border:none; padding:9px 18px; border-radius:6px; font-weight:700; font-size:13px; cursor:pointer; display:inline-flex; align-items:center; gap:8px; flex-shrink:0;" onmouseover="this.style.background='#006666'" onmouseout="this.style.background='#007a7a'" onclick="event.stopPropagation(); window.selectQBank('${q.id}')">
-               <span>Select</span>
-               <i data-lucide="arrow-right" style="width:14px;height:14px;"></i>
-             </button>`;
-        const pill = locked
-          ? `<button style="font-size:11px; font-weight:800; color:#B45309; background:#FEF3C7; padding:2px 9px; border-radius:999px; border:0; cursor:pointer;" onclick="event.stopPropagation(); window.qbankEnterLicense('${q.id}','${safeQName}')">PAID · LICENSE</button>`
-          : `<span style="font-size:11px; font-weight:700; color:${tier === "paid" ? "#0F766E" : "#64748B"}; background:${tier === "paid" ? "#CCFBF1" : "#F1F5F9"}; padding:2px 9px; border-radius:999px;">${tier === "paid" ? "PAID" : "FREE"}</span>`;
+            ? `<button type="button" class="qb-btn qb-btn-warn" data-cta-bank="${q.id}" onclick="event.stopPropagation(); window.qbankEnterLicense('${q.id}','${safeQName}')"><i data-lucide="key-round" style="width:15px;height:15px;"></i> Enter license</button>`
+            : `<button type="button" class="qb-btn qb-btn-primary" data-cta-bank="${q.id}" onclick="event.stopPropagation(); window.selectQBank('${q.id}')"><span>Open &amp; create test</span><i data-lucide="arrow-right" style="width:15px;height:15px;"></i></button>`;
+        const fallbackBg = isModuleBank(q)
+          ? "background:linear-gradient(135deg,#007a7a,#00a8a8)"
+          : "background:linear-gradient(135deg,#0a3d4a,#1b5e86)";
+        const fallbackIcon = isModuleBank(q) ? "book-open" : "graduation-cap";
+        const newChip = isNew ? `<span class="qb-new">New</span>` : "";
+        const cover = q.coverUrl
+          ? `<div class="qb-card-cover"><img src="${escQ(q.coverUrl)}" alt="${escQ(q.name)}" loading="lazy">${kindBadge(q)}${statusChip}${newChip}</div>`
+          : `<div class="qb-card-cover"><div class="qb-card-cover-fallback" style="${fallbackBg}"><i data-lucide="${fallbackIcon}"></i></div>${kindBadge(q)}${statusChip}${newChip}</div>`;
+        const meta = `${countryCode ? `<img src="https://flagcdn.com/${countryCode}.svg" alt="" style="width:16px;height:auto;border-radius:2px;vertical-align:-3px;"> ` : ""}${escQ(countryName)}${qCount ? ` <span class="dot">·</span> ${qCount.toLocaleString()} questions` : ""}${q.college ? ` <span class="dot">·</span> ${escQ(q.college)}` : ""}`;
 
         html += `
-          <div class="qbank-select-card" style="display:flex; align-items:center; gap:10px; padding:10px 6px; margin:0 -6px; border-bottom:1px solid #F1F5F9; border-radius:4px; ${rowCursor} background:${active ? "#F8FDFA" : "transparent"};" ${clickAttr} onmouseover="if(!${active ? "true" : "false"}) this.style.background='#F8FAFC'" onmouseout="if(!${active ? "true" : "false"}) this.style.background='${active ? "#F8FDFA" : "transparent"}'">
-             <div style="flex-shrink:0; display:flex; align-items:center; justify-content:center; width:40px; height:40px; background:#e6f2f2; border-radius:6px; overflow:hidden;">
-               ${flagHtml}
-             </div>
-             <div style="flex:1; min-width:0; display:flex; flex-direction:column; justify-content:center; gap:2px;">
-               <div style="display:flex; align-items:center; gap:8px; min-width:0;">
-                 <span style="font-size:15px; font-weight:700; color:#0F172A; line-height:1.3; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escQ(q.name)}</span>
-                 ${pill}
-               </div>
-               <div style="font-size:12px; color:#64748B;">${subLabel}</div>
-             </div>
-             <div style="flex-shrink:0;" data-cta-bank="${q.id}">
-               ${cta}
-             </div>
-          </div>`;
+          <article class="qb-card ${active ? "is-active" : ""}">
+            ${cover}
+            <div class="qb-card-body">
+              <h3 class="qb-card-title">${escQ(q.name)}</h3>
+              <div class="qb-card-desc">${q.description ? escQ(q.description) : (activeTab === "modules" ? (q.bankType === "module_clinical" ? "Clinical module — Objective, System, Topic." : "Academic module — Objective, Subject, Topic.") : "License exam — organ system, clinical specialty and sub-topic format.")}</div>
+              <div class="qb-card-meta">${meta}</div>
+              <div class="qb-card-price">
+                <div><div class="qb-card-price-label">${escQ(price)}</div><div class="qb-card-price-sub">${priceSub}</div></div>
+                ${countryCode ? `<span class="qb-card-flag" style="position:static;"><img src="https://flagcdn.com/${countryCode}.svg" alt="">${escQ(countryName)}</span>` : ""}
+              </div>
+              <div class="qb-card-cta">${cta}</div>
+            </div>
+          </article>`;
       }
 
       html += `</div></div>`;
+      window.qbankStoreTab = function(tab) {
+        window.__qbankStoreTab = tab;
+        window.openQBankSelection();
+      };
+      window.qbankStoreFilter = function(f) {
+        window.__qbankStoreFilter = f;
+        window.openQBankSelection();
+      };
+      window.qbankStoreSort = function(s) {
+        window.__qbankStoreSort = s;
+        window.openQBankSelection();
+      };
+      window.qbankStoreSearch = function(v) {
+        window.__qbankStoreQuery = v;
+        clearTimeout(window.__qbankStoreSearchT);
+        const pos = document.getElementById("qb-shop-search");
+        const cursor = pos ? pos.selectionStart : null;
+        const next = String(v || "");
+        window.__qbankStoreSearchT = setTimeout(() => {
+          window.openQBankSelection().then(() => {
+            const el = document.getElementById("qb-shop-search");
+            if (el) {
+              el.focus();
+              if (cursor != null && (el.value || "") === next) { try { el.setSelectionRange(cursor, cursor); } catch (_) {} }
+            }
+          });
+        }, 300);
+      };
       area.innerHTML = html;
       if (window.lucide && window.lucide.createIcons) window.lucide.createIcons();
       if (window.hideGlobalLoader) window.hideGlobalLoader();
@@ -2037,6 +2177,47 @@
     return data.organSystem || data.organ_system || data.subject || data.subcategory || "Uncategorized";
   }
 
+  // --- Bank type: license_exam (4-level) vs modules (3-level) -------------
+  // Modules: Objective > Subject (academic) / System (clinical) > Topic.
+  function qblockBankMeta(bankId) {
+    const id = bankId || currentQBankId || (window.db && window.db.selectedQBankId);
+    return (cachedCategories || []).find(b => b.id === id)
+      || (Array.isArray(window.__epBanks) ? window.__epBanks.find(b => b && b.id === id) : null)
+      || null;
+  }
+  function qblockBankType() {
+    const meta = qblockBankMeta();
+    return meta && meta.bankType ? meta.bankType : "license_exam";
+  }
+  function qblockIsModule() {
+    const t = qblockBankType();
+    return t === "module_academic" || t === "module_clinical";
+  }
+  function qblockLevel2Label() {
+    if (qblockBankType() === "module_clinical") return "Systems";
+    if (qblockBankType() === "module_academic") return "Subjects";
+    return "Organ Systems";
+  }
+  function qblockLevel2Singular() {
+    if (qblockBankType() === "module_clinical") return "System";
+    if (qblockBankType() === "module_academic") return "Subject";
+    return "Organ System";
+  }
+  function qblockLevel3Label() {
+    return qblockIsModule() ? "Topics" : "Clinical Specialties";
+  }
+  function qblockLevel3Singular() {
+    return qblockIsModule() ? "Topic" : "Clinical Specialty";
+  }
+  function qblockLevel4Label() {
+    return qblockIsModule() ? "Topics" : "Sub-topics / Diseases";
+  }
+  function qblockTaxonomyCrumb() {
+    return qblockIsModule()
+      ? `Objective → ${qblockLevel2Singular()} → Topic`
+      : "Objective → Organ System → Clinical Specialty → Sub-topic / Disease";
+  }
+
   function qblockTaxonomyClean(value) {
     return String(value == null ? "" : value).replace(/\s+/g, " ").trim();
   }
@@ -2051,6 +2232,18 @@
     const subTopic0 = qblockTaxonomyClean(data.subTopic || data.subtopic || data.sub_topic || data.topic || data.part);
     const subTopic = subTopic0 || "Unspecified sub-topic";
     const raw = Array.isArray(data.taxonomyPath) ? data.taxonomyPath.map(qblockTaxonomyClean).filter(Boolean) : [];
+    if (qblockIsModule()) {
+      // Module taxonomy is stored with 3 segments: [Objective, Subject/System, Topic].
+      // Pad to the 4-slot shape every UI shares (leaf topic duplicated);
+      // Create Test hides the duplicated middle slot for modules.
+      if (raw.length >= 3 && raw[0].toLowerCase() === objective.toLowerCase()) {
+        return [raw[0], raw[1], raw[2], raw[2]];
+      }
+      if (raw.length === 4 && raw[0].toLowerCase() === objective.toLowerCase()) {
+        return [raw[0], raw[1], raw[3], raw[3]];
+      }
+      return [objective, organSystem, subTopic, subTopic];
+    }
     let path = [];
     if (raw.length >= 4 && raw[0].toLowerCase() === objective.toLowerCase()) path = raw.slice(0, 4);
     else if (raw.length === 3) path = [objective, ...raw];
@@ -3009,10 +3202,16 @@
     if (state && state.bankId && !main.some(bank => bank.id === state.bankId) && !sources.prep.some(bank => bank.id === state.bankId)) {
       main.unshift({ id: state.bankId, name: qblockBankName() });
     }
+    const opt = bank => `<option value="${cqEsc(bank.id)}" ${bank.id === state.bankId ? "selected" : ""}>${cqEsc(bank.name || bank.id)}</option>`;
+    const modsAcademic = main.filter(b => b.bankType === "module_academic");
+    const modsClinical = main.filter(b => b.bankType === "module_clinical");
+    const licenses = main.filter(b => b.bankType !== "module_academic" && b.bankType !== "module_clinical");
     return [
-      main.length ? `<optgroup label="Regular QBanks">${main.map(bank => `<option value="${cqEsc(bank.id)}" ${bank.id === state.bankId ? "selected" : ""}>${cqEsc(bank.name || bank.id)}</option>`).join("")}</optgroup>` : "",
+      modsAcademic.length ? `<optgroup label="Modules — Academic">${modsAcademic.map(opt).join("")}</optgroup>` : "",
+      modsClinical.length ? `<optgroup label="Modules — Clinical">${modsClinical.map(opt).join("")}</optgroup>` : "",
+      licenses.length ? `<optgroup label="License Exams">${licenses.map(opt).join("")}</optgroup>` : "",
       sources.prep.length ? `<optgroup label="Exam prep">${sources.prep.map(bank => `<option value="${cqEsc(bank.id)}" ${bank.id === state.bankId ? "selected" : ""}>${cqEsc(qblockSourceBankLabel(bank))}</option>`).join("")}</optgroup>` : "",
-    ].join("");
+    ].filter(Boolean).join("");
   }
 
   function qblockRenderBuilder() {
@@ -3036,6 +3235,8 @@
     const subjects = qblockSubjectCounts(objectiveQuestions);
     const sourceMeta = (cachedCategories || []).find(bank => bank.id === state.bankId) || {};
     const isPrep = sourceMeta.kind === "exam_prep";
+    const isModule = sourceMeta.bankType === "module_academic" || sourceMeta.bankType === "module_clinical";
+    if (isModule) state.systems = [];
     const modeDescription = state.mode === "tutor"
       ? "Answers and explanations appear as you go. No clock."
       : `${QBLOCK_SECONDS_PER_QUESTION} seconds per question. Answers stay hidden until you submit.`;
@@ -3060,9 +3261,9 @@
         <span class="qbc-check-count" ${attrs.countAttr}="${cqEsc(value.name)}">${value.count}</span>
       </label>`;
 
-    const subjectRows = subjects.map(subject => rowFor(subject, { data: "data-subject", stateKey: "subjects", toggle: "window.qbcToggleSubject", countAttr: "data-subject-count" })).join("") || `<p class="qbc-empty-inline">No organ systems match this objective.</p>`;
+    const subjectRows = subjects.map(subject => rowFor(subject, { data: "data-subject", stateKey: "subjects", toggle: "window.qbcToggleSubject", countAttr: "data-subject-count" })).join("") || `<p class="qbc-empty-inline">No ${qblockLevel2Label().toLowerCase()} match this objective.</p>`;
     const systemRows = systems.map(system => rowFor(system, { data: "data-system", stateKey: "systems", toggle: "window.qbcToggleSystem", countAttr: "data-system-count" })).join("") || `<p class="qbc-empty-inline">No clinical specialties match these filters.</p>`;
-    const subTopicRows = subTopics.map(subtopic => rowFor(subtopic, { data: "data-subtopic", stateKey: "subTopics", toggle: "window.qbcToggleSubTopic", countAttr: "data-subtopic-count" })).join("") || `<p class="qbc-empty-inline">No sub-topics match these filters.</p>`;
+    const subTopicRows = subTopics.map(subtopic => rowFor(subtopic, { data: "data-subtopic", stateKey: "subTopics", toggle: "window.qbcToggleSubTopic", countAttr: "data-subtopic-count" })).join("") || `<p class="qbc-empty-inline">No ${qblockLevel4Label().toLowerCase()} match these filters.</p>`;
 
     const presetChips = [
       state.topicPath && state.topicPath.length ? `<span class="qbc-filter-chip">Topic path: ${cqEsc(state.topicPath.join(" > "))} <button type="button" aria-label="Clear topic filter" onclick="window.qbcClearPreset('topic')">Ã—</button></span>` : "",
@@ -3119,7 +3320,7 @@
           <section class="qbc-row">
             <div class="qbc-row-head">
               <h2>Educational Objective</h2>
-              <p class="qbc-row-help">Optional scope. Objective → Organ System → Clinical Specialty → Sub-topic / Disease.</p>
+              <p class="qbc-row-help">Optional scope. ${qblockTaxonomyCrumb()}.</p>
             </div>
             <div class="qbc-row-body">
               <select id="qbc-objective" class="qbc-objective-select" aria-label="Educational objective" onchange="window.qbcObjectiveChange(this.value)">
@@ -3131,7 +3332,7 @@
 
           <section class="qbc-row">
             <div class="qbc-row-head">
-              <h2>Organ Systems</h2>
+              <h2>${qblockLevel2Label()}</h2>
               <p class="qbc-row-help">Leave everything unchecked for a mixed test.</p>
             </div>
             <div class="qbc-row-body">
@@ -3143,7 +3344,7 @@
             </div>
           </section>
 
-          <section class="qbc-row">
+          ${isModule ? "" : `<section class="qbc-row">
             <div class="qbc-row-head">
               <h2>Clinical Specialties</h2>
               <p class="qbc-row-help">Specialties inside the selected organ systems.</p>
@@ -3157,17 +3358,17 @@
               </div>
               <div class="qbc-systems qbc-clickable-grid" id="qbc-systems">${systemRows}</div>
             </div>
-          </section>
+          </section>`}
 
           <section class="qbc-row">
             <div class="qbc-row-head">
-              <h2>Sub-topics / Diseases</h2>
-              <p class="qbc-row-help">Optional diseases and leaf-level topics.</p>
+              <h2>${qblockLevel4Label()}</h2>
+              <p class="qbc-row-help">${isModule ? "Leaf topics inside the selected subjects/systems." : "Optional diseases and leaf-level topics."}</p>
             </div>
             <div class="qbc-row-body">
               <div class="qbc-row-tools">
-                <input class="qbc-filter-input" id="qbc-subtopic-filter" type="search" placeholder="Filter sub-topics / diseases..." aria-label="Filter sub-topics and diseases" oninput="window.qbcFilterList('subtopic', this.value)">
-                <span class="qbc-source-meta" id="qbc-subtopic-selected">${state.subTopics.length ? `${state.subTopics.length} selected` : "All sub-topics"}</span>
+                <input class="qbc-filter-input" id="qbc-subtopic-filter" type="search" placeholder="Filter ${qblockLevel4Label().toLowerCase()}..." aria-label="Filter ${qblockLevel4Label().toLowerCase()}" oninput="window.qbcFilterList('subtopic', this.value)">
+                <span class="qbc-source-meta" id="qbc-subtopic-selected">${state.subTopics.length ? `${state.subTopics.length} selected` : `All ${qblockLevel4Label().toLowerCase()}`}</span>
                 <button type="button" class="qbc-tool" onclick="window.qbcClearSubTopics()">Clear</button>
               </div>
               <div class="qbc-systems qbc-subtopic-grid" id="qbc-subtopics">${subTopicRows}</div>
@@ -3301,9 +3502,10 @@
     }
     const subTopicSelected = document.getElementById("qbc-subtopic-selected");
     if (subTopicSelected) {
+      const noun = qblockLevel4Label().toLowerCase();
       subTopicSelected.textContent = state.subTopics.length
-        ? `${state.subTopics.length} sub-topic${state.subTopics.length === 1 ? "" : "s"} selected`
-        : "All sub-topics";
+        ? `${state.subTopics.length} ${noun} selected`
+        : `All ${noun}`;
     }
 
     const summary = document.getElementById("qbc-summary");
@@ -3318,9 +3520,11 @@
       bits.push(state.modes.length ? QBLOCK_FILTER_MODES.filter(mode => state.modes.includes(mode)).map(mode => QBLOCK_FILTER_MODE_LABELS[mode]).join(", ") : "All questions");
       if (state.objective) bits.push(`Objective`);
       if (state.subjects.length) bits.push(state.subjects.length === 1 ? state.subjects[0] : `${state.subjects[0]} +${state.subjects.length - 1}`);
-      else bits.push("All organ systems");
-      if (state.systems.length) bits.push(state.systems.length === 1 ? state.systems[0] : `${state.systems[0]} +${state.systems.length - 1}`);
-      else bits.push("All clinical specialties");
+      else bits.push(`All ${qblockLevel2Label().toLowerCase()}`);
+      if (!qblockIsModule()) {
+        if (state.systems.length) bits.push(state.systems.length === 1 ? state.systems[0] : `${state.systems[0]} +${state.systems.length - 1}`);
+        else bits.push("All clinical specialties");
+      }
       if (state.subTopics.length) bits.push(state.subTopics.length === 1 ? state.subTopics[0] : `${state.subTopics[0]} +${state.subTopics.length - 1}`);
       if (state.mode === "exam") bits.push(`${Math.ceil((Number(state.blockTimeSec) || QBLOCK_SECONDS_PER_QUESTION * count) / 60)} min`);
       detail.textContent = bits.join(" · ");
@@ -4988,10 +5192,10 @@
               <article class="cq-path cq-path-qbank">
                 <div class="cq-path-head">
                   <span class="cq-icon"><i data-lucide="book-open"></i></span>
-                  <span class="cq-pill">Regular QBank</span>
+                  <span class="cq-pill">${activeQBankMeta && activeQBankMeta.bankType === "module_clinical" ? "Clinical Module" : activeQBankMeta && activeQBankMeta.bankType === "module_academic" ? "Academic Module" : "License Exam"}</span>
                 </div>
-                <h2>Build tests by subject</h2>
-                <p>Mix everything or focus on one subject. Every question is answered inside a saved test.</p>
+                <h2>${activeQBankMeta && (activeQBankMeta.bankType === "module_academic" || activeQBankMeta.bankType === "module_clinical") ? "Build tests by topic" : "Build tests by subject"}</h2>
+                <p>Mix everything or focus on one ${qblockLevel2Singular().toLowerCase()}. Every question is answered inside a saved test.</p>
                 <div class="cq-bank-line">
                   ${bankFlag}
                   <div>
@@ -5603,6 +5807,15 @@
     if (!route) return;
     const bankId = currentQBankId || (window.db && window.db.selectedQBankId);
     const path = Array.isArray(route.path) ? route.path : [];
+    if (qblockIsModule()) {
+      return window.qbankOpenBlockBuilder({
+        bankId,
+        objective: path[0] || "",
+        subjects: path[1] ? [path[1]] : [],
+        systems: [],
+        subTopics: route.level >= 2 && path[2] ? [path[2]] : [],
+      });
+    }
     return window.qbankOpenBlockBuilder({
       bankId,
       objective: path[0] || "",
@@ -5617,11 +5830,13 @@
       const safePath = path.concat(item.name);
       const routeId = qbankTaxonomyRoute(safePath, level + 1);
       const childCount = item.childCount || 0;
-      const isLeaf = level >= 3;
+      const isLeaf = qblockIsModule() ? level >= 2 : level >= 3;
       const onclick = isLeaf
         ? `window.qbankStartTaxonomyRoute('${cqJsArg(routeId)}')`
         : `window.showQBankTaxonomyByRoute('${cqJsArg(routeId)}')`;
-      const nouns = ["organ systems", "clinical specialties", "sub-topics"];
+      const nouns = qblockIsModule()
+        ? [qblockLevel2Label().toLowerCase(), "topics"]
+        : ["organ systems", "clinical specialties", "sub-topics"];
       const noun = isLeaf ? "leaf" : `${childCount} ${nouns[level] || "sections"}`;
       const design = level === 1 ? window.getSubjectDesign(item.name) : { icon: level === 0 ? "target" : level === 2 ? "stethoscope" : "activity", color: "#007A7A" };
       return cqBrowserRow({
@@ -5643,6 +5858,10 @@
   window.showQBankTaxonomyByRoute = async function(routeId) {
     const route = window.__qbankTaxonomyRoutes && window.__qbankTaxonomyRoutes[routeId];
     if (!route || !currentQBankId) return;
+    if (qblockIsModule()) {
+      if (route.level === 1) return window.showQBankTopics(route.path[0], route.path[1]);
+      return window.qbankStartTaxonomyRoute(routeId);
+    }
     if (route.level === 1) return window.showQBankOrganSystems(route.path[0]);
     if (route.level === 2) return window.showQBankClinicalSpecialties(route.path[0], route.path[1]);
     if (route.level === 3) return window.showQBankSubTopics(route.path[0], route.path[1], route.path[2]);
@@ -5685,7 +5904,7 @@
       crumb: `${cqEsc(activeQBankName)} · ${stats.length} objectives`,
       kicker: activeQBankName,
       title: "Educational objectives",
-      subtitle: `${stats.length} objectives · Objective → Organ System → Clinical Specialty → Sub-topic / Disease`,
+      subtitle: `${stats.length} objectives · ${qblockTaxonomyCrumb()}`,
       actions: `<button type="button" class="cq-browser-action" onclick="window.qbankOpenBlockBuilder()"><i data-lucide="timer" aria-hidden="true"></i><span>Create test</span></button>`,
       searchPlaceholder: "Search educational objectives...",
       searchLabel: "Search educational objectives",
@@ -5710,16 +5929,16 @@
     const routeId = qbankTaxonomyRoute(path, 1);
 
     let rows = cqBrowserRow({
-      title: "All organ systems (Mix)",
-      searchText: `${objective} all organ systems mix`,
-      meta: "Practice questions across all organ systems for this objective",
+      title: `All ${qblockLevel2Label().toLowerCase()} (Mix)`,
+      searchText: `${objective} all ${qblockLevel2Label().toLowerCase()} mix`,
+      meta: `Practice questions across all ${qblockLevel2Label().toLowerCase()} for this objective`,
       total,
       answered,
       correct,
       icon: "shuffle",
       featured: true,
       onclick: `window.qbankStartTaxonomyRoute('${cqJsArg(routeId)}')`,
-      ariaLabel: `Practice all organ systems for ${objective}. ${answered} of ${total} answered.`
+      ariaLabel: `Practice all ${qblockLevel2Label().toLowerCase()} for ${objective}. ${answered} of ${total} answered.`
     });
     rows += qbankTaxonomyRows(stats, 1, path, currentQBankId);
 
@@ -5729,12 +5948,12 @@
       crumb: `${cqEsc(activeQBankName)} &gt; ${cqEsc(objective)}`,
       kicker: activeQBankName,
       title: cqEsc(objective),
-      subtitle: `Organ systems · ${stats.length} systems · ${total} questions`,
+      subtitle: `${qblockLevel2Label()} · ${stats.length} ${qblockLevel2Label().toLowerCase()} · ${total} questions`,
       actions: `<button type="button" class="cq-browser-action" onclick="window.qbankOpenBlockBuilder()"><i data-lucide="timer" aria-hidden="true"></i><span>Create test</span></button>`,
-      searchPlaceholder: "Search organ systems...",
-      searchLabel: `Search organ systems in ${objective}`,
-      status: `Showing all ${stats.length} organ systems`,
-      noun: "organ systems",
+      searchPlaceholder: `Search ${qblockLevel2Label().toLowerCase()}...`,
+      searchLabel: `Search ${qblockLevel2Label().toLowerCase()} in ${objective}`,
+      status: `Showing all ${stats.length} ${qblockLevel2Label().toLowerCase()}`,
+      noun: qblockLevel2Label().toLowerCase(),
       total: stats.length,
       layout: "grid",
       rows
@@ -5779,6 +5998,50 @@
       searchLabel: `Search clinical specialties in ${organSystem}`,
       status: `Showing all ${stats.length} clinical specialties`,
       noun: "clinical specialties",
+      total: stats.length,
+      layout: "grid",
+      rows
+    });
+  };
+
+  // Module leaf view: topics inside one Subject/System.
+  window.showQBankTopics = async function(objective, level2) {
+    const loaded = await qbankTaxonomyLoadBank(currentQBankId);
+    if (!loaded) return;
+    const { activeQBankName, questions, progress } = loaded;
+    const stats = qbankTaxonomyLevelStats(questions, progress, 3, [objective, level2]);
+    const total = questions.filter(q => qblockObjectiveOf(q) === objective && qblockSubjectOf(q) === level2).length;
+    const answered = questions.filter(q => qblockObjectiveOf(q) === objective && qblockSubjectOf(q) === level2 && progress[q.id] && progress[q.id].correct !== undefined).length;
+    const correct = questions.filter(q => qblockObjectiveOf(q) === objective && qblockSubjectOf(q) === level2 && progress[q.id] && progress[q.id].correct).length;
+    const path = [objective, level2];
+    const routeId = qbankTaxonomyRoute(path, 2);
+
+    let rows = cqBrowserRow({
+      title: "All topics (Mix)",
+      searchText: `${level2} all topics mix`,
+      meta: `Practice questions across all topics in this ${qblockLevel2Singular().toLowerCase()}`,
+      total,
+      answered,
+      correct,
+      icon: "shuffle",
+      featured: true,
+      onclick: `window.qbankStartTaxonomyRoute('${cqJsArg(routeId)}')`,
+      ariaLabel: `Practice all topics in ${level2}. ${answered} of ${total} answered.`
+    });
+    rows += qbankTaxonomyRows(stats, 3, path, currentQBankId);
+
+    qbankTaxonomyRender({
+      backLabel: `Back to ${qblockLevel2Label().toLowerCase()}`,
+      backAction: `window.showQBankOrganSystems('${cqJsArg(objective)}')`,
+      crumb: `${cqEsc(activeQBankName)} &gt; ${cqEsc(objective)} &gt; ${cqEsc(level2)}`,
+      kicker: activeQBankName,
+      title: cqEsc(level2),
+      subtitle: `Topics · ${stats.length} topics · ${total} questions`,
+      actions: `<button type="button" class="cq-browser-action" onclick="window.qbankOpenBlockBuilder()"><i data-lucide="timer" aria-hidden="true"></i><span>Create test</span></button>`,
+      searchPlaceholder: "Search topics...",
+      searchLabel: `Search topics in ${level2}`,
+      status: `Showing all ${stats.length} topics`,
+      noun: "topics",
       total: stats.length,
       layout: "grid",
       rows

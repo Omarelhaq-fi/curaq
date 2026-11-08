@@ -818,10 +818,22 @@
                                     <option value="free">Free</option>
                                     <option value="paid">Paid</option>
                                 </select>
+                                <select id="admin-qbank-type-input" class="login-input" style="width:190px; cursor:pointer;" title="Bank type">
+                                    <option value="license_exam">License Exam</option>
+                                    <option value="module_academic">Module · Academic</option>
+                                    <option value="module_clinical">Module · Clinical</option>
+                                </select>
                                 <button class="btn-action primary" onclick="window.adminCreateQBank()">Create</button>
                             </div>
+                            <div style="margin-bottom:20px; display:flex; gap:10px;">
+                                <input type="text" id="admin-qbank-create-subcats" class="login-input" placeholder="Allowed sub-categories / Subjects (comma-separated, optional)" style="flex:1;">
+                            </div>
+                            <div style="margin-bottom:20px; display:flex; gap:10px;">
+                                <input type="text" id="admin-qbank-create-cover" class="login-input" placeholder="Cover photo URL (modules, e.g. Pediatrics General)" style="flex:1;">
+                                <input type="text" id="admin-qbank-create-price" class="login-input" placeholder="Price label (optional, e.g. 30 days)" style="width:180px;">
+                            </div>
                             <div style="margin-bottom:20px;">
-                                <input type="text" id="admin-qbank-create-subcats" class="login-input" placeholder="Allowed sub-categories for this QBank (comma-separated, optional)" style="width:100%;">
+                                <input type="text" id="admin-qbank-create-description" class="login-input" placeholder="Short description shown on the module card (optional)" style="width:100%;">
                             </div>
                             <div id="admin-qbank-list" style="margin-bottom:30px; display:flex; flex-direction:column; gap:10px;"></div>
                             <div id="admin-qbank-manage-area" style="display:none; margin-bottom:30px;">
@@ -853,9 +865,10 @@
 
                        <div class="admin-access-card">
                            <h3>Generate license</h3>
-                           <p>Each code unlocks all paid QBanks for the chosen number of days, starting when the student redeems it.</p>
+                           <p>Each code unlocks all paid QBanks for the chosen number of days, starting when the student redeems it. Scope a code to one bank (a module or an exam) to sell it separately.</p>
                            <div class="admin-access-row">
                                <input type="number" id="admin-license-days" class="login-input" min="1" max="3650" value="30" style="width:120px;" placeholder="Days">
+                               <select id="admin-license-scope" class="login-input" style="width:230px; cursor:pointer;"></select>
                                <input type="text" id="admin-license-note" class="login-input" style="flex:1; min-width:200px;" placeholder="Note (optional, e.g. Batch A)">
                                <button class="btn-action primary" onclick="window.adminGenerateLicense()">Generate</button>
                            </div>

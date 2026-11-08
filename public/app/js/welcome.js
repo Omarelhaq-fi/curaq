@@ -33,10 +33,54 @@
   const STEP_LABELS = {
     0: "Email verification",
     1: "Your name",
-    2: "Telegram",
-    3: "Your language",
+    2: "Your country",
+    3: "Your major",
+    4: "Your college",
+    5: "Telegram",
+    6: "Your language",
   };
-  const TOTAL_STEPS = 3;
+  const TOTAL_STEPS = 6;
+
+  // Academic catalogue (country -> major -> college), loaded from
+  // /api/qbank?action=academic_structure. Fallback = built-in country list.
+  let ACADEMIC = {
+    countries: COUNTRIES.map(c => ({ id: c.value, name: c.label, code: c.flag || "" })),
+    majors: [],
+    colleges: [],
+  };
+  let academicLoaded = false;
+
+  async function loadAcademic() {
+    if (academicLoaded) return;
+    try {
+      const user = window.firebase && firebase.auth().currentUser;
+      if (!user) return;
+      const token = await user.getIdToken();
+      const res = await fetch("/api/qbank?action=academic_structure", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data && Array.isArray(data.countries) && data.countries.length) {
+        ACADEMIC = {
+          countries: data.countries,
+          majors: Array.isArray(data.majors) ? data.majors : [],
+          colleges: Array.isArray(data.colleges) ? data.colleges : [],
+        };
+      }
+    } catch (_) { /* keep fallback */ }
+    academicLoaded = true;
+  }
+
+  function countryLabel(id) {
+    const c = ACADEMIC.countries.find(x => x.id === id);
+    return c ? c.name : (id || "—");
+  }
+  function majorsFor(countryId) {
+    return ACADEMIC.majors.filter(m => m.countryId === countryId);
+  }
+  function collegesFor(countryId, majorId) {
+    return ACADEMIC.colleges.filter(c => c.majorId === majorId);
+  }
 
   function esc(s) {
     return String(s == null ? "" : s).replace(/[&<>"']/g, c => ({
@@ -148,6 +192,10 @@
     let chosenCollegeName = existingProfile.college || "";
     let chosenTelegram = existingProfile.telegram || "";
     let chosenLang = existingProfile.language || "";
+    loadAcademic().then(() => {
+      // Re-render the academic steps once real catalogue data arrives.
+      if (step >= 2 && step <= 4 && document.body.contains(overlay)) render();
+    });
 
     const stepsEl = overlay.querySelector("#wo-steps");
     const bodyEl = overlay.querySelector("#wo-body");
@@ -314,112 +362,126 @@
       }
 
       if (step === 2) {
-        const initialTelegram = parseTelegram(chosenTelegram);
         bodyEl.innerHTML = `
-          <h2 class="wo-title">How can we reach you on Telegram?</h2>
-          <p class="wo-sub">Enter either your Telegram username or your phone number — one is enough. We'll only use it for account and study updates.</p>
-          <label class="wo-label" for="wo-telegram">Telegram username or phone number</label>
-          <input id="wo-telegram" class="wo-input" type="text" maxlength="40"
-                 placeholder="@username or +20 100 123 4567" value="${esc(chosenTelegram)}" autocomplete="off" />
-          <div class="wo-hint" id="wo-telegram-hint"></div>`;
+          <h2 class="wo-title">Where are you studying?</h2>
+          <p class="wo-sub">Country, major and college decide which modules are shown to you.</p>
+          <div class="wo-col" id="wo-country-grid">
+            ${ACADEMIC.countries.map(c => optBtn("country", c.id, `${c.code ? `<img src="https://flagcdn.com/${esc(c.code)}.svg" alt="" />` : '<span class="wo-globe">🌍</span>'}<span>${esc(c.name)}</span>`, chosenCountry === c.id)).join("")}
+          </div>`;
         navEl.innerHTML = `
           <button id="wo-back" class="wo-btn-ghost"><i class="fa-solid fa-arrow-left"></i> Back</button>
-          <button id="wo-next" class="wo-btn-primary wo-btn-flex" ${initialTelegram.ok ? "" : "disabled"}>
+          <button id="wo-next" class="wo-btn-primary wo-btn-flex" ${chosenCountry ? "" : "disabled"}>
             Continue <i class="fa-solid fa-arrow-right"></i>
           </button>`;
-        const tgEl = bodyEl.querySelector("#wo-telegram");
-        const hintEl = bodyEl.querySelector("#wo-telegram-hint");
+        const grid = bodyEl.querySelector("#wo-country-grid");
         const next = navEl.querySelector("#wo-next");
-
-        function refreshTelegram() {
-          const parsed = parseTelegram(tgEl.value);
-          chosenTelegram = (tgEl.value || "").trim();
-          next.disabled = !parsed.ok;
-          if (!chosenTelegram) {
-            hintEl.textContent = "Username (e.g. @curaq_student) or phone with country code (e.g. +20 100 123 4567).";
-            hintEl.classList.remove("is-error");
-          } else if (parsed.ok) {
-            hintEl.textContent = parsed.type === "username"
-              ? "Telegram username — saved as " + parsed.value
-              : "Phone number — saved as " + parsed.value;
-            hintEl.classList.remove("is-error");
-          } else {
-            hintEl.textContent = parsed.error;
-            hintEl.classList.add("is-error");
-          }
-        }
-
-        tgEl.addEventListener("input", refreshTelegram);
-        tgEl.addEventListener("keydown", (e) => {
-          if (e.key === "Enter" && !next.disabled) next.click();
+        grid.addEventListener("click", (e) => {
+          const btn = e.target.closest(".wo-country");
+          if (!btn) return;
+          chosenCountry = btn.dataset.value;
+          chosenMajorId = ""; chosenMajorName = ""; chosenCollegeId = ""; chosenCollegeName = "";
+          grid.querySelectorAll(".wo-country").forEach(b => b.classList.toggle("selected", b === btn));
+          next.disabled = false;
         });
         navEl.querySelector("#wo-back").addEventListener("click", () => { step = 1; render(); });
-        next.addEventListener("click", () => {
-          const parsed = parseTelegram(tgEl.value);
-          if (!parsed.ok) return;
-          chosenTelegram = parsed.value;
-          step = 3;
-          render();
-        });
-        refreshTelegram();
-        setTimeout(() => { tgEl.focus(); }, 60);
+        next.addEventListener("click", () => { if (!next.disabled) { step = 3; render(); } });
       }
 
       if (step === 3) {
-        const nameVal = chosenName || defaultName;
+        const majors = majorsFor(chosenCountry);
+        const isCustom = chosenMajorName && !majors.some(m => m.id === chosenMajorId);
         bodyEl.innerHTML = `
-          <h2 class="wo-title">Preferred language</h2>
-          <p class="wo-sub">Your workspace, questions and AI tutor will use this language.</p>
-          <div class="wo-summary"><i class="fa-solid fa-circle-check"></i><span>${esc((nameVal || "").trim().split(" ")[0] || "You")} &middot; ${esc(chosenTelegram || "Telegram")}</span></div>
-          <div class="wo-col" id="wo-lang-grid">
-            ${LANGUAGES.map(l => optBtn("lang", l.value, `<span>${esc(l.label)}</span>`, chosenLang === l.value)).join("")}
-          </div>`;
+          <h2 class="wo-title">What is your major?</h2>
+          <p class="wo-sub">Pick your major in ${esc(countryLabel(chosenCountry))} (e.g. Medicine). Modules are linked to majors.</p>
+          <div class="wo-col" id="wo-major-grid">
+            ${majors.map(m => optBtn("major", m.id, `<span>${esc(m.name)}</span>`, chosenMajorId === m.id)).join("")}
+            ${majors.length ? "" : '<div style="color:#64748B;font-size:13px;padding:4px 0;">No majors listed yet — type yours below.</div>'}
+          </div>
+          <label class="wo-label" for="wo-major-other" style="margin-top:14px;">Other major (type it)</label>
+          <input id="wo-major-other" class="wo-input" type="text" maxlength="60" placeholder="e.g. Medicine" value="${isCustom ? esc(chosenMajorName) : ""}" autocomplete="off" />`;
         navEl.innerHTML = `
           <button id="wo-back" class="wo-btn-ghost"><i class="fa-solid fa-arrow-left"></i> Back</button>
-          <button id="wo-go" class="wo-btn-primary wo-btn-flex" ${chosenLang ? "" : "disabled"}>
-            Complete Setup <i class="fa-solid fa-arrow-right"></i>
+          <button id="wo-next" class="wo-btn-primary wo-btn-flex" ${(chosenMajorId || (chosenMajorName || "").trim().length >= 2) ? "" : "disabled"}>
+            Continue <i class="fa-solid fa-arrow-right"></i>
           </button>`;
-        const grid = bodyEl.querySelector("#wo-lang-grid");
-        const go = navEl.querySelector("#wo-go");
+        const grid = bodyEl.querySelector("#wo-major-grid");
+        const otherEl = bodyEl.querySelector("#wo-major-other");
+        const next = navEl.querySelector("#wo-next");
+        const refresh = () => {
+          next.disabled = !(chosenMajorId || (otherEl.value || "").trim().length >= 2);
+        };
         grid.addEventListener("click", (e) => {
-          const btn = e.target.closest(".wo-lang");
+          const btn = e.target.closest(".wo-major");
           if (!btn) return;
-          chosenLang = btn.dataset.value;
-          grid.querySelectorAll(".wo-lang").forEach(b => b.classList.toggle("selected", b === btn));
-          go.disabled = false;
+          chosenMajorId = btn.dataset.value;
+          chosenMajorName = btn.querySelector("span") ? btn.querySelector("span").textContent.trim() : "";
+          otherEl.value = "";
+          chosenCollegeId = ""; chosenCollegeName = "";
+          grid.querySelectorAll(".wo-major").forEach(b => b.classList.toggle("selected", b === btn));
+          refresh();
+        });
+        otherEl.addEventListener("input", () => {
+          if ((otherEl.value || "").trim().length >= 2) {
+            chosenMajorId = "";
+            chosenMajorName = otherEl.value.trim();
+            grid.querySelectorAll(".wo-major").forEach(b => b.classList.remove("selected"));
+          }
+          refresh();
         });
         navEl.querySelector("#wo-back").addEventListener("click", () => { step = 2; render(); });
-        go.addEventListener("click", save);
+        next.addEventListener("click", () => {
+          if (otherEl.value && otherEl.value.trim().length >= 2) chosenMajorName = otherEl.value.trim();
+          if (!next.disabled) { step = 4; render(); }
+        });
       }
 
       if (step === 4) {
-        const colleges = collegesFor(chosenCountry, chosenMajorId, chosenMajorName);
+        const colleges = collegesFor(chosenCountry, chosenMajorId);
         if (chosenCollegeId && !colleges.some(c => c.id === chosenCollegeId)) chosenCollegeId = "";
+        const isCustomCollege = chosenCollegeName && !colleges.some(c => c.id === chosenCollegeId);
         const majorLabel = chosenMajorName || "your major";
         bodyEl.innerHTML = `
           <h2 class="wo-title">Which college do you attend?</h2>
-          <p class="wo-sub">Your QBank access is based on ${esc(majorLabel)} at your college.</p>
+          <p class="wo-sub">Your module access is based on ${esc(majorLabel)} at your college in ${esc(countryLabel(chosenCountry))}.</p>
           <div class="wo-col" id="wo-college-grid">
             ${colleges.map(c => optBtn("college", c.id, `<span>${esc(c.name)}</span>`, chosenCollegeId === c.id)).join("")}
-            ${colleges.length ? "" : '<div style="color:#64748B;font-size:13px;padding:10px 0;">No colleges are listed yet. Please contact support to have your college added.</div>'}
-          </div>`;
+            ${colleges.length ? "" : '<div style="color:#64748B;font-size:13px;padding:4px 0;">No colleges listed yet — type yours below and we will add it.</div>'}
+          </div>
+          <label class="wo-label" for="wo-college-other" style="margin-top:14px;">Other college (type it)</label>
+          <input id="wo-college-other" class="wo-input" type="text" maxlength="80" placeholder="e.g. Faculty of Medicine, Cairo University" value="${isCustomCollege ? esc(chosenCollegeName) : ""}" autocomplete="off" />`;
         navEl.innerHTML = `
           <button id="wo-back" class="wo-btn-ghost"><i class="fa-solid fa-arrow-left"></i> Back</button>
-          <button id="wo-next" class="wo-btn-primary wo-btn-flex" ${chosenCollegeId ? "" : "disabled"}>
+          <button id="wo-next" class="wo-btn-primary wo-btn-flex" ${(chosenCollegeId || (chosenCollegeName || "").trim().length >= 2) ? "" : "disabled"}>
             Continue <i class="fa-solid fa-arrow-right"></i>
           </button>`;
         const grid = bodyEl.querySelector("#wo-college-grid");
+        const otherEl = bodyEl.querySelector("#wo-college-other");
         const next = navEl.querySelector("#wo-next");
+        const refresh = () => {
+          next.disabled = !(chosenCollegeId || (otherEl.value || "").trim().length >= 2);
+        };
         grid.addEventListener("click", (e) => {
           const btn = e.target.closest(".wo-college");
           if (!btn) return;
           chosenCollegeId = btn.dataset.value;
           chosenCollegeName = btn.querySelector("span") ? btn.querySelector("span").textContent.trim() : btn.textContent.trim();
+          otherEl.value = "";
           grid.querySelectorAll(".wo-college").forEach(b => b.classList.toggle("selected", b === btn));
-          next.disabled = false;
+          refresh();
+        });
+        otherEl.addEventListener("input", () => {
+          if ((otherEl.value || "").trim().length >= 2) {
+            chosenCollegeId = "";
+            chosenCollegeName = otherEl.value.trim();
+            grid.querySelectorAll(".wo-college").forEach(b => b.classList.remove("selected"));
+          }
+          refresh();
         });
         navEl.querySelector("#wo-back").addEventListener("click", () => { step = 3; render(); });
-        next.addEventListener("click", () => { if (!next.disabled) { step = 5; render(); } });
+        next.addEventListener("click", () => {
+          if (otherEl.value && otherEl.value.trim().length >= 2) chosenCollegeName = otherEl.value.trim();
+          if (!next.disabled) { step = 5; render(); }
+        });
       }
 
       if (step === 5) {
@@ -525,6 +587,11 @@
             name,
             language: chosenLang,
             telegram: parsedTelegram.value,
+            countryId: chosenCountry || undefined,
+            majorId: chosenMajorId || undefined,
+            majorName: chosenMajorName || undefined,
+            collegeId: chosenCollegeId || undefined,
+            collegeName: chosenCollegeName || undefined,
           }),
         });
         const data = await res.json().catch(() => ({}));
